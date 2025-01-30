@@ -1,0 +1,13 @@
+# Ignorar binários e dependências locais
+*.exe
+*.o
+*.a
+*.out
+*.log
+.idea/
+.vscode/
+node_modules/
+vendor/
+bin/
+dist/
+*.env
