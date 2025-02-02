@@ -1,0 +1,37 @@
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: rango-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_ROOT_DATABASE}
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  go_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rango-backend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongodb
+    environment:
+      - MONGO_URI=${MONGO_URI}
+      - PORT=${PORT}
+    env_file:
+      - .env
+    restart: always
+
+volumes:
+  mongodb_data:
