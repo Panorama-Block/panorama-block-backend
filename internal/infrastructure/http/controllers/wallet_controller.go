@@ -1,7 +1,13 @@
 package controllers
 
 import (
+    "strconv"
+
     "github.com/gofiber/fiber/v2"
+    // Swagger doc tags (exemplo)
+    // @Summary ...
+    // @Description ...
+    // (veja config do swag no seu go.mod)
     "github.com/noymaxx/backend/internal/application/services"
     "github.com/noymaxx/backend/internal/infrastructure/logs"
 )
@@ -18,8 +24,7 @@ func NewWalletController(ws services.IWalletService, logger *logs.Logger) *Walle
     }
 }
 
-// GetBalanceAndStore => GET /api/wallets/details?address=BSC.0x123...
-// Calls Rango, stores data in Mongo, returns the wallet doc(s)
+// GetBalanceAndStore (ex.: GET /api/wallets/details?address=BSC.0x123)
 func (wc *WalletController) GetBalanceAndStore(c *fiber.Ctx) error {
     addressParam := c.Query("address", "")
     if addressParam == "" {
@@ -48,7 +53,7 @@ func (wc *WalletController) GetAllAddresses(c *fiber.Ctx) error {
     return c.Status(fiber.StatusOK).JSON(addresses)
 }
 
-// GetAllTokensByAddress => GET /api/wallets/tokens?address=BSC.0x123...
+// GetAllTokensByAddress => GET /api/wallets/tokens?address=BSC.0x123&page=1&limit=50&symbol=BNB
 func (wc *WalletController) GetAllTokensByAddress(c *fiber.Ctx) error {
     addressParam := c.Query("address", "")
     if addressParam == "" {
@@ -58,17 +63,20 @@ func (wc *WalletController) GetAllTokensByAddress(c *fiber.Ctx) error {
         })
     }
 
-    wallet, err := wc.walletService.GetWalletTokens(addressParam)
+    page, _ := strconv.Atoi(c.Query("page", "1"))
+    limit, _ := strconv.Atoi(c.Query("limit", "50"))
+    symbol := c.Query("symbol", "")
+
+    tokens, err := wc.walletService.GetWalletTokens(addressParam, page, limit, symbol)
     if err != nil {
         wc.logger.Errorf("Error getting wallet tokens: %v", err)
         return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
     }
-    if wallet == nil {
+    if tokens == nil {
         return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-            "error": "No wallet found for given address",
+            "error": "No wallet found or no tokens",
         })
     }
 
-    // Return only the "balances" array
-    return c.Status(fiber.StatusOK).JSON(wallet.Balances)
+    return c.Status(fiber.StatusOK).JSON(tokens)
 }

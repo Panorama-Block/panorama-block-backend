@@ -1,10 +1,7 @@
 package interfaces
 
-import (
-    "github.com/noymaxx/backend/internal/domain/entities"
-)
+import "github.com/noymaxx/backend/internal/domain/entities"
 
-// SwapResponse is your final result from the best route
 type SwapResponse struct {
     From          entities.Asset `json:"from"`
     To            entities.Asset `json:"to"`
@@ -28,17 +25,15 @@ type Swap struct {
     ToAmount    string         `json:"toAmount"`
 }
 
-// SwapRequest is your input
 type SwapRequest struct {
-    From               entities.Asset          `json:"from"`
-    To                 entities.Asset          `json:"to"`
-    Amount             string                  `json:"amount,omitempty"`
-    Slippage           int                     `json:"slippage,omitempty"`
-    CheckPrerequisites bool                    `json:"checkPrerequisites"`
+    From               entities.Asset           `json:"from"`
+    To                 entities.Asset           `json:"to"`
+    Amount             string                   `json:"amount,omitempty"`
+    Slippage           int                      `json:"slippage,omitempty"`
+    CheckPrerequisites bool                     `json:"checkPrerequisites"`
     ConnectedWallets   []map[string]interface{} `json:"connectedWallets,omitempty"`
 }
 
-// ISwapService defines the interface for any swap service
 type ISwapService interface {
     FindBestSwap(swapReq SwapRequest) (*SwapResponse, error)
 }

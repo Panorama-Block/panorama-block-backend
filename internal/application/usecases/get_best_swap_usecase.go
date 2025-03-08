@@ -12,7 +12,6 @@ import (
     "github.com/noymaxx/backend/internal/infrastructure/logs"
 )
 
-// GetBestSwapRoute makes a request to the Rango API and returns the response
 func GetBestSwapRoute(swapReq interfaces.SwapRequest, logger logs.Logger) (*interfaces.SwapResponse, error) {
     apiKey := os.Getenv("X_RANGO_ID")
     if apiKey == "" {
@@ -20,7 +19,6 @@ func GetBestSwapRoute(swapReq interfaces.SwapRequest, logger logs.Logger) (*inte
     }
 
     apiURL := fmt.Sprintf("https://api.rango.exchange/routing/best?apiKey=%s", apiKey)
-
     payloadBytes, err := json.Marshal(swapReq)
     if err != nil {
         return nil, fmt.Errorf("failed to marshal payload: %w", err)

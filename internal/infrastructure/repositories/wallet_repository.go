@@ -24,6 +24,17 @@ type WalletRepository struct {
 
 func NewWalletRepository(dbClient *dbmongo.MongoClient, dbName string) *WalletRepository {
     coll := dbClient.Client.Database(dbName).Collection("wallets")
+
+    // cria índice composto
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    indexModel := mongo.IndexModel{
+        Keys: bson.D{{Key: "blockchain", Value: 1}, {Key: "address", Value: 1}},
+        Options: options.Index().SetUnique(true),
+    }
+    coll.Indexes().CreateOne(ctx, indexModel)
+
     return &WalletRepository{collection: coll}
 }
 
@@ -36,8 +47,8 @@ func (wr *WalletRepository) InsertOrUpdateWallet(wallet entities.Wallet) error {
         "address":    wallet.Address,
     }
     update := bson.M{"$set": wallet}
-
     opts := options.Update().SetUpsert(true)
+
     _, err := wr.collection.UpdateOne(ctx, filter, update, opts)
     return err
 }
@@ -78,7 +89,6 @@ func (wr *WalletRepository) GetAllAddresses() ([]string, error) {
         if err := cursor.Decode(&w); err != nil {
             return nil, err
         }
-        // Return "BSC.0x1234..."
         addresses = append(addresses, fmt.Sprintf("%s.%s", w.Blockchain, w.Address))
     }
 

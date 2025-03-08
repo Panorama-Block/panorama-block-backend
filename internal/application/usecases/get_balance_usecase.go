@@ -16,7 +16,7 @@ type RangoWalletResponse struct {
     Wallets []entities.Wallet `json:"wallets"`
 }
 
-// GetBalanceFromRango calls https://api.rango.exchange/wallets/details?address=XXX&apiKey=YYY
+// GetBalanceFromRango chama Rango /wallets/details
 func GetBalanceFromRango(addressParam string, logger *logs.Logger) (*RangoWalletResponse, error) {
     apiKey := os.Getenv("X_RANGO_ID")
     if apiKey == "" {
@@ -50,7 +50,7 @@ func GetBalanceFromRango(addressParam string, logger *logs.Logger) (*RangoWallet
     return &rangoRes, nil
 }
 
-// ParseBlockchainAndAddress splits "BSC.0x123..." into ("BSC", "0x123...")
+// ParseBlockchainAndAddress => separa "BSC.0x123..." em ("BSC", "0x123...")
 func ParseBlockchainAndAddress(addressParam string) (string, string, error) {
     parts := strings.Split(addressParam, ".")
     if len(parts) != 2 {
