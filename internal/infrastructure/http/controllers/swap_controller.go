@@ -12,7 +12,6 @@ type SwapController struct {
     Logger      logs.Logger
 }
 
-// NewSwapController constructor
 func NewSwapController(svc interfaces.ISwapService, logger logs.Logger) *SwapController {
     return &SwapController{
         SwapService: svc,
@@ -20,12 +19,13 @@ func NewSwapController(svc interfaces.ISwapService, logger logs.Logger) *SwapCon
     }
 }
 
+// BestSwapRoute => POST /api/swap/best-route
 func (s *SwapController) BestSwapRoute(c *fiber.Ctx) error {
     req := new(struct {
-        From             entities.Asset          `json:"from"`
-        To               entities.Asset          `json:"to"`
-        Amount           string                  `json:"amount"`
-        Slippage         int                     `json:"slippage"`
+        From             entities.Asset           `json:"from"`
+        To               entities.Asset           `json:"to"`
+        Amount           string                   `json:"amount"`
+        Slippage         int                      `json:"slippage"`
         ConnectedWallets []map[string]interface{} `json:"connectedWallets"`
     })
 
@@ -36,7 +36,6 @@ func (s *SwapController) BestSwapRoute(c *fiber.Ctx) error {
         })
     }
 
-    // Build SwapRequest from the payload
     swapRequest := interfaces.SwapRequest{
         From:               req.From,
         To:                 req.To,
@@ -46,7 +45,6 @@ func (s *SwapController) BestSwapRoute(c *fiber.Ctx) error {
         ConnectedWallets:   req.ConnectedWallets,
     }
 
-    // Call the SwapService to get the best route
     swapRes, err := s.SwapService.FindBestSwap(swapRequest)
     if err != nil {
         s.Logger.Errorf("Error finding best swap: %v", err)
