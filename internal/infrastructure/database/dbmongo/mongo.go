@@ -10,7 +10,6 @@ import (
     "go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// MongoClient wraps the driver client
 type MongoClient struct {
     Client *mongo.Client
 }
@@ -20,7 +19,6 @@ var (
     once     sync.Once
 )
 
-// ConnectMongo returns a singleton *MongoClient
 func ConnectMongo(uri string) (*MongoClient, error) {
     var err error
 
@@ -34,7 +32,7 @@ func ConnectMongo(uri string) (*MongoClient, error) {
             err = connErr
             return
         }
-        // Ping to ensure connection
+        // Ping
         if pingErr := client.Ping(ctx, nil); pingErr != nil {
             err = pingErr
             return
@@ -46,7 +44,6 @@ func ConnectMongo(uri string) (*MongoClient, error) {
     return instance, err
 }
 
-// GetClient returns the existing MongoClient or nil if not yet connected
 func GetClient() *MongoClient {
     return instance
 }
