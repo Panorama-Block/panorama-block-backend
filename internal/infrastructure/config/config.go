@@ -14,6 +14,8 @@ type Config struct {
     RangoAPIKey string
     MongoURI    string
     MongoDBName string
+    Fullchain   string
+    Privkey     string
 
     // Redis
     RedisHost     string
@@ -32,6 +34,8 @@ func LoadConfig() *Config {
         RangoAPIKey:   os.Getenv("X_RANGO_ID"),
         MongoURI:      os.Getenv("MONGO_URI"),
         MongoDBName:   os.Getenv("MONGO_DB_NAME"),
+        Fullchain:     os.Getenv("FULLCHAIN"),
+        Privkey:       os.Getenv("PRIVKEY"),
         RedisHost:     os.Getenv("REDIS_HOST"),
         RedisPort:     os.Getenv("REDIS_PORT"),
         RedisPassword: os.Getenv("REDIS_PASS"),

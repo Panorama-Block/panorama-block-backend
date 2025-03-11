@@ -1,0 +1,35 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: rango-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASS}"]
+    environment:
+      REDIS_PASS: ${REDIS_PASS}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: always
+
+  go_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rango-backend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongodb
+      - redis
+    environment:
+      - MONGO_URI=${MONGO_URI}
+      - PORT=${PORT}
+      - FULLCHAIN=${FULLCHAIN}
+      - PRIVKEY=${PRIVKEY}
+    env_file:
+      - .env
+    restart: always
+
+volumes:
+  mongodb_data:
+  redis_data:

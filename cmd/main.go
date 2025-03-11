@@ -78,8 +78,15 @@ func main() {
     c.Start()
 
     // Inicia o servidor
-    logger.Infof("Starting server on port %s", conf.ServerPort)
-    if err := app.Listen(":" + conf.ServerPort); err != nil {
-        logger.Fatalf("Server failed to start: %v", err)
+    if conf.Fullchain != "" && conf.Privkey != "" {
+        logger.Infof("Starting server on port %s with HTTPS", conf.ServerPort)
+        if err := app.Listen(":" + conf.ServerPort, conf.Fullchain, conf.Privkey); err != nil {
+            logger.Fatalf("Server failed to start: %v", err)
+        }
+    } else {
+        logger.Infof("Starting server on port %s", conf.ServerPort)
+        if err := app.Listen(":" + conf.ServerPort); err != nil {
+            logger.Fatalf("Server failed to start: %v", err)
+        }
     }
 }
