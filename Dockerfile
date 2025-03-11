@@ -30,6 +30,9 @@ WORKDIR /app
 # Copy the statically-linked binary from the builder stage
 COPY --from=builder /app/rango-backend /app/rango-backend
 
+# Copy .env file
+COPY .env /app/.env
+
 # Expose your server port
 EXPOSE 3000
 
