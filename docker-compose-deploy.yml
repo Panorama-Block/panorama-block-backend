@@ -23,8 +23,8 @@ services:
     environment:
       - MONGO_URI=${MONGO_URI}
       - PORT=${PORT}
-      - FULLCHAIN=${FULLCHAIN}
-      - PRIVKEY=${PRIVKEY}
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     env_file:
       - .env
     restart: always
