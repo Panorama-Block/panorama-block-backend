@@ -54,13 +54,16 @@ func main() {
     
     // Lista de origens permitidas
     allowedOrigins := []string{
-        "*",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "https://api.panoramablock.com",
+        "https://panoramablock.com",
     }
 
     app.Use(cors.New(cors.Config{
         AllowOrigins:     strings.Join(allowedOrigins, ","),
         AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
-        AllowHeaders:     "Origin, Content-Type, Accept, X-Rango-Id",
+        AllowHeaders:     "Origin, Content-Type, Accept, X-Rango-Id, Authorization",
         ExposeHeaders:    "Content-Length",
         AllowCredentials: false,
         MaxAge:           3600,
