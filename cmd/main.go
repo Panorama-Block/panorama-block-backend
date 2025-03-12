@@ -4,7 +4,6 @@ import (
     "log"
     "time"
     "strings"
-    "os"
 
     "github.com/gofiber/fiber/v2"
     "github.com/gofiber/fiber/v2/middleware/cors"
@@ -57,15 +56,8 @@ func main() {
     isProd := conf.Fullchain != "" && conf.Privkey != ""
     
     // Lista de origens permitidas
-    var allowedOrigins []string
-    if isProd {
-        allowedOrigins = []string{
-            "*",
-        }
-    } else {
-        allowedOrigins = []string{
-            "*",
-        }
+    allowedOrigins := []string{
+        "*",
     }
 
     app.Use(cors.New(cors.Config{
