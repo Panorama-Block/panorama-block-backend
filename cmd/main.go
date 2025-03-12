@@ -52,25 +52,18 @@ func main() {
     // Middleware de recuperação de panics
     app.Use(recover.New())
     
-    // Configuração CORS baseada no ambiente
-    isProd := conf.Fullchain != "" && conf.Privkey != ""
-    
-    corsConfig := cors.Config{
+    // Lista de origens permitidas
+    allowedOrigins := []string{
+        "*",
+    }
+
+    app.Use(cors.New(cors.Config{
+        AllowOrigins:     strings.Join(allowedOrigins, ","),
         AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
         AllowHeaders:     "Origin, Content-Type, Accept, X-Rango-Id, Authorization",
         ExposeHeaders:    "Content-Length",
         MaxAge:           3600,
-    }
-
-    if isProd {
-        corsConfig.AllowOrigins = "https://panoramablock.com,https://www.panoramablock.com,https://api.panoramablock.com"
-        corsConfig.AllowCredentials = true
-    } else {
-        corsConfig.AllowOrigins = "*"
-        corsConfig.AllowCredentials = false
-    }
-
-    app.Use(cors.New(corsConfig))
+    }))
 
     // Middleware de Rate Limiting (exemplo)
     app.Use(security.NewRateLimiter())
