@@ -62,6 +62,7 @@ func main() {
         AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
         AllowHeaders:     "Origin, Content-Type, Accept, X-Rango-Id, Authorization",
         ExposeHeaders:    "Content-Length",
+        AllowCredentials: false,
         MaxAge:           3600,
     }))
 
