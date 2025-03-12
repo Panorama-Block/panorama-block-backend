@@ -3,6 +3,8 @@ package main
 import (
     "log"
     "time"
+    "strings"
+    "os"
 
     "github.com/gofiber/fiber/v2"
     "github.com/gofiber/fiber/v2/middleware/cors"
@@ -44,16 +46,36 @@ func main() {
     }
 
     // Cria uma nova instância do Fiber
-    app := fiber.New()
+    app := fiber.New(fiber.Config{
+        DisableStartupMessage: true,
+    })
 
     // Middleware de recuperação de panics
     app.Use(recover.New())
 
-    // Configuração CORS
+    // Configuração CORS baseada no ambiente
+    isProd := conf.Fullchain != "" && conf.Privkey != ""
+    
+    // Lista de origens permitidas
+    var allowedOrigins []string
+    if isProd {
+        allowedOrigins = []string{
+            "https://panoramablock.com",
+            "https://www.panoramablock.com",
+        }
+    } else {
+        allowedOrigins = []string{
+            "*",
+        }
+    }
+
     app.Use(cors.New(cors.Config{
-        AllowOrigins: "http://localhost:3000, https://panoramablock.com",
-        AllowHeaders: "Origin, Content-Type, Accept, X-Rango-Id",
-        AllowMethods: "GET,POST,HEAD,PUT,DELETE,PATCH",
+        AllowOrigins:     strings.Join(allowedOrigins, ","),
+        AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
+        AllowHeaders:     "Origin, Content-Type, Accept, X-Rango-Id",
+        ExposeHeaders:    "Content-Length",
+        AllowCredentials: true,
+        MaxAge:           3600,
     }))
 
     // Middleware de Rate Limiting (exemplo)
