@@ -62,6 +62,7 @@ func main() {
         allowedOrigins = []string{
             "https://panoramablock.com",
             "https://www.panoramablock.com",
+            "https://api.panoramablock.com",
         }
     } else {
         allowedOrigins = []string{
@@ -72,7 +73,7 @@ func main() {
     app.Use(cors.New(cors.Config{
         AllowOrigins:     strings.Join(allowedOrigins, ","),
         AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
-        AllowHeaders:     "Origin, Content-Type, Accept, X-Rango-Id",
+        AllowHeaders:     "Origin, Content-Type, Accept, X-Rango-Id, Authorization",
         ExposeHeaders:    "Content-Length",
         AllowCredentials: true,
         MaxAge:           3600,
