@@ -51,9 +51,6 @@ func main() {
 
     // Middleware de recuperação de panics
     app.Use(recover.New())
-
-    // Configuração CORS baseada no ambiente
-    isProd := conf.Fullchain != "" && conf.Privkey != ""
     
     // Lista de origens permitidas
     allowedOrigins := []string{
