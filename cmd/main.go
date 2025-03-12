@@ -5,6 +5,7 @@ import (
     "time"
 
     "github.com/gofiber/fiber/v2"
+    "github.com/gofiber/fiber/v2/middleware/cors"
     "github.com/gofiber/fiber/v2/middleware/recover"
     "github.com/joho/godotenv"
     "github.com/robfig/cron/v3"
@@ -47,6 +48,13 @@ func main() {
 
     // Middleware de recuperação de panics
     app.Use(recover.New())
+
+    // Configuração CORS
+    app.Use(cors.New(cors.Config{
+        AllowOrigins: "http://localhost:3000, https://panoramablock.com",
+        AllowHeaders: "Origin, Content-Type, Accept, X-Rango-Id",
+        AllowMethods: "GET,POST,HEAD,PUT,DELETE,PATCH",
+    }))
 
     // Middleware de Rate Limiting (exemplo)
     app.Use(security.NewRateLimiter())
