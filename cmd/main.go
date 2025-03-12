@@ -60,9 +60,7 @@ func main() {
     var allowedOrigins []string
     if isProd {
         allowedOrigins = []string{
-            "https://panoramablock.com",
-            "https://www.panoramablock.com",
-            "https://api.panoramablock.com",
+            "*",
         }
     } else {
         allowedOrigins = []string{
