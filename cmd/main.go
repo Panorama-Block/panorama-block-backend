@@ -3,7 +3,6 @@ package main
 import (
     "log"
     "time"
-    "strings"
 
     "github.com/gofiber/fiber/v2"
     "github.com/gofiber/fiber/v2/middleware/cors"
@@ -53,12 +52,7 @@ func main() {
     app.Use(recover.New())
     
     // Lista de origens permitidas
-    allowedOrigins := []string{
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "https://api.panoramablock.com",
-        "https://panoramablock.com",
-    }
+    allowedOrigins := "http://localhost:3000, http://localhost:8000, https://api.panoramablock.com, https://panoramablock.com"
 
     app.Use(cors.New(cors.Config{
         AllowOrigins:     allowedOrigins,
