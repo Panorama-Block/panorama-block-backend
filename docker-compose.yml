@@ -35,7 +35,7 @@ services:
       dockerfile: Dockerfile
     container_name: rango-backend
     ports:
-      - "3000:3000"
+      - "${PORT}:${PORT}"
     depends_on:
       - mongodb
       - redis

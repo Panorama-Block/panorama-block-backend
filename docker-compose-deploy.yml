@@ -17,7 +17,7 @@ services:
       dockerfile: Dockerfile
     container_name: rango-backend
     ports:
-      - "8000:8000"
+      - "${PORT}:${PORT}"
     depends_on:
       - redis
     environment:
