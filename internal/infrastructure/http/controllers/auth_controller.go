@@ -1,12 +1,13 @@
 package controllers
 
 import (
-	"github.com/gofiber/fiber/v2"
-	"github.com/noymaxx/backend/internal/infrastructure/security"
-	"github.com/noymaxx/backend/internal/infrastructure/repositories"
-	"github.com/noymaxx/backend/internal/infrastructure/logs"
-	"github.com/noymaxx/backend/internal/domain/entities"
 	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/noymaxx/backend/internal/domain/entities"
+	"github.com/noymaxx/backend/internal/infrastructure/logs"
+	"github.com/noymaxx/backend/internal/infrastructure/repositories"
+	"github.com/noymaxx/backend/internal/infrastructure/security"
 )
 
 type AuthController struct {
@@ -21,7 +22,6 @@ func NewAuthController(userRepo repositories.IUserRepository, logger *logs.Logge
 	}
 }
 
-// AuthenticateUser recebe um endereço de carteira e retorna um token JWT
 func (ac *AuthController) AuthenticateUser(c *fiber.Ctx) error {
 	input := new(struct {
 		WalletAddress string `json:"wallet_address"`
@@ -64,4 +64,9 @@ func (ac *AuthController) AuthenticateUser(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{"token": token})
+}
+
+func (ac *AuthController) LogoutUser(c *fiber.Ctx) error {
+    c.Locals("user", nil) 
+    return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Successfully logged out"})
 }

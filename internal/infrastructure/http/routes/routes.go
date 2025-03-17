@@ -19,23 +19,20 @@ func SetupRoutes(
 	redisClient *redis.Client,
 	conf *config.Config,
 ) {
-	// Repositórios
+
 	walletRepo := repositories.NewWalletRepository(mongoClient, conf.MongoDBName)
 	balanceRepo := repositories.NewBalanceRepository(mongoClient, conf.MongoDBName)
 	userRepo := repositories.NewUserRepository(mongoClient, conf.MongoDBName)
 
-	// Serviços
 	walletService := services.NewWalletService(logger, walletRepo, balanceRepo, redisClient)
 
-	// Controllers
 	authController := controllers.NewAuthController(userRepo, logger)
 	walletController := controllers.NewWalletController(walletService, logger)
 
-	// Rotas de autenticação
 	authAPI := app.Group("/api/auth")
 	authAPI.Post("/login", authController.AuthenticateUser)
+	authAPI.Post("/logout", authController.LogoutUser)
 
-	// Rotas Wallet (Protegidas por autenticação)
 	walletAPI := app.Group("/api/wallets", middleware.AuthMiddleware())
 	walletAPI.Get("/details", walletController.GetBalanceAndStore)
 	walletAPI.Get("/addresses", walletController.GetAllAddresses)
