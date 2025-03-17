@@ -14,6 +14,7 @@ import (
 type IUserRepository interface {
 	CreateUser(user entities.User) error
 	GetUserByWalletAddress(walletAddress string) (*entities.User, error)
+	GetAllUsers() ([]entities.User, error)
 }
 
 type UserRepository struct {
@@ -22,6 +23,7 @@ type UserRepository struct {
 
 func NewUserRepository(dbClient *dbmongo.MongoClient, dbName string) *UserRepository {
 	coll := dbClient.Client.Database(dbName).Collection("users")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -47,11 +49,34 @@ func (ur *UserRepository) GetUserByWalletAddress(walletAddress string) (*entitie
 
 	filter := bson.M{"wallet_address": walletAddress}
 	var user entities.User
-	if err := ur.collection.FindOne(ctx, filter).Decode(&user); err != nil {
+	err := ur.collection.FindOne(ctx, filter).Decode(&user)
+	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (ur *UserRepository) GetAllUsers() ([]entities.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cursor, err := ur.collection.Find(ctx, bson.D{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var users []entities.User
+	for cursor.Next(ctx) {
+		var user entities.User
+		if err := cursor.Decode(&user); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+
+	return users, nil
 }
