@@ -20,20 +20,27 @@ func SetupRoutes(
 	conf *config.Config,
 ) {
 
+	// Initialize repositories.
 	walletRepo := repositories.NewWalletRepository(mongoClient, conf.MongoDBName)
 	balanceRepo := repositories.NewBalanceRepository(mongoClient, conf.MongoDBName)
 	userRepo := repositories.NewUserRepository(mongoClient, conf.MongoDBName)
 
+	// Initialize services.
 	walletService := services.NewWalletService(logger, walletRepo, balanceRepo, redisClient)
 
+	// Initialize controllers.
 	authController := controllers.NewAuthController(userRepo, logger)
 	walletController := controllers.NewWalletController(walletService, logger)
 
+	// Auth routes.
 	authAPI := app.Group("/api/auth")
 	authAPI.Post("/login", authController.AuthenticateUser)
 	authAPI.Post("/logout", authController.LogoutUser)
 
+	// Wallet routes with authentication middleware.
 	walletAPI := app.Group("/api/wallets", middleware.AuthMiddleware())
 	walletAPI.Get("/details", walletController.GetBalanceAndStore)
 	walletAPI.Get("/addresses", walletController.GetAllAddresses)
+	// New route to get wallet tokens.
+	walletAPI.Get("/tokens", walletController.GetWalletTokens)
 }
