@@ -1,14 +1,14 @@
 package repositories
 
 import (
-    "context"
-    "time"
+	"context"
+	"time"
 
-    "github.com/noymaxx/backend/internal/domain/entities"
-    "github.com/noymaxx/backend/internal/infrastructure/database/dbmongo"
-    "go.mongodb.org/mongo-driver/bson"
-    "go.mongodb.org/mongo-driver/mongo"
-    "go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/noymaxx/backend/internal/domain/entities"
+	"github.com/noymaxx/backend/internal/infrastructure/database/dbmongo"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type IBalanceRepository interface {
@@ -23,7 +23,7 @@ type BalanceRepository struct {
 func NewBalanceRepository(dbClient *dbmongo.MongoClient, dbName string) *BalanceRepository {
     coll := dbClient.Client.Database(dbName).Collection("wallet_balances")
 
-    // cria índice composto
+    // create composite index
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()
 

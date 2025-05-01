@@ -1,64 +1,64 @@
 package main
 
 import (
-    "log"
-    "time"
+	"log"
+	"time"
 
-    "github.com/gofiber/fiber/v2"
-    "github.com/gofiber/fiber/v2/middleware/recover"
-    "github.com/joho/godotenv"
-    "github.com/robfig/cron/v3"
-    "github.com/noymaxx/backend/internal/infrastructure/config"
-    "github.com/noymaxx/backend/internal/infrastructure/database/dbmongo"
-    "github.com/noymaxx/backend/internal/infrastructure/http/routes"
-    "github.com/noymaxx/backend/internal/infrastructure/logs"
-    "github.com/noymaxx/backend/internal/infrastructure/security"
-    "github.com/noymaxx/backend/internal/infrastructure/repositories"
-    "github.com/noymaxx/backend/internal/application/services"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/joho/godotenv"
+	"github.com/noymaxx/backend/internal/application/services"
+	"github.com/noymaxx/backend/internal/infrastructure/config"
+	"github.com/noymaxx/backend/internal/infrastructure/database/dbmongo"
+	"github.com/noymaxx/backend/internal/infrastructure/http/routes"
+	"github.com/noymaxx/backend/internal/infrastructure/logs"
+	"github.com/noymaxx/backend/internal/infrastructure/repositories"
+	"github.com/noymaxx/backend/internal/infrastructure/security"
+	"github.com/robfig/cron/v3"
 )
 
 func main() {
-    // Carrega variáveis de ambiente
+    // Load environment variables
     if err := godotenv.Load(); err != nil {
         log.Println("Warning: .env file not found or couldn't be loaded.")
     }
 
-    // Inicia logger
+    // Initialize logger
     logger := logs.NewLogger()
 
-    // Lê config
+    // Read config
     conf := config.LoadConfig()
 
-    // Conecta ao MongoDB
+    // Connect to MongoDB
     mongoClient, err := dbmongo.ConnectMongo(conf.MongoURI)
     if err != nil {
         logger.Fatalf("Error connecting to MongoDB: %v", err)
     }
 
-    // Opcional: Conecta ao Redis (para caching)
+    // Optional: Connect to Redis (for caching)
     redisClient, err := config.ConnectRedis(conf)
     if err != nil {
         logger.Warnf("Redis not connected: %v", err)
-        // Segue sem cache se falhar
+        // Continue without cache if it fails
     }
 
-    // Cria uma nova instância do Fiber
+    // Create a new instance of Fiber
     app := fiber.New()
 
-    // Middleware de recuperação de panics
+    // Middleware for panic recovery
     app.Use(recover.New())
 
-    // Middleware de Rate Limiting (exemplo)
+    // Rate Limiting middleware (example)
     app.Use(security.NewRateLimiter())
 
-    // Seta rotas
+    // Set up routes
     routes.SetupRoutes(app, logger, mongoClient, redisClient, conf)
 
-    // Scheduler para atualizar wallets periodicamente
+    // Scheduler to update wallets periodically
     c := cron.New()
-    // "0 * * * *" => a cada hora
+    // "0 * * * *" => every hour
     c.AddFunc("@every 30m", func() {
-        // Exemplo: Atualiza todos endereços a cada 30 minutos
+        // Example: Update all addresses every 30 minutes
         repo := repositories.NewWalletRepository(mongoClient, conf.MongoDBName)
         addresses, err := repo.GetAllAddresses()
         if err != nil {
@@ -77,7 +77,7 @@ func main() {
     })
     c.Start()
 
-    // Inicia o servidor
+    // Start the server
     logger.Infof("Starting server on port %s", conf.ServerPort)
     if err := app.Listen(":" + conf.ServerPort); err != nil {
         logger.Fatalf("Server failed to start: %v", err)

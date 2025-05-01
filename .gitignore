@@ -11,3 +11,4 @@ vendor/
 bin/
 dist/
 *.env
+.cursor/

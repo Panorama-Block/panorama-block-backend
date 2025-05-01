@@ -45,6 +45,25 @@ services:
     env_file:
       - .env
     restart: always
+    
+  service_thirdweb:
+    build:
+      context: ./service-thirdweb
+      dockerfile: Dockerfile
+    container_name: panorama-thirdweb
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=${NODE_ENV:-development}
+      - RPC_URL=${RPC_URL}
+      - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
+      - PRIVATE_KEY=${THIRDWEB_PRIVATE_KEY}
+      - SWAP_SENDER_ADDRESS=${SWAP_SENDER_ADDRESS}
+      - SWAP_RECEIVER_ADDRESS=${SWAP_RECEIVER_ADDRESS}
+      - AUTH_PRIVATE_KEY=${AUTH_PRIVATE_KEY}
+      - AUTH_DOMAIN=${AUTH_DOMAIN:-panoramablock.com}
+    restart: always
 
 volumes:
   mongodb_data:

@@ -1,15 +1,15 @@
 package repositories
 
 import (
-    "context"
-    "fmt"
-    "time"
+	"context"
+	"fmt"
+	"time"
 
-    "github.com/noymaxx/backend/internal/domain/entities"
-    "github.com/noymaxx/backend/internal/infrastructure/database/dbmongo"
-    "go.mongodb.org/mongo-driver/bson"
-    "go.mongodb.org/mongo-driver/mongo"
-    "go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/noymaxx/backend/internal/domain/entities"
+	"github.com/noymaxx/backend/internal/infrastructure/database/dbmongo"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type IWalletRepository interface {
@@ -25,7 +25,7 @@ type WalletRepository struct {
 func NewWalletRepository(dbClient *dbmongo.MongoClient, dbName string) *WalletRepository {
     coll := dbClient.Client.Database(dbName).Collection("wallets")
 
-    // cria índice composto
+    // create composite index
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()
 

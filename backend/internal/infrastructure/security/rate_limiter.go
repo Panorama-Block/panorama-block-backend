@@ -1,19 +1,19 @@
 package security
 
 import (
-    "time"
+	"time"
 
-    "github.com/gofiber/fiber/v2"
-    "github.com/gofiber/fiber/v2/middleware/limiter"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 )
 
-// NewRateLimiter exemplo simples
+// NewRateLimiter simple example
 func NewRateLimiter() fiber.Handler {
     return limiter.New(limiter.Config{
         Max:        100,              // 100 req
-        Expiration: 1 * time.Minute,  // por minuto
+        Expiration: 1 * time.Minute,  // per minute
         KeyGenerator: func(c *fiber.Ctx) string {
-            // Usa IP p/ rate limit. Personalize se quiser tokens de usuário, etc.
+            // Uses IP for rate limiting. Customize if you want user tokens, etc.
             return c.IP()
         },
         LimitReached: func(c *fiber.Ctx) error {

@@ -4,10 +4,6 @@ import (
     "strconv"
 
     "github.com/gofiber/fiber/v2"
-    // Swagger doc tags (exemplo)
-    // @Summary ...
-    // @Description ...
-    // (veja config do swag no seu go.mod)
     "github.com/noymaxx/backend/internal/application/services"
     "github.com/noymaxx/backend/internal/infrastructure/logs"
 )

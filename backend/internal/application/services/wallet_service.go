@@ -1,19 +1,19 @@
 package services
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "regexp"
-    "time"
+	"context"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"time"
 
-    "github.com/avast/retry-go"
-    "github.com/redis/go-redis/v9"
-    "github.com/noymaxx/backend/internal/application/usecases"
-    "github.com/noymaxx/backend/internal/domain/entities"
-    "github.com/noymaxx/backend/internal/infrastructure/logs"
-    "github.com/noymaxx/backend/internal/infrastructure/repositories"
-    "go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/avast/retry-go"
+	"github.com/noymaxx/backend/internal/application/usecases"
+	"github.com/noymaxx/backend/internal/domain/entities"
+	"github.com/noymaxx/backend/internal/infrastructure/logs"
+	"github.com/noymaxx/backend/internal/infrastructure/repositories"
+	"github.com/redis/go-redis/v9"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 var SupportedBlockchains = map[string]bool{
@@ -59,21 +59,21 @@ func NewWalletService(
     }
 }
 
-// Valida blockchain e endereço
+// Validates blockchain and address
 func ValidateAddress(blockchain, address string) error {
     if !SupportedBlockchains[blockchain] {
-        return fmt.Errorf("blockchain '%s' não suportada", blockchain)
+        return fmt.Errorf("blockchain '%s' not supported", blockchain)
     }
-    // Exemplo simples p/ BSC e ETH
+    // Simple example for BSC and ETH
     matched, _ := regexp.MatchString(`(?i)^0x[0-9a-fA-F]{40}$`, address)
     if (blockchain == "BSC" || blockchain == "ETH") && !matched {
-        return fmt.Errorf("endereço inválido para %s: %s", blockchain, address)
+        return fmt.Errorf("invalid address for %s: %s", blockchain, address)
     }
-    // se precisar, outras regras para outras blockchains
+    // if needed, other rules for other blockchains
     return nil
 }
 
-// FetchAndStoreBalance chama Rango, salva no Mongo e no Redis (cache) se habilitado
+// FetchAndStoreBalance calls Rango, saves to Mongo and Redis (cache) if enabled
 func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.Wallet, error) {
     ws.logger.Infof("Fetching wallet details for: %s", addressParam)
 
@@ -85,7 +85,7 @@ func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.W
         return nil, err
     }
 
-    // 1) Tenta buscar no cache
+    // 1) Try to fetch from cache
     redisKey := fmt.Sprintf("balance:%s:%s", bc, addr)
     if ws.redisClient != nil {
         cached, cacheErr := ws.redisClient.Get(context.Background(), redisKey).Result()
@@ -98,7 +98,7 @@ func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.W
         }
     }
 
-    // 2) Chama Rango com retry
+    // 2) Call Rango with retry
     var rangoRes *usecases.RangoWalletResponse
     err := retry.Do(
         func() error {
@@ -109,7 +109,7 @@ func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.W
             rangoRes = res
             return nil
         },
-        retry.Attempts(3),  // tenta até 3x
+        retry.Attempts(3),  // tries up to 3x
         retry.Delay(2*time.Second),
     )
     if err != nil {
@@ -117,9 +117,9 @@ func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.W
     }
 
     var updated []entities.Wallet
-    // Rango retorna um array "Wallets"
+    // Rango returns a "Wallets" array
     for _, w := range rangoRes.Wallets {
-        // Monta a struct de "Wallet"
+        // Build the "Wallet" struct
         basicWallet := entities.Wallet{
             Blockchain:  w.Blockchain,
             Address:     w.Address,
@@ -132,14 +132,14 @@ func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.W
         }
         updated = append(updated, basicWallet)
 
-        // Monta "WalletBalances"
+        // Build "WalletBalances"
         wb := entities.WalletBalances{
             Blockchain: w.Blockchain,
             Address:    w.Address,
             Balances:   w.Balances,
             UpdatedAt:  time.Now(),
         }
-        // Se já existir a Wallet, pegue o ID para referenciar
+        // If the Wallet already exists, get the ID for reference
         if found, _ := ws.walletRepo.GetWalletByBlockchainAddress(bc, addr); found != nil {
             wb.WalletID = found.ID
         } else {
@@ -152,7 +152,7 @@ func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.W
         }
     }
 
-    // 3) Salva no Redis
+    // 3) Save to Redis
     if ws.redisClient != nil && len(updated) > 0 {
         dataBytes, _ := json.Marshal(updated)
         ws.redisClient.Set(context.Background(), redisKey, string(dataBytes), 1*time.Minute)
@@ -173,7 +173,7 @@ func (ws *WalletService) GetWalletBalances(bc, addr string) (*entities.WalletBal
     return wb, err
 }
 
-// GetWalletTokens com paginação e filtro
+// GetWalletTokens with pagination and filtering
 func (ws *WalletService) GetWalletTokens(addressParam string, page, limit int, symbol string) ([]entities.Balance, error) {
     bc, addr, err := usecases.ParseBlockchainAndAddress(addressParam)
     if err != nil {
@@ -191,7 +191,7 @@ func (ws *WalletService) GetWalletTokens(addressParam string, page, limit int, s
         return nil, nil
     }
 
-    // Filtra por symbol se necessário
+    // Filter by symbol if needed
     var filtered []entities.Balance
     for _, bal := range wb.Balances {
         if symbol == "" || bal.Asset.Symbol == symbol {
@@ -199,7 +199,7 @@ func (ws *WalletService) GetWalletTokens(addressParam string, page, limit int, s
         }
     }
 
-    // Paginação simples
+    // Pagination
     start := (page - 1) * limit
     if start > len(filtered) {
         return []entities.Balance{}, nil
