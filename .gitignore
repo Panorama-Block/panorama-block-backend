@@ -12,3 +12,6 @@ bin/
 dist/
 *.env
 .cursor/
+.cursorrules/
+.cursorignore/
+.cursor
