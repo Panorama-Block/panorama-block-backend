@@ -64,6 +64,7 @@ services:
       - REDIS_PASS=${REDIS_PASS:-redis_password}
       - WALLET_API_KEY=${WALLET_API_KEY}
       - AUTH_SERVICE_URL=http://auth_service:3001
+      - "${PORT}:${PORT}"
     depends_on:
       - mongodb
       - redis

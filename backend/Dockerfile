@@ -30,6 +30,9 @@ WORKDIR /app
 # Copy the statically-linked binary from the builder stage
 COPY --from=builder /app/rango-backend /app/rango-backend
 
+# Copy .env file
+COPY .env /app/.env
+
 # Expose your server port
 EXPOSE 3000
 
@@ -40,6 +43,8 @@ ENV PORT=$PORT
 ENV REDIS_HOST=$REDIS_HOST
 ENV REDIS_PORT=$REDIS_PORT
 ENV REDIS_PASS=$REDIS_PASS
+ENV FULLCHAIN=$FULLCHAIN
+ENV PRIVKEY=$PRIVKEY
 
 # Start the application
 CMD ["/app/rango-backend"]
