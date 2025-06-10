@@ -11,7 +11,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: ${MONGO_INITDB_ROOT_DATABASE}
     healthcheck:
-      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -24,7 +24,7 @@ services:
     environment:
       REDIS_PASS: ${REDIS_PASS}
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:6379"
     volumes:
       - redis_data:/data
     restart: always
@@ -35,9 +35,9 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-auth-service
     ports:
-      - "${AUTH_PORT}:${AUTH_PORT}"
+      - "3001:3001"
     environment:
-      - PORT=${AUTH_PORT}
+      - PORT=3001
       - NODE_ENV=${NODE_ENV}
       - DEBUG=${DEBUG}
       - REDIS_HOST=${REDIS_HOST}
@@ -46,7 +46,8 @@ services:
       - AUTH_DOMAIN=${AUTH_DOMAIN}
       - AUTH_PRIVATE_KEY=${AUTH_PRIVATE_KEY}
     depends_on:
-      - redis
+      redis:
+        condition: service_started
     restart: always
 
   wallet_tracker_service:
@@ -55,21 +56,24 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-wallet-tracker
     ports:
-      - "${WALLET_TRACKER_PORT}:${WALLET_TRACKER_PORT}"
+      - "3000:3000"
     environment:
-      - PORT=${WALLET_TRACKER_PORT}
+      - PORT=3000
       - MONGO_URI=${MONGO_URI}
       - MONGO_DB_NAME=${MONGO_DB_NAME}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASS=${REDIS_PASS}
       - X_RANGO_ID=${X_RANGO_ID}
-      - AUTH_SERVICE_URL=http://auth_service:${AUTH_PORT}
+      - AUTH_SERVICE_URL=http://auth_service:3001
       - DEBUG=${DEBUG}
     depends_on:
-      - mongodb
-      - redis
-      - auth_service
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      auth_service:
+        condition: service_started
     restart: always
 
   liquid_swap_service:
@@ -78,12 +82,12 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-liquid-swap
     ports:
-      - "${LIQUID_SWAP_PORT}:${LIQUID_SWAP_PORT}"
+      - "3002:3002"
     environment:
-      - PORT=${LIQUID_SWAP_PORT}
+      - PORT=3002
       - NODE_ENV=${NODE_ENV}
       - DEBUG=${DEBUG}
-      - AUTH_SERVICE_URL=http://auth_service:${AUTH_PORT}
+      - AUTH_SERVICE_URL=http://auth_service:3001
       - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
       - PRIVATE_KEY=${PRIVATE_KEY}
       - SWAP_SENDER_ADDRESS=${SWAP_SENDER_ADDRESS}
@@ -97,9 +101,10 @@ services:
       - OPTIMISM_RPC_URL=${OPTIMISM_RPC_URL}
       - ARBITRUM_RPC_URL=${ARBITRUM_RPC_URL}
     depends_on:
-      - auth_service
+      auth_service:
+        condition: service_started
     restart: always
 
 volumes:
   mongodb_data:
-  redis_data:
+  redis_data: 

@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { RedisClientType } from 'redis';
-import { verifySignature, generateToken, validateToken } from '../utils/thirdwebAuth';
+import { verifySignature, generateToken, validateToken, generateLoginPayload } from '../utils/thirdwebAuth';
 
 export default function authRoutes(redisClient: RedisClientType) {
   const router = Router();
 
   // Login route - generates payload for wallet to sign
-  router.post('/login', (req: Request, res: Response) => {
+  router.post('/login', async (req: Request, res: Response) => {
     try {
       const { address } = req.body;
       
@@ -14,18 +14,8 @@ export default function authRoutes(redisClient: RedisClientType) {
         return res.status(400).json({ error: 'Address not provided' });
       }
       
-      // Generate a payload for the wallet to sign
-      const payload = {
-        type: 'evm',
-        domain: process.env.AUTH_DOMAIN,
-        address: address,
-        statement: 'Login to Panorama Block',
-        version: '1',
-        chainId: '1',
-        nonce: Math.random().toString(36).substring(2, 15),
-        issuedAt: new Date().toISOString(),
-        expirationTime: new Date(Date.now() + 1000 * 60 * 5).toISOString() // 5 minutes
-      };
+      // Generate a payload using ThirdWeb SDK
+      const payload = await generateLoginPayload(address);
       
       res.status(200).json({ payload });
     } catch (error: any) {
