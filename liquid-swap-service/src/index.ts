@@ -4,7 +4,7 @@ import cors from "cors";
 import { swapRouter } from "./routes/swap";
 import { verifyJwtMiddleware } from "./middleware/authMiddleware";
 
-const PORT = process.env.PORT || 3003;
+const PORT = process.env.PORT || process.env.LIQUID_SWAP_PORT;
 
 try {
   console.log("[Service] Initializing Liquid Swap service...");

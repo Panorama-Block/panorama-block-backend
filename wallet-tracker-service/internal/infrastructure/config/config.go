@@ -27,12 +27,19 @@ type Config struct {
 func LoadConfig() *Config {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "3002" // Default port for Wallet Tracker service
+		port = os.Getenv("WALLET_TRACKER_PORT")
+		if port == "" {
+			port = "3000" // Mudança: era 3002, agora 3000
+		}
 	}
 
 	authServiceURL := os.Getenv("AUTH_SERVICE_URL")
 	if authServiceURL == "" {
-		authServiceURL = "http://auth-service:3001" // Default URL for Auth service
+		authPort := os.Getenv("AUTH_PORT")
+		if authPort == "" {
+			authPort = "3001"
+		}
+		authServiceURL = fmt.Sprintf("http://auth-service:%s", authPort)
 	}
 
 	return &Config{

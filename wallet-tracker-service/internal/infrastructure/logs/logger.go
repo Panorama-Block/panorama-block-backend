@@ -1,7 +1,5 @@
 package logs
-
 import (
-	"fmt"
 	"log"
 	"os"
 	"time"
