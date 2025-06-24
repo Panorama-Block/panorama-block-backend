@@ -29,7 +29,7 @@ if (process.env.DEBUG === 'true') {
 
 // Initialize ThirdWeb auth
 try {
-  getAuthInstance();
+getAuthInstance();
   console.log('[Auth Service] ThirdWeb auth initialized successfully');
 } catch (error) {
   console.error('[Auth Service] Failed to initialize ThirdWeb auth:', error);
