@@ -1,9 +1,11 @@
+version: '3.8'
+
 services:
   mongodb:
     image: mongo:6.0
     container_name: panorama-mongodb
     ports:
-      - "27017:27017"
+      - "27018:27017"
     volumes:
       - mongodb_data:/data/db
     environment:
@@ -24,7 +26,7 @@ services:
     environment:
       REDIS_PASS: ${REDIS_PASS}
     ports:
-      - "${REDIS_PORT}:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     restart: always
@@ -35,7 +37,7 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-auth-service
     ports:
-      - "3001:3001"
+      - "${AUTH_PORT}:3001"
     environment:
       - PORT=3001
       - NODE_ENV=${NODE_ENV}
@@ -45,6 +47,7 @@ services:
       - REDIS_PASS=${REDIS_PASS}
       - AUTH_DOMAIN=${AUTH_DOMAIN}
       - AUTH_PRIVATE_KEY=${AUTH_PRIVATE_KEY}
+      - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
     depends_on:
       redis:
         condition: service_started
@@ -56,7 +59,7 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-wallet-tracker
     ports:
-      - "3000:3000"
+      - "${WALLET_TRACKER_PORT}:3000"
     environment:
       - PORT=3000
       - MONGO_URI=${MONGO_URI}
@@ -82,7 +85,7 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-liquid-swap
     ports:
-      - "3002:3002"
+      - "${LIQUID_SWAP_PORT}:3002"
     environment:
       - PORT=3002
       - NODE_ENV=${NODE_ENV}
@@ -107,4 +110,4 @@ services:
 
 volumes:
   mongodb_data:
-  redis_data: 
+  redis_data:
