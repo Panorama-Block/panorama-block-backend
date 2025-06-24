@@ -33,11 +33,11 @@ export default function authRoutes(redisClient: RedisClientType) {
         return res.status(400).json({ error: 'Payload or signature not provided' });
       }
 
-      // Verify the signature
+      // Verify the signature and obtain the user address
       const address = await verifySignature(payload, signature);
       
-      // Generate a JWT token
-      const token = await generateToken(address);
+      // Generate a JWT token using the full login payload (payload + signature)
+      const token = await generateToken({ payload, signature });
       
       // Create a session in Redis
       const sessionId = Math.random().toString(36).substring(2, 15);
@@ -73,8 +73,8 @@ export default function authRoutes(redisClient: RedisClientType) {
         return res.status(400).json({ error: 'Token not provided' });
       }
       
-      // Validate the JWT token
-      const payload = await validateToken(token);
+      // Validate the JWT token and extract user/session info
+      const authData = await validateToken(token);
       
       // If sessionId is provided, check if session is valid
       if (sessionId) {
@@ -93,7 +93,7 @@ export default function authRoutes(redisClient: RedisClientType) {
       
       return res.json({ 
         isValid: true,
-        payload
+        payload: authData
       });
     } catch (error: any) {
       console.error('[Auth Validate] Error:', error);
