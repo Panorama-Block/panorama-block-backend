@@ -57,7 +57,7 @@ func LoadConfig() *Config {
 		RedisPassword:  os.Getenv("REDIS_PASS"),
 		AuthServiceURL: authServiceURL,
 		Debug:          debug,
-	}
+}
 
 	if config.Debug {
 		fmt.Printf("[Config] Loaded configuration:\n")
