@@ -1,88 +1,119 @@
 import "dotenv/config";
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
-import { swapRouter } from "./routes/swap";
+import { swapRouter } from "./infrastructure/http/routes/swap.routes";
 import { verifyJwtMiddleware } from "./middleware/authMiddleware";
 
 const PORT = process.env.PORT || process.env.LIQUID_SWAP_PORT || 3002;
 
 try {
-  console.log("[Liquid Swap Service] Initializing...");
+  console.log("[Liquid Swap Service] 🚀 Initializing with Hexagonal Architecture...");
   
   // Debug logging
   if (process.env.DEBUG === 'true') {
-    console.log('[Liquid Swap Service] Starting with environment:');
+    console.log('[Liquid Swap Service] Configuration:');
     console.log('- PORT:', PORT);
     console.log('- NODE_ENV:', process.env.NODE_ENV);
     console.log('- AUTH_SERVICE_URL:', process.env.AUTH_SERVICE_URL);
-    console.log('- THIRDWEB_CLIENT_ID:', process.env.THIRDWEB_CLIENT_ID ? '[SET]' : '[NOT SET]');
-    console.log('- PRIVATE_KEY:', process.env.PRIVATE_KEY ? '[SET]' : '[NOT SET]');
-    console.log('- X_RANGO_ID:', process.env.X_RANGO_ID ? '[SET]' : '[NOT SET]');
+    console.log('- THIRDWEB_CLIENT_ID:', process.env.THIRDWEB_CLIENT_ID ? '[CONFIGURED]' : '[NOT SET]');
+    console.log('- AUTH_PRIVATE_KEY:', process.env.AUTH_PRIVATE_KEY ? '[CONFIGURED]' : '[NOT SET]');
   }
 
   const app = express();
 
   // Middleware configuration
-  console.log("[Liquid Swap Service] Configuring middlewares (CORS, JSON)...");
+  console.log("[Liquid Swap Service] ⚙️  Configuring middlewares...");
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-  // Setting up routes
-  console.log("[Liquid Swap Service] Registering routes...");
+  // Request logging middleware
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (process.env.DEBUG === 'true') {
+      console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    }
+    next();
+  });
+
+  // Setting up routes with hexagonal architecture
+  console.log("[Liquid Swap Service] 🔗 Registering routes...");
   
   // Swap routes with JWT verification
-  console.log("[Liquid Swap Service] Registering swap routes...");
   app.use("/swap", verifyJwtMiddleware, swapRouter);
 
   // Health check route
-  console.log("[Liquid Swap Service] Registering health check route...");
   app.get("/health", (req: Request, res: Response) => {
     try {
-      console.log("[Health] Received health check request");
+      console.log("[Health] Health check requested");
       res.json({
         status: "ok",
         service: "liquid-swap-service",
         version: "1.0.0",
+        architecture: "hexagonal",
         environment: process.env.NODE_ENV || 'development',
-        supportedChains: [1, 137, 56, 8453, 10, 42161], // Ethereum, Polygon, BSC, Base, Optimism, Arbitrum
+        timestamp: new Date().toISOString(),
+        supportedChains: [1, 137, 56, 8453, 10, 42161, 43114],
+        integrations: {
+          thirdweb: process.env.THIRDWEB_CLIENT_ID ? "configured" : "not configured",
+          authService: process.env.AUTH_SERVICE_URL ? "configured" : "not configured"
+        }
       });
-      console.log("[Health] Health check responded successfully");
     } catch (error) {
       const err = error as Error;
       console.error("[Health] Error processing health check:", err.message);
-      res.status(500).json({ error: "Internal error in health check" });
+      res.status(500).json({ 
+        status: "error",
+        message: "Internal error in health check" 
+      });
     }
   });
 
-  // Information route
-  console.log("[Liquid Swap Service] Registering main information route...");
+  // Main information route
   app.get("/", (req: Request, res: Response) => {
     try {
-      console.log("[Info] Received information request");
       res.json({
-        name: "PanoramaBlock Liquid Swap Service API",
-        description: "API for cross-chain token swaps using ThirdWeb SDK",
+        name: "PanoramaBlock Liquid Swap Service",
+        description: "Cross-chain token swaps using ThirdWeb SDK with Hexagonal Architecture",
         version: "1.0.0",
+        architecture: {
+          pattern: "hexagonal",
+          layers: ["domain", "application", "infrastructure"],
+          principles: ["Domain-Driven Design", "Dependency Injection", "Clean Architecture"]
+        },
         environment: process.env.NODE_ENV || 'development',
         endpoints: {
-          "/health": "Check service status",
-          "/swap/manual": "Execute swap between chains",
+          "/health": "Service health check",
+          "/swap/execute": "Execute cross-chain swap (requires JWT auth)",
+          "/swap/history": "Get user swap history (requires JWT auth)",
+          "/": "API documentation"
         },
         supportedChains: {
-          "1": "Ethereum",
+          "1": "Ethereum Mainnet",
           "137": "Polygon",
           "56": "Binance Smart Chain",
           "8453": "Base",
           "10": "Optimism",
-          "42161": "Arbitrum",
+          "42161": "Arbitrum One",
+          "43114": "Avalanche C-Chain"
         },
+        features: [
+          "Cross-chain token swaps",
+          "Transaction monitoring",
+          "Swap history tracking",
+          "Multi-chain support",
+          "JWT Authentication",
+          "User wallet integration"
+        ],
         integrations: {
-          "thirdweb": process.env.THIRDWEB_CLIENT_ID ? "Configured" : "Not configured",
-          "rango": process.env.X_RANGO_ID ? "Configured" : "Not configured",
-          "auth_service": process.env.AUTH_SERVICE_URL || "Not configured"
+          "thirdweb": process.env.THIRDWEB_CLIENT_ID ? "✅ Configured" : "❌ Not configured",
+          "auth_service": process.env.AUTH_SERVICE_URL || "❌ Not configured"
+        },
+        security: {
+          "authentication": "JWT tokens via auth-service",
+          "wallet_handling": "Frontend only - backend never handles private keys",
+          "transaction_execution": "User's wallet signs all transactions"
         }
       });
-      console.log("[Info] Information responded successfully");
     } catch (error) {
       const err = error as Error;
       console.error("[Info] Error processing information request:", err.message);
@@ -90,35 +121,64 @@ try {
     }
   });
 
-  // Middleware for routes not found
+  // 404 handler
   app.use((req: Request, res: Response) => {
     console.warn(`[404] Route not found: ${req.method} ${req.originalUrl}`);
     res.status(404).json({
       error: "Endpoint not found",
       path: req.originalUrl,
       method: req.method,
-      availableEndpoints: ["/", "/health", "/swap/manual"]
+      availableEndpoints: [
+        "GET /",
+        "GET /health", 
+        "POST /swap/execute",
+        "GET /swap/history"
+      ]
     });
   });
 
-  // Global error handling middleware
+  // Global error handler
   app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    console.error("[Error] Unhandled error in application:", err.message);
-    res.status(500).json({
-      error: "Internal server error",
-      message: err.message || "An unknown error occurred"
-    });
+    console.error("[Error] Unhandled application error:", err.message);
+    if (process.env.DEBUG === 'true') {
+      console.error("[Error] Stack trace:", err.stack);
+    }
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Internal server error",
+        message: process.env.NODE_ENV === 'development' ? err.message : "An error occurred",
+        architecture: "hexagonal"
+      });
+    }
   });
 
   // Start server
-  console.log("[Liquid Swap Service] Starting server on port", PORT);
-  app.listen(PORT, () => {
-    console.log(`[Liquid Swap Service] Running on port ${PORT}`);
-    console.log(`[Liquid Swap Service] Health check available at http://localhost:${PORT}/health`);
-    console.log(`[Liquid Swap Service] Documentation available at http://localhost:${PORT}/`);
+  console.log(`[Liquid Swap Service] 🌟 Starting server on port ${PORT}...`);
+  const server = app.listen(PORT, () => {
+    console.log(`\n🎉 [Liquid Swap Service] Server running successfully!`);
+    console.log(`📊 Port: ${PORT}`);
+    console.log(`🏗️  Architecture: Hexagonal (Domain-Driven Design)`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📋 Health check: http://localhost:${PORT}/health`);
+    console.log(`📖 Documentation: http://localhost:${PORT}/`);
+    console.log(`🔄 Swap API: http://localhost:${PORT}/swap/`);
+    console.log(`✨ Ready to process cross-chain swaps!\n`);
+  });
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('[Liquid Swap Service] SIGTERM received, shutting down gracefully...');
+    server.close(() => {
+      console.log('[Liquid Swap Service] Server closed');
+      process.exit(0);
+    });
   });
 } catch (error) {
   const err = error as Error;
-  console.error("[Liquid Swap Service] Fatal error initializing service:", err.message);
+  console.error("[Liquid Swap Service] 💥 Fatal error initializing service:", err.message);
+  if (process.env.DEBUG === 'true') {
+    console.error("[Liquid Swap Service] Stack trace:", err.stack);
+  }
   process.exit(1);
 } 

@@ -1,63 +1,35 @@
-import { ThirdwebSDK } from "@thirdweb-dev/sdk";
-import { ChainId } from "@thirdweb-dev/sdk";
-import {
-  Ethereum,
-  Polygon,
-  BinanceSmartChain,
-  Arbitrum,
-  Optimism,
-  Base,
-} from "@thirdweb-dev/chains";
-import { ethers } from "ethers";
+import { createThirdwebClient } from "thirdweb";
 
-// List of chains supported by o serviço
-const SUPPORTED_CHAINS = [
-  Ethereum,
-  Polygon,
-  BinanceSmartChain,
-  Arbitrum,
-  Optimism,
-  Base,
-];
+/**
+ * ThirdWeb Client Configuration
+ * Based on the working implementation from service-thirdweb
+ */
 
-// Helper to build config options for the SDK
-function buildSdkOptions() {
-  const secretKey = process.env.THIRDWEB_SECRET_KEY || "";
-  const clientId = process.env.THIRDWEB_CLIENT_ID || "";
+const CLIENT_ID = process.env.THIRDWEB_CLIENT_ID || "";
+const SECRET_KEY = process.env.THIRDWEB_SECRET_KEY || "";
 
-  if (!secretKey) {
-    console.error(
-      "[ThirdwebClient] Missing THIRDWEB_SECRET_KEY. Create one at https://thirdweb.com/dashboard/api-keys and set it in the environment variables."
-    );
+console.log("[thirdwebClient] Initializing ThirdWeb client...");
+
+let thirdwebSdk: ReturnType<typeof createThirdwebClient>;
+
+try {
+  if (!CLIENT_ID) {
+    console.warn("[Warning] Missing THIRDWEB_CLIENT_ID environment variable");
+    throw new Error("THIRDWEB_CLIENT_ID is required");
   }
 
-  return {
-    secretKey, // obrigatório para uso backend
-    clientId,  // opcional: permite rate-limit melhor no RPC público
-    supportedChains: SUPPORTED_CHAINS,
-  } as any; // cast para evitar types drift entre versões
+  // Create ThirdWeb client with clientId and optional secretKey
+  console.log("[thirdwebClient] Creating ThirdWeb client instance...");
+  thirdwebSdk = createThirdwebClient({
+    clientId: CLIENT_ID,
+    ...(SECRET_KEY && { secretKey: SECRET_KEY })
+  });
+  
+  console.log("[thirdwebClient] ThirdWeb client initialized successfully");
+} catch (error) {
+  console.error("[thirdwebClient] Error initializing ThirdWeb client:", error);
+  throw new Error(`Failed to initialize ThirdWeb: ${error instanceof Error ? error.message : String(error)}`);
 }
 
-console.log("[ThirdwebClient] Initializing ThirdwebSDK client");
-
-export const thirdwebSdk = new ThirdwebSDK(Ethereum.chainId, buildSdkOptions());
-
-console.log("[ThirdwebClient] ThirdwebSDK initialized");
-
-export const createSDKForChain = (chainId: ChainId): ThirdwebSDK => {
-  return new ThirdwebSDK(chainId, buildSdkOptions());
-};
-
-export const SUPPORTED_CHAINS = {
-  ethereum: Ethereum.chainId,
-  polygon: Polygon.chainId,
-  bsc: BinanceSmartChain.chainId,
-  arbitrum: Arbitrum.chainId,
-  optimism: Optimism.chainId,
-  base: Base.chainId,
-};
-
-export const isSdkInitialized = (): boolean => {
-  return thirdwebSdk !== undefined;
-};
+export { thirdwebSdk };
 
