@@ -35,9 +35,8 @@ export const getAuthInstance = (): any => {
 // Generate login payload with proper structure
 export const generateLoginPayload = async (address: string): Promise<any> => {
   const auth = getAuthInstance();
-  return await auth.generateLoginPayload({
-    address,
-    type: 'evm', // Explicitly set the type
+  return await auth.payload({
+    address: (await import("ethers")).ethers.utils.getAddress(address),
     statement: 'Login to Panorama Block platform',
     domain: process.env.AUTH_DOMAIN || 'panoramablock.com',
     version: '1',
@@ -47,23 +46,20 @@ export const generateLoginPayload = async (address: string): Promise<any> => {
 // Verify login payload
 export const verifySignature = async (payload: any, signature: string): Promise<string> => {
   const auth = getAuthInstance();
-  return await auth.verifyLogin({
-    payload,
-    signature,
-    domain: process.env.AUTH_DOMAIN || 'panoramablock.com'
-  });
+  return await auth.verify(
+    { payload, signature },
+    { domain: process.env.AUTH_DOMAIN || 'panoramablock.com' },
+  );
 };
 
 // Generate auth token
-export const generateToken = async (address: string): Promise<string> => {
+export const generateToken = async (loginPayload: { payload: any; signature: string }): Promise<string> => {
   const auth = getAuthInstance();
-  return await auth.generateAuthToken({
-    address
-  });
+  return await auth.generate(loginPayload, { domain: process.env.AUTH_DOMAIN || 'panoramablock.com' });
 };
 
 // Validate JWT token
 export const validateToken = async (token: string) => {
   const auth = getAuthInstance();
-  return await auth.validateToken(token);
+  return await auth.authenticate(token, { domain: process.env.AUTH_DOMAIN || 'panoramablock.com' });
 }; 

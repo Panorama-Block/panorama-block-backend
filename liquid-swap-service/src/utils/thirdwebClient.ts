@@ -1,20 +1,35 @@
-import { ThirdwebSDK } from "@thirdweb-dev/sdk";
+import { createThirdwebClient } from "thirdweb";
 
-// Create a client for SDK initialization
-console.log("[ThirdwebClient] Initializing ThirdwebSDK client");
+/**
+ * ThirdWeb Client Configuration
+ * Based on the working implementation from service-thirdweb
+ */
 
-// Inicializar o SDK com o provider apropriado
-// Como trabalhamos com diferentes chains, não especificamos um aqui
-// Usamos any para contornar problemas de tipagem
-export const thirdwebSdk = new (ThirdwebSDK as any)(undefined, {
-  clientId: process.env.THIRDWEB_CLIENT_ID || "",
-});
+const CLIENT_ID = process.env.THIRDWEB_CLIENT_ID || "";
+const SECRET_KEY = process.env.THIRDWEB_SECRET_KEY || "";
 
-console.log("[ThirdwebClient] ThirdwebSDK initialized");
+console.log("[thirdwebClient] Initializing ThirdWeb client...");
 
-// Utility function to check if SDK is initialized
-export const isSdkInitialized = (): boolean => {
-  return thirdwebSdk !== undefined;
-};
+let thirdwebSdk: ReturnType<typeof createThirdwebClient>;
 
-// Export any additional utility functions needed for working with ThirdWeb 
+try {
+  if (!CLIENT_ID) {
+    console.warn("[Warning] Missing THIRDWEB_CLIENT_ID environment variable");
+    throw new Error("THIRDWEB_CLIENT_ID is required");
+  }
+
+  // Create ThirdWeb client with clientId and optional secretKey
+  console.log("[thirdwebClient] Creating ThirdWeb client instance...");
+  thirdwebSdk = createThirdwebClient({
+    clientId: CLIENT_ID,
+    ...(SECRET_KEY && { secretKey: SECRET_KEY })
+  });
+  
+  console.log("[thirdwebClient] ThirdWeb client initialized successfully");
+} catch (error) {
+  console.error("[thirdwebClient] Error initializing ThirdWeb client:", error);
+  throw new Error(`Failed to initialize ThirdWeb: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+export { thirdwebSdk };
+
