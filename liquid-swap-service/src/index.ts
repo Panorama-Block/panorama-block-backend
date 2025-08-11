@@ -110,8 +110,8 @@ try {
         },
         security: {
           "authentication": "JWT tokens via auth-service",
-          "wallet_handling": "Frontend only - backend never handles private keys",
-          "transaction_execution": "User's wallet signs all transactions"
+          "wallet_handling": "Relayer key stored server-side for swap execution",
+          "transaction_execution": "Relayer wallet signs and sends prepared transactions"
         }
       });
     } catch (error) {
