@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { RedisClientType } from 'redis';
-import { verifySignature, generateToken, validateToken, generateLoginPayload } from '../utils/thirdwebAuth';
+import { verifySignature, generateToken, validateToken, generateLoginPayload, isAuthConfigured } from '../utils/thirdwebAuth';
 
 export default function authRoutes(redisClient: RedisClientType) {
   const router = Router();
@@ -8,6 +8,9 @@ export default function authRoutes(redisClient: RedisClientType) {
   // Login route - generates payload for wallet to sign
   router.post('/login', async (req: Request, res: Response) => {
     try {
+      if (!isAuthConfigured()) {
+        return res.status(503).json({ error: 'Auth service not configured: missing AUTH_PRIVATE_KEY' });
+      }
       const { address } = req.body;
       
       if (!address) {
@@ -27,6 +30,9 @@ export default function authRoutes(redisClient: RedisClientType) {
   // Verify route - verifies signature and generates JWT
   router.post('/verify', async (req: Request, res: Response) => {
     try {
+      if (!isAuthConfigured()) {
+        return res.status(503).json({ error: 'Auth service not configured: missing AUTH_PRIVATE_KEY' });
+      }
       const { payload, signature } = req.body;
       
       if (!payload || !signature) {
@@ -67,6 +73,9 @@ export default function authRoutes(redisClient: RedisClientType) {
   // Validate token route - for internal services
   router.post('/validate', async (req: Request, res: Response) => {
     try {
+      if (!isAuthConfigured()) {
+        return res.status(503).json({ error: 'Auth service not configured: missing AUTH_PRIVATE_KEY' });
+      }
       const { token, sessionId } = req.body;
       
       if (!token) {
