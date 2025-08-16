@@ -1,10 +1,28 @@
-import { Request, Response } from "express";
+import type {
+  Request as ExpressRequest,
+  Response as ExpressResponse,
+} from "express-serve-static-core";
+
 import { GetQuoteUseCase } from "../../../application/usecases/get.quote.usecase";
-import { ExecuteSwapUseCase, GetSwapHistoryUseCase } from "../../../application/usecases/execute.swap.usecase";
+import {
+  ExecuteSwapUseCase,
+  GetSwapHistoryUseCase,
+} from "../../../application/usecases/execute.swap.usecase";
+import { PrepareSwapUseCase } from "../../../application/usecases/prepare.swap.usecase";
+
+// Alias dos tipos base
+type Request = ExpressRequest;
+type Response = ExpressResponse;
+
+// Tipagem local para acessar req.user (endereço do usuário autenticado)
+type RequestWithUser = Request & {
+  user?: { address: string; [k: string]: any };
+};
 
 export class SwapController {
   constructor(
     private readonly getQuoteUseCase: GetQuoteUseCase,
+    private readonly prepareSwapUseCase: PrepareSwapUseCase,
     private readonly executeSwapUseCase: ExecuteSwapUseCase,
     private readonly getSwapHistoryUseCase: GetSwapHistoryUseCase
   ) {}
@@ -13,177 +31,189 @@ export class SwapController {
     try {
       console.log("[SwapController] Getting swap quote");
 
-      const {
-        fromChainId,
-        toChainId,
-        fromToken,
-        toToken,
-        amount
-      } = req.body;
+      const { fromChainId, toChainId, fromToken, toToken, amount } =
+        (req.body ?? {}) as {
+          fromChainId?: number;
+          toChainId?: number;
+          fromToken?: string;
+          toToken?: string;
+          amount?: string;
+        };
 
-      // Validate required parameters
       if (!fromChainId || !toChainId || !fromToken || !toToken || !amount) {
         return res.status(400).json({
           error: "Missing required parameters",
-          requiredParams: ["fromChainId", "toChainId", "fromToken", "toToken", "amount"]
+          requiredParams: [
+            "fromChainId",
+            "toChainId",
+            "fromToken",
+            "toToken",
+            "amount",
+          ],
         });
       }
 
-      // Get sender from JWT token (authenticated user)
-      if (!req.user || !req.user.address) {
+      const aReq = req as RequestWithUser;
+      if (!aReq.user?.address) {
         return res.status(401).json({
           error: "Unauthorized",
-          message: "User address not found in authentication token"
+          message: "User address not found in authentication token",
         });
       }
 
-      const sender = req.user.address;
-
+      const sender = aReq.user.address;
       console.log(`[SwapController] Getting quote for user: ${sender}`);
 
-      // Use dedicated quote use case
       const quote = await this.getQuoteUseCase.execute({
         fromChainId,
         toChainId,
         fromToken,
         toToken,
         amount,
-        sender
+        sender,
       });
 
-      return res.json({
-        success: true,
-        quote: quote
-      });
-
+      return res.json({ success: true, quote });
     } catch (error) {
       console.error("[SwapController] Error getting quote:", error);
-      
       return res.status(500).json({
         error: "Internal server error",
-        message: error instanceof Error ? error.message : "Unknown error occurred"
+        message:
+          error instanceof Error ? error.message : "Unknown error occurred",
       });
     }
   };
 
-  public executeSwap = async (req: Request, res: Response): Promise<Response> => {
+  /**
+   * Retorna o bundle "prepared" (approve? + swap) para o cliente assinar.
+   */
+  public getPreparedTx = async (
+    req: Request,
+    res: Response
+  ): Promise<Response> => {
     try {
-      console.log("[SwapController] Executing swap request");
+      console.log("[SwapController] Preparing swap (bundle)");
 
-      const {
-        fromChainId,
-        toChainId,
-        fromToken,
-        toToken,
-        amount,
-        receiver // receiver é opcional - se não fornecido, usa o mesmo endereço do sender
-      } = req.body;
+      const { fromChainId, toChainId, fromToken, toToken, amount, receiver } =
+        (req.body ?? {}) as {
+          fromChainId?: number;
+          toChainId?: number;
+          fromToken?: string;
+          toToken?: string;
+          amount?: string;
+          receiver?: string;
+        };
 
-      // Validate required parameters
       if (!fromChainId || !toChainId || !fromToken || !toToken || !amount) {
         return res.status(400).json({
           error: "Missing required parameters",
-          requiredParams: ["fromChainId", "toChainId", "fromToken", "toToken", "amount"]
+          requiredParams: [
+            "fromChainId",
+            "toChainId",
+            "fromToken",
+            "toToken",
+            "amount",
+          ],
         });
       }
 
-      // Get sender from JWT token (authenticated user)
-      if (!req.user || !req.user.address) {
+      const aReq = req as RequestWithUser;
+      if (!aReq.user?.address) {
         return res.status(401).json({
           error: "Unauthorized",
-          message: "User address not found in authentication token"
+          message: "User address not found in authentication token",
         });
       }
 
-      const sender = req.user.address;
-      const finalReceiver = receiver || sender; // Use sender as receiver if not specified
+      const sender = aReq.user.address;
 
-      console.log(`[SwapController] Processing swap for user: ${sender}`);
-      console.log(`[SwapController] Receiver: ${finalReceiver}`);
-
-      const result = await this.executeSwapUseCase.execute({
+      const { prepared } = await this.prepareSwapUseCase.execute({
         fromChainId,
         toChainId,
         fromToken,
         toToken,
         amount,
         sender,
-        receiver: finalReceiver
+        receiver,
       });
 
-      return res.json({
-        success: true,
-        message: result.message,
-        data: {
-          transactionHashes: result.transactionHashes,
-          estimatedDuration: result.estimatedDuration,
-          sender,
-          receiver: finalReceiver
-        }
-      });
-
+      return res.json({ success: true, prepared });
     } catch (error) {
-      console.error("[SwapController] Error executing swap:", error);
-      
+      console.error("[SwapController] Error preparing swap:", error);
       return res.status(500).json({
         error: "Internal server error",
-        message: error instanceof Error ? error.message : "Unknown error occurred"
+        message:
+          error instanceof Error ? error.message : "Unknown error occurred",
       });
     }
   };
 
-  public getSwapHistory = async (req: Request, res: Response): Promise<Response> => {
+  /**
+   * Mantido por compatibilidade; retorna 501 no V1 non-custodial.
+   */
+  public executeSwap = async (
+    _req: Request,
+    res: Response
+  ): Promise<Response> => {
+    return res.status(501).json({
+      error: "Server-side execution disabled",
+      message:
+        "Use /swap/tx para obter o bundle e assine no cliente. A execução no servidor é desativada no V1 non-custodial.",
+    });
+  };
+
+  public getSwapHistory = async (
+    req: Request,
+    res: Response
+  ): Promise<Response> => {
     try {
       console.log("[SwapController] Getting swap history");
 
-      const { userAddress } = req.params;
+      const aReq = req as RequestWithUser;
+      const { userAddress } = (req.params ?? {}) as { userAddress?: string };
 
-      // Se userAddress não for fornecido, usar o endereço do usuário autenticado
       let targetAddress = userAddress;
-      
       if (!targetAddress) {
-        if (!req.user || !req.user.address) {
+        if (!aReq.user?.address) {
           return res.status(401).json({
             error: "Unauthorized",
-            message: "User address not found in authentication token"
+            message: "User address not found in authentication token",
           });
         }
-        targetAddress = req.user.address;
+        targetAddress = aReq.user.address;
       }
 
-      // Verificar se o usuário pode acessar o histórico solicitado
-      if (req.user && req.user.address && targetAddress !== req.user.address) {
+      if (aReq.user?.address && targetAddress !== aReq.user.address) {
         return res.status(403).json({
           error: "Forbidden",
-          message: "You can only access your own swap history"
+          message: "You can only access your own swap history",
         });
       }
 
-      const history = await this.getSwapHistoryUseCase.execute(targetAddress);
+      const history = await this.getSwapHistoryUseCase.execute(targetAddress!);
 
       return res.json({
         success: true,
         data: {
           userAddress: targetAddress,
-          swaps: history.map(swap => ({
-            transactions: swap.transactions.map(tx => ({
+          swaps: history.map((swap) => ({
+            transactions: swap.transactions.map((tx) => ({
               hash: tx.hash,
               chainId: tx.chainId,
-              status: tx.status
+              status: tx.status,
             })),
             startTime: swap.startTime,
             endTime: swap.endTime,
-            duration: swap.getDuration()
-          }))
-        }
+            duration: swap.getDuration(),
+          })),
+        },
       });
-
     } catch (error) {
       console.error("[SwapController] Error getting swap history:", error);
-      
       return res.status(500).json({
         error: "Internal server error",
-        message: error instanceof Error ? error.message : "Unknown error occurred"
+        message:
+          error instanceof Error ? error.message : "Unknown error occurred",
       });
     }
   };
@@ -192,42 +222,40 @@ export class SwapController {
     try {
       console.log("[SwapController] Getting swap status");
 
-      const { transactionHash } = req.params;
-
+      const { transactionHash } = (req.params ?? {}) as {
+        transactionHash?: string;
+      };
       if (!transactionHash) {
         return res.status(400).json({
           error: "Missing transaction hash",
-          requiredParams: ["transactionHash"]
+          requiredParams: ["transactionHash"],
         });
       }
 
-      // Get sender from JWT token (authenticated user)
-      if (!req.user || !req.user.address) {
+      const aReq = req as RequestWithUser;
+      if (!aReq.user?.address) {
         return res.status(401).json({
           error: "Unauthorized",
-          message: "User address not found in authentication token"
+          message: "User address not found in authentication token",
         });
       }
 
-      // TODO: Implement transaction status check
-      // This should call a domain service to check transaction status
-      
+      // TODO: integrar com monitor real (adapter.monitorTransaction)
       return res.json({
         success: true,
         data: {
           transactionHash,
-          status: "pending", // TODO: Get real status from blockchain
-          userAddress: req.user.address
-        }
+          status: "pending",
+          userAddress: aReq.user.address,
+        },
       });
-
     } catch (error) {
       console.error("[SwapController] Error getting swap status:", error);
-      
       return res.status(500).json({
         error: "Internal server error",
-        message: error instanceof Error ? error.message : "Unknown error occurred"
+        message:
+          error instanceof Error ? error.message : "Unknown error occurred",
       });
     }
   };
-} 
+}

@@ -1,6 +1,10 @@
 // Domain Service
-import { SwapRequest, SwapQuote, SwapResult, SwapTransaction, TransactionStatus } from "../entities/swap";
-import { ISwapService, IChainProvider, ISwapRepository } from "../ports/swap.repository";
+import { SwapRequest, SwapQuote, SwapResult } from "../entities/swap";
+import {
+  ISwapService,
+  IChainProvider,
+  ISwapRepository,
+} from "../ports/swap.repository";
 
 export class SwapDomainService {
   constructor(
@@ -10,61 +14,57 @@ export class SwapDomainService {
   ) {}
 
   public async validateSwapRequest(swapRequest: SwapRequest): Promise<void> {
-    // Validate chain support
     if (!this.chainProvider.isChainSupported(swapRequest.fromChainId)) {
       throw new Error(`Chain ${swapRequest.fromChainId} is not supported`);
     }
-    
     if (!this.chainProvider.isChainSupported(swapRequest.toChainId)) {
       throw new Error(`Chain ${swapRequest.toChainId} is not supported`);
     }
-
-    // Validate same chain
     if (swapRequest.fromChainId === swapRequest.toChainId) {
       throw new Error("Cannot swap on the same chain");
     }
-
-    // Additional business rules can be added here
-    console.log(`[SwapDomainService] Swap request validated: ${swapRequest.toLogString()}`);
+    console.log(
+      `[SwapDomainService] Swap request validated: ${swapRequest.toLogString()}`
+    );
   }
 
   public async getQuote(swapRequest: SwapRequest): Promise<SwapQuote> {
-    console.log(`[SwapDomainService] Getting quote for: ${swapRequest.toLogString()}`);
-
-    // Validate request first
+    console.log(
+      `[SwapDomainService] Getting quote for: ${swapRequest.toLogString()}`
+    );
     await this.validateSwapRequest(swapRequest);
-
-    // Get quote without executing
     const quote = await this.swapService.getQuote(swapRequest);
-    console.log(`[SwapDomainService] Quote received: ${quote.estimatedReceiveAmount.toString()}`);
-
+    console.log(
+      `[SwapDomainService] Quote received: ${quote.estimatedReceiveAmount.toString()}`
+    );
     return quote;
   }
 
-  public async processSwap(swapRequest: SwapRequest): Promise<SwapResult> {
-    console.log(`[SwapDomainService] Processing swap: ${swapRequest.toLogString()}`);
-
-    // Validate request
+  /**
+   * V1 non-custodial: apenas PREPARA o bundle de transações.
+   */
+  public async prepareSwap(swapRequest: SwapRequest): Promise<any> {
+    console.log(
+      `[SwapDomainService] Preparing swap: ${swapRequest.toLogString()}`
+    );
     await this.validateSwapRequest(swapRequest);
+    const prepared = await this.swapService.prepareSwap(swapRequest);
+    return prepared;
+  }
 
-    // Save request for audit
-    await this.swapRepository.saveSwapRequest(swapRequest);
-
-    // Get quote
-    const quote = await this.swapService.getQuote(swapRequest);
-    console.log(`[SwapDomainService] Quote received: ${quote.estimatedReceiveAmount.toString()}`);
-
-    // Execute swap
-    const result = await this.swapService.executeSwap(swapRequest);
-    
-    // Save result
-    await this.swapRepository.saveSwapResult(result);
-
-    console.log(`[SwapDomainService] Swap completed successfully`);
-    return result;
+  /**
+   * Mantido por compatibilidade; não usar no V1 non-custodial.
+   */
+  public async processSwap(swapRequest: SwapRequest): Promise<SwapResult> {
+    console.log(
+      `[SwapDomainService] Processing swap (server-side DISABLED in V1): ${swapRequest.toLogString()}`
+    );
+    // Se for chamado, o adapter lançará erro.
+    await this.validateSwapRequest(swapRequest);
+    return await this.swapService.executeSwap(swapRequest);
   }
 
   public async getSwapHistory(userAddress: string): Promise<SwapResult[]> {
     return await this.swapRepository.getSwapHistory(userAddress);
   }
-} 
+}
