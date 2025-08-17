@@ -137,7 +137,9 @@ export class SwapController {
         receiver,
       });
 
-      return res.json({ success: true, prepared });
+      const serializedPrepared = this.serializeBigInt(prepared);
+
+      return res.json({ success: true, prepared: serializedPrepared });
     } catch (error) {
       console.error("[SwapController] Error preparing swap:", error);
       return res.status(500).json({
@@ -146,6 +148,12 @@ export class SwapController {
           error instanceof Error ? error.message : "Unknown error occurred",
       });
     }
+  };
+
+  private serializeBigInt = (obj: any) => {
+    return JSON.parse(JSON.stringify(obj, (key, value) =>
+      typeof value === 'bigint' ? value.toString() : value
+    ));
   };
 
   /**
