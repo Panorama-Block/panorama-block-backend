@@ -1,10 +1,8 @@
-import { ethers } from "ethers";
 import { IChainProvider } from "../../domain/ports/swap.repository";
 
 export class ChainProviderAdapter implements IChainProvider {
   private readonly supportedChains = [1, 137, 56, 8453, 10, 42161, 43114];
-  private readonly providers: { [chainId: number]: ethers.providers.JsonRpcProvider } = {};
-  private readonly signers: { [chainId: number]: ethers.Wallet } = {};
+  private readonly providers: { [chainId: number]: any } = {};
 
   constructor() {
     this.initializeProviders();
@@ -13,32 +11,20 @@ export class ChainProviderAdapter implements IChainProvider {
 
   private initializeProviders(): void {
     for (const chainId of this.supportedChains) {
-      const rpcUrl = this.getRpcUrl(chainId);
-      this.providers[chainId] = new ethers.providers.JsonRpcProvider(rpcUrl);
-      
-      if (process.env.PRIVATE_KEY) {
-        this.signers[chainId] = new ethers.Wallet(process.env.PRIVATE_KEY, this.providers[chainId]);
-      }
+      // Mantemos apenas o RPC URL para debug/observabilidade, sem criar provider ethers
+      this.providers[chainId] = { rpcUrl: this.getRpcUrl(chainId) };
     }
   }
 
-  public getProvider(chainId: number): ethers.providers.JsonRpcProvider {
+  public getProvider(chainId: number): any {
     if (!this.isChainSupported(chainId)) {
       throw new Error(`Chain ${chainId} is not supported`);
     }
     return this.providers[chainId];
   }
 
-  public getSigner(chainId: number): ethers.Wallet {
-    if (!this.isChainSupported(chainId)) {
-      throw new Error(`Chain ${chainId} is not supported`);
-    }
-    
-    if (!this.signers[chainId]) {
-      throw new Error(`No signer configured for chain ${chainId}`);
-    }
-    
-    return this.signers[chainId];
+  public getSigner(_chainId: number): never {
+    throw new Error("Signer access is disabled in non-custodial mode");
   }
 
   public getRpcUrl(chainId: number): string {

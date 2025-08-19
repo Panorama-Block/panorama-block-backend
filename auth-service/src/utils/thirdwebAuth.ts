@@ -5,6 +5,11 @@ import { PrivateKeyWallet } from '@thirdweb-dev/auth/evm';
 // Avoids creating multiple instances
 let authInstance: any = null;
 
+export const isAuthConfigured = (): boolean => {
+  const privateKey = process.env.AUTH_PRIVATE_KEY;
+  return Boolean(privateKey && privateKey.trim() !== '');
+};
+
 // Get or create auth instance
 export const getAuthInstance = (): any => {
   if (!authInstance) {
@@ -12,12 +17,13 @@ export const getAuthInstance = (): any => {
       const privateKey = process.env.AUTH_PRIVATE_KEY;
       const domain = process.env.AUTH_DOMAIN || 'panoramablock.com';
       
-      if (!privateKey) {
-        console.warn('[thirdwebAuth] WARNING: AUTH_PRIVATE_KEY environment variable not set');
+      if (!privateKey || privateKey.trim() === '') {
+        // Não tente inicializar com chave vazia para evitar crash (invalid hexlify value)
+        throw new Error('AUTH_PRIVATE_KEY is not set');
       }
       
       // Create wallet from private key
-      const wallet = new PrivateKeyWallet(privateKey || '');
+      const wallet = new PrivateKeyWallet(privateKey);
       
       // Initialize ThirdwebAuth with wallet and domain
       authInstance = new ThirdwebAuth(wallet, domain);

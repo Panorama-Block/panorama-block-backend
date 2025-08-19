@@ -32,6 +32,9 @@ export const manualSwap = async (req: Request, res: Response) => {
       fromToken, // ex. "NATIVE"
       toToken, // ex. "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" (USDC)
       amount, // ex. "1000000000000000000" => 1e18
+      sender, // ex. "0x123..."
+      receiver, // ex. "0x456..."
+      signature
     } = req.body;
 
     console.log("[manualSwap] Parameters received:", { 
@@ -39,15 +42,20 @@ export const manualSwap = async (req: Request, res: Response) => {
       toChainId, 
       fromToken: fromToken === "NATIVE" ? "NATIVE" : `${fromToken.substring(0, 8)}...`, 
       toToken: `${toToken.substring(0, 8)}...`, 
-      amount 
+      amount,
+      sender,
+      receiver,
+      signature 
     });
 
+    // TODO USE SIGNATURE
+
     // 1) Check if parameters were provided
-    if (!fromChainId || !toChainId || !fromToken || !toToken || !amount) {
+    if (!fromChainId || !toChainId || !fromToken || !toToken || !amount || !sender || !receiver || !signature) {
       console.warn("[manualSwap] Required parameters missing in request");
       return res.status(400).json({
         error: "Missing parameters",
-        requiredParams: ["fromChainId", "toChainId", "fromToken", "toToken", "amount"]
+        requiredParams: ["fromChainId", "toChainId", "fromToken", "toToken", "amount", "sender", "receiver", "signature"]
       });
     }
 
@@ -88,8 +96,8 @@ export const manualSwap = async (req: Request, res: Response) => {
           destinationChainId: toChainId,
           destinationTokenAddress: toToken,
           sellAmountWei,
-          sender: process.env.SWAP_SENDER_ADDRESS!, 
-          receiver: process.env.SWAP_RECEIVER_ADDRESS!,
+          sender,
+          receiver,
           client: thirdwebSdk,
         });
 

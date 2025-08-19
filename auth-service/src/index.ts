@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient, RedisClientType } from 'redis';
 import authRoutes from './routes/auth';
-import { getAuthInstance } from './utils/thirdwebAuth';
+import { getAuthInstance, isAuthConfigured } from './utils/thirdwebAuth';
 
 // Load environment variables
 dotenv.config();
@@ -27,13 +27,16 @@ if (process.env.DEBUG === 'true') {
   console.log('- AUTH_PRIVATE_KEY:', process.env.AUTH_PRIVATE_KEY ? '[SET]' : '[NOT SET]');
 }
 
-// Initialize ThirdWeb auth
+// Initialize ThirdWeb auth if configured
 try {
-getAuthInstance();
-  console.log('[Auth Service] ThirdWeb auth initialized successfully');
+  if (isAuthConfigured()) {
+    getAuthInstance();
+    console.log('[Auth Service] ThirdWeb auth initialized successfully');
+  } else {
+    console.warn('[Auth Service] AUTH_PRIVATE_KEY not set. Auth endpoints will return 503 until configured.');
+  }
 } catch (error) {
   console.error('[Auth Service] Failed to initialize ThirdWeb auth:', error);
-  process.exit(1);
 }
 
 // Set up Redis client for session management
