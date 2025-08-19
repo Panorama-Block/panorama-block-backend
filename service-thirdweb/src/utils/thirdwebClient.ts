@@ -12,14 +12,14 @@ const RPC_URL =
   process.env.RPC_URL || "https://eth-goerli.g.alchemy.com/v2/xxxxx";
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 const CLIENT_ID = process.env.THIRDWEB_CLIENT_ID || "";
-const AUTH_PRIVATE_KEY = process.env.AUTH_PRIVATE_KEY || "";
+const THIRDWEB_SECRET_KEY = process.env.THIRDWEB_SECRET_KEY || "";
 
 console.log("[thirdwebClient] Inicializando cliente Thirdweb...");
 
 let thirdwebSdk: ReturnType<typeof createThirdwebClient>;
 
 try {
-  if (!RPC_URL || !PRIVATE_KEY || !CLIENT_ID || !AUTH_PRIVATE_KEY) {
+  if (!RPC_URL || !PRIVATE_KEY || !CLIENT_ID || !THIRDWEB_SECRET_KEY) {
     console.warn(
       "[Aviso] Faltam variáveis de ambiente para Thirdweb: RPC_URL, PRIVATE_KEY ou THIRDWEB_CLIENT_ID."
     );
@@ -37,7 +37,7 @@ try {
   console.log("[thirdwebClient] Criando instância do Thirdweb client...");
   thirdwebSdk = createThirdwebClient({
     clientId: CLIENT_ID,
-    secretKey: AUTH_PRIVATE_KEY
+    secretKey: THIRDWEB_SECRET_KEY
   });
   
   console.log("[thirdwebClient] Cliente Thirdweb inicializado com sucesso");
