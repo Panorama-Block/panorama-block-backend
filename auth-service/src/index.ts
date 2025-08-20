@@ -14,7 +14,10 @@ const PORT = process.env.PORT || process.env.AUTH_PORT || 3001;
 
 // Set up middleware
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origin: (origin, cb) => cb(null, true),
+  credentials: true,
+}));
 
 // Debug logging
 if (process.env.DEBUG === 'true') {
@@ -28,7 +31,7 @@ if (process.env.DEBUG === 'true') {
 }
 
 // Initialize ThirdWeb auth if configured
-try {
+try { 
   if (isAuthConfigured()) {
     getAuthInstance();
     console.log('[Auth Service] ThirdWeb auth initialized successfully');

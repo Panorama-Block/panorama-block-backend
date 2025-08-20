@@ -31,13 +31,14 @@ export class SwapController {
     try {
       console.log("[SwapController] Getting swap quote");
 
-      const { fromChainId, toChainId, fromToken, toToken, amount } =
+      const { fromChainId, toChainId, fromToken, toToken, amount, unit } =
         (req.body ?? {}) as {
           fromChainId?: number;
           toChainId?: number;
           fromToken?: string;
           toToken?: string;
           amount?: string;
+          unit?: "token" | "wei";
         };
 
       if (!fromChainId || !toChainId || !fromToken || !toToken || !amount) {
@@ -70,6 +71,7 @@ export class SwapController {
         fromToken,
         toToken,
         amount,
+        unit,
         sender,
       });
 
@@ -94,13 +96,14 @@ export class SwapController {
     try {
       console.log("[SwapController] Preparing swap (bundle)");
 
-      const { fromChainId, toChainId, fromToken, toToken, amount, receiver } =
+      const { fromChainId, toChainId, fromToken, toToken, amount, unit, receiver } =
         (req.body ?? {}) as {
           fromChainId?: number;
           toChainId?: number;
           fromToken?: string;
           toToken?: string;
           amount?: string;
+          unit?: "token" | "wei";
           receiver?: string;
         };
 
@@ -133,11 +136,25 @@ export class SwapController {
         fromToken,
         toToken,
         amount,
+        unit,
         sender,
         receiver,
       });
 
       const serializedPrepared = this.serializeBigInt(prepared);
+      // Normaliza estrutura: alguns providers retornam steps[].transactions com { to, data, value, chainId }
+      // Garantimos que value e chainId sejam strings/number simples para o front
+      if (serializedPrepared?.steps) {
+        serializedPrepared.steps = serializedPrepared.steps.map((s: any) => ({
+          ...s,
+          transactions: (s.transactions || []).map((t: any) => ({
+            to: t.to,
+            data: t.data,
+            value: typeof t.value === 'bigint' ? t.value.toString() : t.value,
+            chainId: t.chainId,
+          })),
+        }));
+      }
 
       return res.json({ success: true, prepared: serializedPrepared });
     } catch (error) {

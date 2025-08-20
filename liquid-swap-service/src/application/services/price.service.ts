@@ -1,10 +1,11 @@
 import { createThirdwebClient, Bridge, NATIVE_TOKEN_ADDRESS } from "thirdweb";
 import { ethereum } from "thirdweb/chains";
 
-const client = createThirdwebClient({
-  clientId: process.env.THIRDWEB_CLIENT_ID || "",
-  secretKey: process.env.THIRDWEB_SECRET_KEY || undefined,
-});
+const client = createThirdwebClient(
+  process.env.THIRDWEB_SECRET_KEY
+    ? { secretKey: process.env.THIRDWEB_SECRET_KEY }
+    : { clientId: process.env.THIRDWEB_CLIENT_ID || "" }
+);
 
 type CacheEntry = { v: number; at: number };
 const cache = new Map<string, CacheEntry>();

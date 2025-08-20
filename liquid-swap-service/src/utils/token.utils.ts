@@ -19,12 +19,16 @@ export async function getTokenDecimals(
 }
 
 export function toWei(amountHuman: string, decimals: number): bigint {
-  // conversão segura sem ethers: trata string decimal e multiplica por 10^decimals
-  const [intPart, fracPartRaw = ""] = amountHuman.split(".");
-  const fracPart = fracPartRaw.padEnd(decimals, "0").slice(0, decimals);
-  const normalized = (intPart || "0") + (fracPart ? fracPart : "");
-  const digits = normalized.replace(/^0+/, "");
-  return BigInt(digits === "" ? "0" : digits);
+  const clean = amountHuman.trim();
+  if (!/^\d*(?:\.\d*)?$/.test(clean)) {
+    throw new Error("Invalid amount format");
+  }
+  const [intPartRaw = "0", fracRaw = ""] = clean.split(".");
+  const intPart = intPartRaw.replace(/^0+/, "") || "0";
+  const fracPart = fracRaw.padEnd(decimals, "0").slice(0, decimals);
+  const combined = intPart + fracPart;
+  const digits = combined.replace(/^0+/, "") || "0";
+  return BigInt(digits);
 }
 
 export function fromWei(amountWei: bigint, decimals: number): string {

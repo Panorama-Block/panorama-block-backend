@@ -13,20 +13,73 @@ services:
 
   go_app:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: rango-backend
     ports:
-      - "${PORT}:${PORT}"
+      - "${PORT:-3000}:${PORT:-3000}"
     depends_on:
       - redis
     environment:
       - MONGO_URI=${MONGO_URI}
-      - PORT=${PORT}
+      - PORT=${PORT:-3000}
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
     env_file:
       - .env
+    restart: always
+
+  auth_service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: panorama-auth-service
+    ports:
+      - "${AUTH_PORT}:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=${NODE_ENV}
+      - DEBUG=${DEBUG}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASS=${REDIS_PASS}
+      - AUTH_DOMAIN=${AUTH_DOMAIN}
+      - AUTH_PRIVATE_KEY=${AUTH_PRIVATE_KEY}
+      - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    restart: always
+
+  liquid_swap_service:
+    build:
+      context: ./liquid-swap-service
+      dockerfile: Dockerfile
+    container_name: panorama-liquid-swap
+    ports:
+      - "${LIQUID_SWAP_PORT}:3002"
+    environment:
+      - PORT=3002
+      - NODE_ENV=${NODE_ENV}
+      - DEBUG=${DEBUG}
+      - AUTH_SERVICE_URL=http://auth_service:3001
+      - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - SWAP_SENDER_ADDRESS=${SWAP_SENDER_ADDRESS}
+      - SWAP_RECEIVER_ADDRESS=${SWAP_RECEIVER_ADDRESS}
+      - X_RANGO_ID=${X_RANGO_ID}
+      - RPC_URL=${RPC_URL}
+      - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
+      - POLYGON_RPC_URL=${POLYGON_RPC_URL}
+      - BSC_RPC_URL=${BSC_RPC_URL}
+      - BASE_RPC_URL=${BASE_RPC_URL}
+      - OPTIMISM_RPC_URL=${OPTIMISM_RPC_URL}
+      - ARBITRUM_RPC_URL=${ARBITRUM_RPC_URL}
+    env_file:
+      - .env
+    depends_on:
+      - auth_service
     restart: always
 
 volumes:

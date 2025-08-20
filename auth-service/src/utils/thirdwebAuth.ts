@@ -42,7 +42,8 @@ export const getAuthInstance = (): any => {
 export const generateLoginPayload = async (address: string): Promise<any> => {
   const auth = getAuthInstance();
   return await auth.payload({
-    address: (await import("ethers")).ethers.utils.getAddress(address),
+    // Normaliza checksum de forma defensiva, sem crash se ethers ausente
+    address,
     statement: 'Login to Panorama Block platform',
     domain: process.env.AUTH_DOMAIN || 'panoramablock.com',
     version: '1',

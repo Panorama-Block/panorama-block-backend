@@ -65,7 +65,9 @@ export class ThirdwebSwapAdapter implements ISwapService {
       const estMs = quote.estimatedExecutionTimeMs ?? 60_000;
 
       // Gas/FX simples para MVP (troque quando integrar campos oficiais)
-      const estimatedGasFee = BigInt("420000000000000"); // ~0.00042 ETH em wei (placeholder)
+      // Nota: thirdweb ainda não expõe taxa total consolidada via Bridge.quote.
+      // Mantemos placeholder conservador e ajustamos quando o SDK expuser esses campos.
+      const estimatedGasFee = BigInt("420000000000000");
       const exchangeRate =
         Number(destAmount) > 0
           ? Number(destAmount) / Number(originAmount)

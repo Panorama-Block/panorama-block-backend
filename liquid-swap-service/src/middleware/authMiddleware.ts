@@ -31,8 +31,7 @@ export const verifyJwtMiddleware = async (req: Request, res: Response, next: Nex
     // Validate token with Auth service
     try {
       const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
-      const response: AxiosResponse<TokenValidationResponse> = 
-        await axios.post(`${authServiceUrl}/auth/validate`, { token });
+      const response: AxiosResponse<TokenValidationResponse> = await axios.post(`${authServiceUrl}/auth/validate`, { token });
       
       if (response.data.isValid) {
         // Add user data to request

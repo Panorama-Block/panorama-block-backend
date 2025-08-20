@@ -40,8 +40,11 @@ try {
   const app = expressLib();
 
   // Middlewares
-  console.log("[Liquid Swap Service] ⚙️  Configuring middlewares...");
-  app.use(cors());
+  console.log("[Liquid Swap Service] ⚙️  Configurando middlewares...");
+  app.use(cors({
+    origin: (_origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => cb(null, true),
+    credentials: true,
+  }));
   app.use(expressLib.json({ limit: "10mb" }));
   app.use(expressLib.urlencoded({ extended: true, limit: "10mb" }));
 
@@ -56,6 +59,18 @@ try {
   // Rotas protegidas por JWT
   console.log("[Liquid Swap Service] 🔗 Registering routes...");
   app.use("/swap", verifyJwtMiddleware, swapRouter);
+  // Redireciona para https se necessário quando em produção atrás de proxy
+  if (process.env.NODE_ENV === "production") {
+    app.enable("trust proxy");
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      const proto = (req as any).headers["x-forwarded-proto"];
+      if (proto && proto !== "https") {
+        const host = (req as any).headers.host;
+        return res.redirect(301, `https://${host}${req.originalUrl}`);
+      }
+      next();
+    });
+  }
 
   // Health check
   app.get("/health", (_req: Request, res: Response) => {

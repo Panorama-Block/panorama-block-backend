@@ -114,6 +114,23 @@ services:
         condition: service_started
     restart: always
 
+  go_app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rango-backend
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    environment:
+      - MONGO_URI=${MONGO_URI}
+      - PORT=${PORT:-3000}
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_started
+    restart: always
+
 volumes:
   mongodb_data:
   redis_data:
