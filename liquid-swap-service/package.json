@@ -15,6 +15,7 @@
     "dotenv": "^16.3.1",
     "ethers": "^5.7.2",
     "express": "^4.18.2",
+    "helmet": "^7.0.0",
     "jsonwebtoken": "^9.0.2",
     "thirdweb": "^5.94.2"
   },

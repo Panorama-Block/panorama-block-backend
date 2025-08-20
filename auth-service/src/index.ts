@@ -1,9 +1,12 @@
 import express from 'express';
 import cors from 'cors';
+import https from 'https';
+import * as fs from 'fs';
 import dotenv from 'dotenv';
 import { createClient, RedisClientType } from 'redis';
 import authRoutes from './routes/auth';
 import { getAuthInstance, isAuthConfigured } from './utils/thirdwebAuth';
+import helmet from 'helmet';
 
 // Load environment variables
 dotenv.config();
@@ -12,12 +15,42 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || process.env.AUTH_PORT || 3001;
 
+// SSL certificate options for HTTPS
+const getSSLOptions = () => {
+  try {
+    const certPath = process.env.FULLCHAIN || "/etc/letsencrypt/live/x-api.panoramablock.com/fullchain.pem";
+    const keyPath = process.env.PRIVKEY || "/etc/letsencrypt/live/x-api.panoramablock.com/privkey.pem";
+    
+    if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+      return {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      };
+    } else {
+      console.warn('[Auth Service] SSL certificates not found. Running in HTTP mode.');
+      return null;
+    }
+  } catch (error) {
+    console.warn('[Auth Service] Error loading SSL certificates:', error);
+    return null;
+  }
+};
+
 // Set up middleware
-app.use(express.json());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "unsafe-none" }
+}));
+
 app.use(cors({
-  origin: (origin, cb) => cb(null, true),
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   credentials: true,
 }));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Debug logging
 if (process.env.DEBUG === 'true') {
@@ -90,7 +123,19 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`[Auth Service] Running on port ${PORT}`);
-  console.log(`[Auth Service] Health check available at http://localhost:${PORT}/health`);
-}); 
+const sslOptions = getSSLOptions();
+
+if (sslOptions && (process.env.NODE_ENV === 'production' || process.env.FORCE_HTTPS === 'true')) {
+  https.createServer(sslOptions, app).listen(PORT, () => {
+    console.log(`[Auth Service] Running on HTTPS port ${PORT}`);
+    console.log(`[Auth Service] Health check available at https://localhost:${PORT}/health`);
+  });
+} else {
+  app.listen(PORT, () => {
+    console.log(`[Auth Service] Running on HTTP port ${PORT}`);
+    console.log(`[Auth Service] Health check available at http://localhost:${PORT}/health`);
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[Auth Service] WARNING: Running in HTTP mode in production. SSL certificates not found.');
+    }
+  });
+} 
