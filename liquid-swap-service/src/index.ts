@@ -45,20 +45,26 @@ try {
   // SSL certificate options for HTTPS
   const getSSLOptions = () => {
     try {
-      const certPath = process.env.FULLCHAIN || "/etc/letsencrypt/live/x-api.panoramablock.com/fullchain.pem";
-      const keyPath = process.env.PRIVKEY || "/etc/letsencrypt/live/x-api.panoramablock.com/privkey.pem";
+      const certPath = process.env.FULLCHAIN || "/etc/letsencrypt/live/api.panoramablock.com/fullchain.pem";
+      const keyPath = process.env.PRIVKEY || "/etc/letsencrypt/live/api.panoramablock.com/privkey.pem";
+      
+      console.log(`[Liquid Swap Service] Verificando certificados SSL em: ${certPath} e ${keyPath}`);
       
       if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+        console.log('[Liquid Swap Service] ✅ Certificados SSL encontrados!');
         return {
           key: fs.readFileSync(keyPath),
           cert: fs.readFileSync(certPath),
         };
       } else {
-        console.warn('[Liquid Swap Service] SSL certificates not found. Running in HTTP mode.');
+        console.warn('[Liquid Swap Service] ⚠️ Certificados SSL não encontrados nos caminhos:');
+        console.warn(`- Cert: ${certPath} (${fs.existsSync(certPath) ? 'existe' : 'não existe'})`);
+        console.warn(`- Key: ${keyPath} (${fs.existsSync(keyPath) ? 'existe' : 'não existe'})`);
+        console.warn('Executando em modo HTTP.');
         return null;
       }
     } catch (error) {
-      console.warn('[Liquid Swap Service] Error loading SSL certificates:', error);
+      console.warn('[Liquid Swap Service] ❌ Erro ao carregar certificados SSL:', error);
       return null;
     }
   };
@@ -242,7 +248,7 @@ try {
   
   const sslOptions = getSSLOptions();
   
-  if (sslOptions && (process.env.NODE_ENV === 'production' || process.env.FORCE_HTTPS === 'true')) {
+  if (sslOptions) {
     const server = https.createServer(sslOptions, app).listen(PORT, () => {
       console.log(`\n🎉 [Liquid Swap Service] HTTPS Server running successfully!`);
       console.log(`📊 Port: ${PORT}`);

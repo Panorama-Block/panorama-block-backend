@@ -48,6 +48,11 @@ services:
       - AUTH_DOMAIN=${AUTH_DOMAIN}
       - AUTH_PRIVATE_KEY=${AUTH_PRIVATE_KEY}
       - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
+      - FULLCHAIN=${FULLCHAIN}
+      - PRIVKEY=${PRIVKEY}
+      - FORCE_HTTPS=${FORCE_HTTPS}
+    volumes:
+      - ${SSL_CERTS_PATH:-/etc/letsencrypt}:/etc/letsencrypt:ro
     env_file:
       - .env
     depends_on:
@@ -107,27 +112,15 @@ services:
       - BASE_RPC_URL=${BASE_RPC_URL}
       - OPTIMISM_RPC_URL=${OPTIMISM_RPC_URL}
       - ARBITRUM_RPC_URL=${ARBITRUM_RPC_URL}
+      - FULLCHAIN=${FULLCHAIN}
+      - PRIVKEY=${PRIVKEY}
+      - FORCE_HTTPS=${FORCE_HTTPS}
+    volumes:
+      - ${SSL_CERTS_PATH:-/etc/letsencrypt}:/etc/letsencrypt:ro
     env_file:
       - .env
     depends_on:
       auth_service:
-        condition: service_started
-    restart: always
-
-  go_app:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: rango-backend
-    ports:
-      - "${PORT:-3000}:${PORT:-3000}"
-    environment:
-      - MONGO_URI=${MONGO_URI}
-      - PORT=${PORT:-3000}
-    env_file:
-      - .env
-    depends_on:
-      redis:
         condition: service_started
     restart: always
 

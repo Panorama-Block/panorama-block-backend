@@ -18,20 +18,26 @@ const PORT = process.env.PORT || process.env.AUTH_PORT || 3001;
 // SSL certificate options for HTTPS
 const getSSLOptions = () => {
   try {
-    const certPath = process.env.FULLCHAIN || "/etc/letsencrypt/live/x-api.panoramablock.com/fullchain.pem";
-    const keyPath = process.env.PRIVKEY || "/etc/letsencrypt/live/x-api.panoramablock.com/privkey.pem";
+    const certPath = process.env.FULLCHAIN || "/etc/letsencrypt/live/api.panoramablock.com/fullchain.pem";
+    const keyPath = process.env.PRIVKEY || "/etc/letsencrypt/live/api.panoramablock.com/privkey.pem";
+    
+    console.log(`[Auth Service] Verificando certificados SSL em: ${certPath} e ${keyPath}`);
     
     if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+      console.log('[Auth Service] Certificados SSL encontrados!');
       return {
         key: fs.readFileSync(keyPath),
         cert: fs.readFileSync(certPath),
       };
     } else {
-      console.warn('[Auth Service] SSL certificates not found. Running in HTTP mode.');
+      console.warn('[Auth Service] Certificados SSL não encontrados nos caminhos:');
+      console.warn(`- Cert: ${certPath} (${fs.existsSync(certPath) ? 'existe' : 'não existe'})`);
+      console.warn(`- Key: ${keyPath} (${fs.existsSync(keyPath) ? 'existe' : 'não existe'})`);
+      console.warn('Executando em modo HTTP.');
       return null;
     }
   } catch (error) {
-    console.warn('[Auth Service] Error loading SSL certificates:', error);
+    console.warn('[Auth Service] Erro ao carregar certificados SSL:', error);
     return null;
   }
 };
@@ -125,7 +131,7 @@ app.get('/', (req, res) => {
 // Start server
 const sslOptions = getSSLOptions();
 
-if (sslOptions && (process.env.NODE_ENV === 'production' || process.env.FORCE_HTTPS === 'true')) {
+if (sslOptions) {
   https.createServer(sslOptions, app).listen(PORT, () => {
     console.log(`[Auth Service] Running on HTTPS port ${PORT}`);
     console.log(`[Auth Service] Health check available at https://localhost:${PORT}/health`);
