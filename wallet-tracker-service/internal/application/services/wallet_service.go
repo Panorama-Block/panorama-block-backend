@@ -31,10 +31,10 @@ var SupportedBlockchains = map[string]bool{
 }
 
 type IWalletService interface {
-	FetchAndStoreBalance(addressParam string) ([]entities.Wallet, error)
-	GetAllAddresses() ([]string, error)
-	GetWalletTokens(addressParam string, page, limit int, symbol string) ([]entities.Balance, error)
-	GetWalletBalances(bc, addr string) (*entities.WalletBalances, error)
+	FetchAndStoreBalance(userID, addressParam string) ([]entities.Wallet, error)
+	GetAllAddresses(userID string) ([]string, error)
+	GetWalletTokens(userID, addressParam string, page, limit int, symbol string) ([]entities.Balance, error)
+	GetWalletBalances(userID, bc, addr string) (*entities.WalletBalances, error)
 }
 
 type WalletService struct {
@@ -73,8 +73,8 @@ func ValidateAddress(blockchain, address string) error {
 }
 
 // FetchAndStoreBalance calls external API, saves to Mongo and Redis (cache) if enabled
-func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.Wallet, error) {
-	ws.logger.Infof("Fetching wallet details for: %s", addressParam)
+func (ws *WalletService) FetchAndStoreBalance(userID, addressParam string) ([]entities.Wallet, error) {
+	ws.logger.Infof("Fetching wallet details for user %s: %s", userID, addressParam)
 
 	bc, addr, parseErr := usecases.ParseBlockchainAndAddress(addressParam)
 	if parseErr != nil {
@@ -108,7 +108,7 @@ func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.W
 			apiResponse = res
 			return nil
 		},
-		retry.Attempts(3),  // tries up to 3x
+		retry.Attempts(3), // tries up to 3x
 		retry.Delay(2*time.Second),
 	)
 
@@ -120,16 +120,15 @@ func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.W
 	// 3) Process and save to MongoDB
 	wallets := apiResponse.Wallets
 	for i := range wallets {
+		wallets[i].UserID = userID
 		wallets[i].CreatedAt = time.Now()
 		wallets[i].LastUpdated = time.Now()
 
-		// Save wallet data
 		if err := ws.walletRepo.SaveWallet(&wallets[i]); err != nil {
 			ws.logger.Errorf("Error saving wallet: %v", err)
-			// Continue, don't fail the whole operation for one wallet
+			continue
 		}
 
-		// Save balance data
 		balances := &entities.WalletBalances{
 			Blockchain: wallets[i].Blockchain,
 			Address:    wallets[i].Address,
@@ -153,8 +152,8 @@ func (ws *WalletService) FetchAndStoreBalance(addressParam string) ([]entities.W
 }
 
 // GetAllAddresses returns all wallet addresses tracked by the service
-func (ws *WalletService) GetAllAddresses() ([]string, error) {
-	addresses, err := ws.walletRepo.GetAllAddresses()
+func (ws *WalletService) GetAllAddresses(userID string) ([]string, error) {
+	addresses, err := ws.walletRepo.GetAllAddressesByUser(userID)
 	if err != nil {
 		ws.logger.Errorf("Error fetching addresses: %v", err)
 		return nil, err
@@ -163,22 +162,35 @@ func (ws *WalletService) GetAllAddresses() ([]string, error) {
 }
 
 // GetWalletBalances gets the balances for a wallet
-func (ws *WalletService) GetWalletBalances(bc, addr string) (*entities.WalletBalances, error) {
+func (ws *WalletService) GetWalletBalances(userID, bc, addr string) (*entities.WalletBalances, error) {
 	if err := ValidateAddress(bc, addr); err != nil {
 		return nil, err
+	}
+	if w, err := ws.walletRepo.GetWallet(userID, bc, addr); err != nil || w == nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("wallet not found")
 	}
 	wb, err := ws.balanceRepo.GetBalancesByWallet(bc, addr)
 	return wb, err
 }
 
 // GetWalletTokens gets wallet tokens with pagination and filtering
-func (ws *WalletService) GetWalletTokens(addressParam string, page, limit int, symbol string) ([]entities.Balance, error) {
+func (ws *WalletService) GetWalletTokens(userID, addressParam string, page, limit int, symbol string) ([]entities.Balance, error) {
 	bc, addr, err := usecases.ParseBlockchainAndAddress(addressParam)
 	if err != nil {
 		return nil, err
 	}
 	if errVal := ValidateAddress(bc, addr); errVal != nil {
 		return nil, errVal
+	}
+
+	if w, err := ws.walletRepo.GetWallet(userID, bc, addr); err != nil || w == nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("wallet not found")
 	}
 
 	wb, err := ws.balanceRepo.GetBalancesByWallet(bc, addr)
@@ -208,4 +220,4 @@ func (ws *WalletService) GetWalletTokens(addressParam string, page, limit int, s
 	}
 
 	return filtered[start:end], nil
-} 
+}

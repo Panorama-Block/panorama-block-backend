@@ -21,7 +21,7 @@ WORKDIR /app
 COPY --from=builder /app/wallet-tracker-service .
 
 # Expose port
-EXPOSE 3002
+EXPOSE 3000
 
 # Run the binary
-CMD ["./wallet-tracker-service"] 
+CMD ["./wallet-tracker-service"]
