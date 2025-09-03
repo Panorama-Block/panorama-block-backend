@@ -8,13 +8,14 @@ import (
 
 // Wallet represents a blockchain wallet
 type Wallet struct {
-	ID            primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
-	Blockchain    string             `bson:"blockchain" json:"blockchain"`
-	Address       string             `bson:"address" json:"address"`
-	Balance       float64            `bson:"balance" json:"balance"`
-	Balances      []Balance          `bson:"balances" json:"balances,omitempty"`
-	LastUpdated   time.Time          `bson:"lastUpdated" json:"lastUpdated"`
-	CreatedAt     time.Time          `bson:"createdAt" json:"createdAt"`
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	UserID      string             `bson:"user_id" json:"user_id"`
+	Blockchain  string             `bson:"blockchain" json:"blockchain"`
+	Address     string             `bson:"address" json:"address"`
+	Balance     float64            `bson:"balance" json:"balance"`
+	Balances    []Balance          `bson:"balances" json:"balances,omitempty"`
+	LastUpdated time.Time          `bson:"lastUpdated" json:"lastUpdated"`
+	CreatedAt   time.Time          `bson:"createdAt" json:"createdAt"`
 }
 
 // Asset represents a token/coin in a wallet
@@ -29,17 +30,17 @@ type Asset struct {
 
 // Balance represents a token balance in a wallet
 type Balance struct {
-	Asset        Asset   `bson:"asset" json:"asset"`
-	Amount       string  `bson:"amount" json:"amount"`
+	Asset           Asset   `bson:"asset" json:"asset"`
+	Amount          string  `bson:"amount" json:"amount"`
 	FormattedAmount string  `bson:"formattedAmount" json:"formattedAmount"`
-	USDValue     float64 `bson:"usdValue" json:"usdValue"`
+	USDValue        float64 `bson:"usdValue" json:"usdValue"`
 }
 
 // WalletBalances represents all balances for a wallet
 type WalletBalances struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
-	Blockchain string            `bson:"blockchain" json:"blockchain"`
-	Address    string            `bson:"address" json:"address"`
-	Balances   []Balance         `bson:"balances" json:"balances"`
-	UpdatedAt  time.Time         `bson:"updatedAt" json:"updatedAt"`
-} 
+	ID         primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Blockchain string             `bson:"blockchain" json:"blockchain"`
+	Address    string             `bson:"address" json:"address"`
+	Balances   []Balance          `bson:"balances" json:"balances"`
+	UpdatedAt  time.Time          `bson:"updatedAt" json:"updatedAt"`
+}
