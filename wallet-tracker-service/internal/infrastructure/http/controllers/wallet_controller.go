@@ -30,7 +30,13 @@ func (wc *WalletController) GetBalanceAndStore(c *fiber.Ctx) error {
 		})
 	}
 
-	wallets, err := wc.walletService.FetchAndStoreBalance(addressParam)
+	userData, ok := c.Locals("user").(map[string]interface{})
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "user not found"})
+	}
+	userAddr, _ := userData["address"].(string)
+
+	wallets, err := wc.walletService.FetchAndStoreBalance(userAddr, addressParam)
 	if err != nil {
 		wc.logger.Errorf("Error fetching/storing wallet: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -41,7 +47,13 @@ func (wc *WalletController) GetBalanceAndStore(c *fiber.Ctx) error {
 
 // GetAllAddresses handles GET /api/wallets/addresses
 func (wc *WalletController) GetAllAddresses(c *fiber.Ctx) error {
-	addresses, err := wc.walletService.GetAllAddresses()
+	userData, ok := c.Locals("user").(map[string]interface{})
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "user not found"})
+	}
+	userAddr, _ := userData["address"].(string)
+
+	addresses, err := wc.walletService.GetAllAddresses(userAddr)
 	if err != nil {
 		wc.logger.Errorf("Error getting addresses: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -73,7 +85,13 @@ func (wc *WalletController) GetAllTokensByAddress(c *fiber.Ctx) error {
 	// Get optional symbol filter
 	symbol := c.Query("symbol", "")
 
-	tokens, err := wc.walletService.GetWalletTokens(addressParam, page, limit, symbol)
+	userData, ok := c.Locals("user").(map[string]interface{})
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "user not found"})
+	}
+	userAddr, _ := userData["address"].(string)
+
+	tokens, err := wc.walletService.GetWalletTokens(userAddr, addressParam, page, limit, symbol)
 	if err != nil {
 		wc.logger.Errorf("Error getting tokens: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
@@ -88,4 +106,4 @@ func (wc *WalletController) GetAllTokensByAddress(c *fiber.Ctx) error {
 			"count": len(tokens),
 		},
 	})
-} 
+}

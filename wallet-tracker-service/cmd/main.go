@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -61,19 +62,20 @@ func main() {
 	c := cron.New()
 	// "0 * * * *" => every hour
 	c.AddFunc("@every 30m", func() {
-		// Example: Update all addresses every 30 minutes
 		repo := repositories.NewWalletRepository(mongoClient, conf.MongoDBName)
-		addresses, err := repo.GetAllAddresses()
+		balanceRepo := repositories.NewBalanceRepository(mongoClient, conf.MongoDBName)
+		walletService := services.NewWalletService(logger, repo, balanceRepo, redisClient)
+
+		wallets, err := repo.GetAllWallets()
 		if err != nil {
 			logger.Errorf("Cron job error: %v", err)
 			return
 		}
 
-		balanceRepo := repositories.NewBalanceRepository(mongoClient, conf.MongoDBName)
-		walletService := services.NewWalletService(logger, repo, balanceRepo, redisClient)
-		for _, addr := range addresses {
-			if _, err := walletService.FetchAndStoreBalance(addr); err != nil {
-				logger.Errorf("Cron update for address %s: %v", addr, err)
+		for _, w := range wallets {
+			addrParam := fmt.Sprintf("%s.%s", w.Blockchain, w.Address)
+			if _, err := walletService.FetchAndStoreBalance(w.UserID, addrParam); err != nil {
+				logger.Errorf("Cron update for wallet %s: %v", addrParam, err)
 			}
 			time.Sleep(1 * time.Second)
 		}
@@ -85,4 +87,4 @@ func main() {
 	if err := app.Listen(":" + conf.ServerPort); err != nil {
 		logger.Fatalf("Server failed to start: %v", err)
 	}
-} 
+}
