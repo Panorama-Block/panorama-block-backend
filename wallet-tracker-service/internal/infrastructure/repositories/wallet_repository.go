@@ -14,8 +14,9 @@ import (
 
 type IWalletRepository interface {
 	SaveWallet(wallet *entities.Wallet) error
-	GetWallet(blockchain, address string) (*entities.Wallet, error)
+	GetWallet(userID, blockchain, address string) (*entities.Wallet, error)
 	GetAllAddresses() ([]string, error)
+	GetAllAddressesByUser(userID string) ([]string, error)
 	GetAllWallets() ([]entities.Wallet, error)
 }
 
@@ -38,31 +39,33 @@ func (r *WalletRepository) SaveWallet(wallet *entities.Wallet) error {
 	defer cancel()
 
 	wallet.LastUpdated = time.Now()
-	
+
 	collection := r.mongoClient.Client.Database(r.dbName).Collection(r.collection)
-	
+
 	filter := bson.M{
+		"user_id":    wallet.UserID,
 		"blockchain": wallet.Blockchain,
 		"address":    wallet.Address,
 	}
-	
+
 	opts := options.Replace().SetUpsert(true)
-	
+
 	_, err := collection.ReplaceOne(ctx, filter, wallet, opts)
 	return err
 }
 
-func (r *WalletRepository) GetWallet(blockchain, address string) (*entities.Wallet, error) {
+func (r *WalletRepository) GetWallet(userID, blockchain, address string) (*entities.Wallet, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	collection := r.mongoClient.Client.Database(r.dbName).Collection(r.collection)
-	
+
 	filter := bson.M{
+		"user_id":    userID,
 		"blockchain": blockchain,
 		"address":    address,
 	}
-	
+
 	var wallet entities.Wallet
 	err := collection.FindOne(ctx, filter).Decode(&wallet)
 	if err != nil {
@@ -71,57 +74,87 @@ func (r *WalletRepository) GetWallet(blockchain, address string) (*entities.Wall
 		}
 		return nil, err
 	}
-	
+
 	return &wallet, nil
 }
 
 func (r *WalletRepository) GetAllAddresses() ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	collection := r.mongoClient.Client.Database(r.dbName).Collection(r.collection)
-	
+
 	pipeline := mongo.Pipeline{
 		{{Key: "$project", Value: bson.M{"fullAddress": bson.M{"$concat": []string{"$blockchain", ".", "$address"}}}}},
 		{{Key: "$group", Value: bson.M{"_id": nil, "addresses": bson.M{"$addToSet": "$fullAddress"}}}},
 	}
-	
+
 	cursor, err := collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, fmt.Errorf("aggregate error: %w", err)
 	}
 	defer cursor.Close(ctx)
-	
+
 	var results []map[string][]string
 	if err = cursor.All(ctx, &results); err != nil {
 		return nil, fmt.Errorf("cursor error: %w", err)
 	}
-	
+
 	if len(results) == 0 {
 		return []string{}, nil
 	}
-	
+
+	return results[0]["addresses"], nil
+}
+
+func (r *WalletRepository) GetAllAddressesByUser(userID string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	collection := r.mongoClient.Client.Database(r.dbName).Collection(r.collection)
+
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: bson.M{"user_id": userID}}},
+		bson.D{{Key: "$project", Value: bson.M{"fullAddress": bson.M{"$concat": []string{"$blockchain", ".", "$address"}}}}},
+		bson.D{{Key: "$group", Value: bson.M{"_id": nil, "addresses": bson.M{"$addToSet": "$fullAddress"}}}},
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate error: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var results []map[string][]string
+	if err = cursor.All(ctx, &results); err != nil {
+		return nil, fmt.Errorf("cursor error: %w", err)
+	}
+
+	if len(results) == 0 {
+		return []string{}, nil
+	}
+
 	return results[0]["addresses"], nil
 }
 
 func (r *WalletRepository) GetAllWallets() ([]entities.Wallet, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	collection := r.mongoClient.Client.Database(r.dbName).Collection(r.collection)
-	
+
 	opts := options.Find().SetSort(bson.D{{Key: "lastUpdated", Value: -1}})
-	
+
 	cursor, err := collection.Find(ctx, bson.M{}, opts)
 	if err != nil {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
-	
+
 	var wallets []entities.Wallet
 	if err = cursor.All(ctx, &wallets); err != nil {
 		return nil, err
 	}
-	
+
 	return wallets, nil
-} 
+}
