@@ -1,16 +1,16 @@
-# 🚀 Zico Swap API - Avalanche
+# 🚀 Zico Trader Joe API
 
-Uma API completa para operações de swap na rede Avalanche, suportando o protocolo **Trader Joe**.
+API compatível com a documentação oficial do **Trader Joe** para operações de swap e liquidez na rede Avalanche.
 
 ## ✨ Características
 
-- 🔄 **Swap de Tokens**: Suporte completo para swaps entre tokens ERC-20
-- 🏆 **Preços em Tempo Real**: Obtém preços atualizados do Trader Joe
-- 🚀 **Execução de Swaps**: Executa swaps via smart wallet do frontend
-- 📊 **Preços em Tempo Real**: Integração com CoinGecko para preços de mercado
-- 🔐 **Segurança**: Autenticação por assinatura de smart wallet (sem chaves privadas)
-- ⚡ **Performance**: Cache inteligente e rate limiting
-- 🛡️ **Segurança**: Middleware de validação e sanitização
+- 🏆 **100% Compatível**: Segue exatamente a documentação oficial do Trader Joe
+- 🔄 **Swap de Tokens**: Executa swaps via smart wallet do frontend
+- 💧 **Gestão de Liquidez**: Adicionar e remover liquidez de pools
+- 📊 **Informações de Pool**: Consulta de liquidez e dados de pools
+- 🔐 **Transações Assinadas**: Todas as operações usam transações pré-assinadas
+- ⚡ **Performance**: Rate limiting e validação de entrada
+- 🛡️ **Segurança**: Autenticação por assinatura de smart wallet
 - 🚫 **Sem Chaves Privadas**: API não armazena ou usa chaves privadas
 
 ## 🏗️ Arquitetura
@@ -20,16 +20,15 @@ zico_avax/api_refactor/
 ├── config/
 │   └── constants.js          # Configurações e constantes
 ├── services/
-│   ├── traderJoeService.js   # Serviço para Trader Joe
-│   └── priceService.js       # Serviço de preços (CoinGecko)
+│   └── traderJoeService.js   # Serviço para Trader Joe
 ├── middleware/
 │   └── auth.js               # Middleware de autenticação
 ├── routes/
-│   ├── swapRoutes.js         # Rotas de swap
-│   └── priceRoutes.js        # Rotas de preços
+│   └── traderJoeRoutes.js    # Rotas da API Trader Joe
 ├── index.js                  # Servidor principal
 ├── package.json              # Dependências
-├── env.example               # Exemplo de variáveis de ambiente
+├── .env.example              # Exemplo de variáveis de ambiente
+├── test_example.js           # Exemplos de teste
 └── README.md                 # Esta documentação
 ```
 
@@ -84,154 +83,86 @@ npm start
 
 ## 📡 Endpoints
 
-### 🔄 Swap Routes
+### 🏆 Trader Joe API Routes (Compatível com Documentação)
 
-#### Obter Preço - Trader Joe
+
+#### Obter Preço de Swap
 ```http
-POST /swap/price/traderjoe
+GET /dex/getprice?dexId=2100&path=0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7,0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB&amountIn=1000000000000000000
+```
+
+#### Obter Liquidez do Usuário
+```http
+GET /dex/getuserliquidity?tokenA=0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7&tokenB=0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB&address=0x...&dexId=2100&id=8376649
+```
+
+#### Obter Liquidez do Pool
+```http
+GET /dex/getpoolliquidity?poolAddress=0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1&dexId=2100&id=8376653
+```
+
+#### Obter Liquidez dos Tokens
+```http
+GET /dex/gettokenliquidity?poolAddress=0x9f8973FB86b35C307324eC31fd81Cf565E2F4a63&dexId=2100
+```
+
+#### Executar Swap
+```http
+POST /dex/swap
 Content-Type: application/json
 
 {
-  "address": "0x...",
-  "signature": "0x...",
-  "message": "timestamp:1234567890",
-  "timestamp": 1234567890,
-  "tokenIn": "0x...",
-  "tokenOut": "0x...",
-  "amountIn": "1000000000000000000"
+  "dexId": "2100",
+  "path": ["0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB"],
+  "amountIn": "10000000000",
+  "amountOutMin": "100",
+  "to": "0xa67E9B68c41b0f26184D64C26e0b2B81466E5994",
+  "from": "0xa67E9B68c41b0f26184D64C26e0b2B81466E5994",
+  "deadline": "1753156839",
+  "gas": "100000",
+  "signedTransaction": "0x..."
 }
 ```
 
-
-
-#### Obter Preço (Comparação)
+#### Adicionar Liquidez
 ```http
-POST /swap/price/compare
+POST /dex/addliquidity
 Content-Type: application/json
 
 {
-  "address": "0x...",
-  "signature": "0x...",
-  "message": "timestamp:1234567890",
-  "timestamp": 1234567890,
-  "tokenIn": "0x...",
-  "tokenOut": "0x...",
-  "amountIn": "1000000000000000000"
+  "dexId": "2100",
+  "tokenA": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+  "tokenB": "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB",
+  "amountA": "10000000000000000",
+  "amountB": "1000",
+  "amountAMin": "1000000000",
+  "amountBMin": "100",
+  "to": "0xa67E9B68c41b0f26184D64C26e0b2B81466E5994",
+  "from": "0xa67E9B68c41b0f26184D64C26e0b2B81466E5994",
+  "deadline": "1706678170",
+  "gas": "530000",
+  "signedTransaction": "0x..."
 }
 ```
 
-#### Executar Swap - Trader Joe
+#### Remover Liquidez
 ```http
-POST /swap/execute/traderjoe
+POST /dex/removeliquidity
 Content-Type: application/json
 
 {
-  "address": "0x...",
-  "signature": "0x...",
-  "message": "timestamp:1234567890",
-  "timestamp": 1234567890,
-  "tokenIn": "0x...",
-  "tokenOut": "0x...",
-  "amountIn": "1000000000000000000",
-  "slippage": 1.0
-}
-```
-
-
-
-#### Executar Swap (Trader Joe)
-```http
-POST /swap/execute/best
-Content-Type: application/json
-
-{
-  "address": "0x...",
-  "signature": "0x...",
-  "message": "timestamp:1234567890",
-  "timestamp": 1234567890,
-  "tokenIn": "0x...",
-  "tokenOut": "0x...",
-  "amountIn": "1000000000000000000",
-  "slippage": 1.0
-}
-```
-
-#### Obter Cotação Detalhada
-```http
-POST /swap/quote
-Content-Type: application/json
-
-{
-  "address": "0x...",
-  "signature": "0x...",
-  "message": "timestamp:1234567890",
-  "timestamp": 1234567890,
-  "tokenIn": "0x...",
-  "tokenOut": "0x...",
-  "amountIn": "1000000000000000000",
-  "slippage": 1.0
-}
-```
-
-#### Listar Tokens Comuns
-```http
-GET /swap/tokens/common
-```
-
-#### Opções de Slippage
-```http
-GET /swap/slippage/options
-```
-
-### 💰 Price Routes
-
-#### Preços dos Tokens Comuns da Avalanche
-```http
-GET /price/avalanche/common?vs_currency=usd
-```
-
-#### Preço de Token Específico
-```http
-GET /price/coingecko/bitcoin?vs_currency=usd
-```
-
-#### Preço de Token da Rede Avalanche
-```http
-GET /price/avalanche/token/0x...?vs_currency=usd
-```
-
-#### Histórico de Preços
-```http
-GET /price/history/bitcoin?vs_currency=usd&days=7
-```
-
-#### Informações do Token
-```http
-GET /price/token/bitcoin
-```
-
-#### Tendências de Mercado
-```http
-GET /price/trending?vs_currency=usd
-```
-
-#### Estatísticas Globais
-```http
-GET /price/global?vs_currency=usd
-```
-
-#### Preços em Lote
-```http
-POST /price/batch
-Content-Type: application/json
-
-{
-  "address": "0x...",
-  "signature": "0x...",
-  "message": "timestamp:1234567890",
-  "timestamp": 1234567890,
-  "tokenIds": ["bitcoin", "ethereum", "avalanche-2"],
-  "vs_currency": "usd"
+  "dexId": "2100",
+  "tokenA": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+  "tokenB": "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB",
+  "amountAMin": "9140195223753",
+  "amountBMin": "150",
+  "to": "0xa67E9B68c41b0f26184D64C26e0b2B81466E5994",
+  "from": "0xa67E9B68c41b0f26184D64C26e0b2B81466E5994",
+  "deadline": "1705994811",
+  "binStep": "20",
+  "ids": ["8375816", "8375817", "8375818"],
+  "amounts": ["6125082604576892342340742933771827806208", "6125082604576892342340742933771827806208", "6125082604576892342340742933771827806208"],
+  "signedTransaction": "0x..."
 }
 ```
 

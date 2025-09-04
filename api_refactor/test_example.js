@@ -105,111 +105,57 @@ class APITester {
     }
   }
 
-  /**
-   * Testa endpoints de preços
-   */
-  async testPriceEndpoints() {
-    console.log('\n💰 Testando endpoints de preços...\n');
 
-    try {
-      // Preços comuns da Avalanche
-      const commonPrices = await this.makeRequest('/price/avalanche/common');
-      console.log('✅ Preços comuns:', Object.keys(commonPrices.data).length, 'tokens');
 
-      // Preço do Bitcoin
-      const bitcoinPrice = await this.makeRequest('/price/coingecko/bitcoin');
-      console.log('✅ Preço Bitcoin:', `$${bitcoinPrice.data.price}`);
-
-      // Tendências de mercado
-      const trends = await this.makeRequest('/price/trending');
-      console.log('✅ Tendências:', trends.data.trendingCoins.length, 'tokens');
-
-      // Estatísticas globais
-      const globalStats = await this.makeRequest('/price/global');
-      console.log('✅ Estatísticas globais:', `$${globalStats.data.totalMarketCap.usd}`);
-
-    } catch (error) {
-      console.error('❌ Erro nos endpoints de preços:', error.message);
-    }
-  }
 
   /**
-   * Testa endpoints de swap (requer autenticação)
+   * Testa endpoints da API Trader Joe (seguindo documentação)
    */
-  async testSwapEndpoints() {
-    console.log('\n🔄 Testando endpoints de swap...\n');
+  async testTraderJoeEndpoints() {
+    console.log('\n🏆 Testando endpoints da API Trader Joe...\n');
 
     try {
-      // Lista tokens comuns
-      const commonTokens = await this.makeRequest('/swap/tokens/common');
-      console.log('✅ Tokens comuns:', commonTokens.tokens.length, 'tokens');
-
-      // Opções de slippage
-      const slippageOptions = await this.makeRequest('/swap/slippage/options');
-      console.log('✅ Opções de slippage:', Object.keys(slippageOptions.options).length, 'opções');
-
-      // Testa cotação (requer autenticação)
-      const quoteRequest = this.createAuthenticatedRequest({
-        tokenIn: TOKENS.WAVAX,
-        tokenOut: TOKENS.USDC,
-        amountIn: '1000000000000000000', // 1 AVAX
-        slippage: 1.0
-      });
-
-      const signedQuoteRequest = await this.signRequest(quoteRequest);
-      const quote = await this.makeRequest('/swap/quote', 'POST', signedQuoteRequest);
-      console.log('✅ Cotação obtida para Trader Joe');
-
-    } catch (error) {
-      console.error('❌ Erro nos endpoints de swap:', error.message);
-    }
-  }
-
-  /**
-   * Testa comparação de preços
-   */
-  async testPriceComparison() {
-    console.log('\n🏆 Testando comparação de preços...\n');
-
-    try {
-      const compareRequest = this.createAuthenticatedRequest({
-        tokenIn: TOKENS.WAVAX,
-        tokenOut: TOKENS.USDC,
-        amountIn: '1000000000000000000' // 1 AVAX
-      });
-
-      const signedCompareRequest = await this.signRequest(compareRequest);
-      const comparison = await this.makeRequest('/swap/price/compare', 'POST', signedCompareRequest);
+      // Testa /getprice
+      const priceRequest = this.createAuthenticatedRequest({});
+      const signedPriceRequest = await this.signRequest(priceRequest);
       
-      console.log('✅ Preço obtido:');
-      console.log(`   Protocolo: ${comparison.protocol}`);
-      console.log(`   Amount Out: ${comparison.data.amountOut}`);
-      console.log(`   Note: ${comparison.note}`);
+      const priceResponse = await this.makeRequest('/dex/getprice', 'GET', null, {
+        dexId: '2100',
+        path: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7,0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB',
+        amountIn: '1000000000000000000'
+      });
+      console.log('✅ Preço obtido via /getprice:', priceResponse.data?.amountsOut || 'N/A');
+
+      // Testa /getuserliquidity
+      const userLiquidityResponse = await this.makeRequest('/dex/getuserliquidity', 'GET', null, {
+        tokenA: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
+        tokenB: '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB',
+        address: this.walletAddress,
+        dexId: '2100',
+        id: '8376649'
+      });
+      console.log('✅ Liquidez do usuário obtida');
+
+      // Testa /getpoolliquidity
+      const poolLiquidityResponse = await this.makeRequest('/dex/getpoolliquidity', 'GET', null, {
+        poolAddress: '0xD446eb1660F766d533BeCeEf890Df7A69d26f7d1',
+        dexId: '2100',
+        id: '8376653'
+      });
+      console.log('✅ Liquidez do pool obtida');
+
+      // Testa /gettokenliquidity
+      const tokenLiquidityResponse = await this.makeRequest('/dex/gettokenliquidity', 'GET', null, {
+        poolAddress: '0x9f8973FB86b35C307324eC31fd81Cf565E2F4a63',
+        dexId: '2100'
+      });
+      console.log('✅ Liquidez dos tokens obtida');
 
     } catch (error) {
-      console.error('❌ Erro na comparação de preços:', error.message);
+      console.error('❌ Erro nos endpoints Trader Joe:', error.message);
     }
   }
 
-  /**
-   * Testa informações de tokens
-   */
-  async testTokenInfo() {
-    console.log('\n🪙 Testando informações de tokens...\n');
-
-    try {
-      // Informações do AVAX
-      const avaxInfo = await this.makeRequest(`/price/token/avalanche-2`);
-      console.log('✅ Informações AVAX:', avaxInfo.data.symbol, '-', avaxInfo.data.name);
-
-      // Histórico de preços do Bitcoin
-      const btcHistory = await this.makeRequest('/price/history/bitcoin?days=1');
-      console.log('✅ Histórico Bitcoin:', btcHistory.data.prices.length, 'pontos de dados');
-
-    } catch (error) {
-      console.error('❌ Erro nas informações de tokens:', error.message);
-    }
-  }
 
   /**
    * Executa todos os testes
@@ -222,10 +168,7 @@ class APITester {
 
     try {
       await this.testBasicEndpoints();
-      await this.testPriceEndpoints();
-      await this.testSwapEndpoints();
-      await this.testPriceComparison();
-      await this.testTokenInfo();
+      await this.testTraderJoeEndpoints();
 
       console.log('\n🎉 Todos os testes foram executados!');
       console.log('\n💡 Para executar swaps reais, use os endpoints de execução com transações assinadas pelo frontend.');

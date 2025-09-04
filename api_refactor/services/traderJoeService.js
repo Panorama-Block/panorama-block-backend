@@ -286,6 +286,204 @@ class TraderJoeService {
       throw new Error(`Erro ao obter balance do token: ${error.message}`);
     }
   }
+
+  /**
+   * Obtém liquidez do usuário para um par específico
+   */
+  async getUserLiquidity(tokenA, tokenB, address, id) {
+    try {
+      // Implementação simplificada - em produção, você integraria com a API do Trader Joe
+      // Para fins de demonstração, retornamos dados mockados
+      return {
+        pairAddress: '0x0000000000000000000000000000000000000000', // Endereço do par
+        liquidity: '0',
+        tokenA: '0',
+        tokenB: '0'
+      };
+    } catch (error) {
+      throw new Error(`Erro ao obter liquidez do usuário: ${error.message}`);
+    }
+  }
+
+  /**
+   * Obtém liquidez total de um pool
+   */
+  async getPoolLiquidity(poolAddress, id) {
+    try {
+      // Implementação simplificada - em produção, você integraria com a API do Trader Joe
+      return {
+        totalLiquidity: '0'
+      };
+    } catch (error) {
+      throw new Error(`Erro ao obter liquidez do pool: ${error.message}`);
+    }
+  }
+
+  /**
+   * Obtém liquidez individual dos tokens em um pool
+   */
+  async getTokenLiquidity(poolAddress) {
+    try {
+      // Implementação simplificada - em produção, você integraria com a API do Trader Joe
+      return {
+        // Retorna liquidez mockada para demonstração
+        '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7': '0', // WAVAX
+        '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB': '0'  // USDC
+      };
+    } catch (error) {
+      throw new Error(`Erro ao obter liquidez dos tokens: ${error.message}`);
+    }
+  }
+
+  /**
+   * Executa um swap seguindo a documentação da API
+   */
+  async executeSwap(params) {
+    try {
+      const {
+        path,
+        amountIn,
+        amountOutMin,
+        to,
+        from,
+        gas,
+        gasPriority,
+        slippage,
+        deadline,
+        signedTransaction
+      } = params;
+
+      if (!signedTransaction) {
+        throw new Error('Transação assinada é obrigatória para executar swaps');
+      }
+
+      // Envia a transação assinada
+      const tx = await this.provider.broadcastTransaction(signedTransaction);
+      
+      // Retorna no formato da documentação
+      return {
+        chainId: '43114',
+        from: from,
+        to: TRADER_JOE.ROUTER,
+        value: '0',
+        gas: gas || '100000',
+        data: '0x', // Dados da transação (seria preenchido pelo frontend)
+        referenceId: this.generateReferenceId(),
+        ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
+      };
+    } catch (error) {
+      throw new Error(`Erro ao executar swap: ${error.message}`);
+    }
+  }
+
+  /**
+   * Adiciona liquidez seguindo a documentação da API
+   */
+  async addLiquidity(params) {
+    try {
+      const {
+        tokenA,
+        tokenB,
+        amountA,
+        amountB,
+        amountAMin,
+        amountBMin,
+        deadline,
+        to,
+        from,
+        gas,
+        gasPriority,
+        slippage,
+        strategy,
+        signedTransaction
+      } = params;
+
+      if (!signedTransaction) {
+        throw new Error('Transação assinada é obrigatória para adicionar liquidez');
+      }
+
+      // Envia a transação assinada
+      const tx = await this.provider.broadcastTransaction(signedTransaction);
+      
+      // Retorna no formato da documentação
+      return {
+        chainId: '43114',
+        from: from,
+        to: TRADER_JOE.ROUTER,
+        value: '0',
+        gas: gas || '530000',
+        data: '0x', // Dados da transação (seria preenchido pelo frontend)
+        referenceId: this.generateReferenceId(),
+        ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
+      };
+    } catch (error) {
+      throw new Error(`Erro ao adicionar liquidez: ${error.message}`);
+    }
+  }
+
+  /**
+   * Remove liquidez seguindo a documentação da API
+   */
+  async removeLiquidity(params) {
+    try {
+      const {
+        tokenA,
+        tokenB,
+        amountAMin,
+        amountBMin,
+        deadline,
+        to,
+        from,
+        gas,
+        gasPriority,
+        binStep,
+        ids,
+        amounts,
+        slippage,
+        signedTransaction
+      } = params;
+
+      if (!signedTransaction) {
+        throw new Error('Transação assinada é obrigatória para remover liquidez');
+      }
+
+      // Envia a transação assinada
+      const tx = await this.provider.broadcastTransaction(signedTransaction);
+      
+      // Retorna no formato da documentação
+      return {
+        chainId: '43114',
+        from: from,
+        to: TRADER_JOE.ROUTER,
+        value: '0',
+        gas: gas || '0',
+        data: '0x', // Dados da transação (seria preenchido pelo frontend)
+        referenceId: this.generateReferenceId(),
+        ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
+      };
+    } catch (error) {
+      throw new Error(`Erro ao remover liquidez: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gera um ID de referência único
+   */
+  generateReferenceId() {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  }
+
+  /**
+   * Obtém preço do gas baseado na prioridade
+   */
+  getGasPrice(priority) {
+    const gasPrices = {
+      low: '25000000000',    // 25 gwei
+      medium: '30000000000', // 30 gwei
+      high: '37500000000'    // 37.5 gwei
+    };
+    return gasPrices[priority] || gasPrices.medium;
+  }
 }
 
 module.exports = TraderJoeService;

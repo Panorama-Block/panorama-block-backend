@@ -7,8 +7,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
 // Importa rotas
-const swapRoutes = require('./routes/swapRoutes');
-const priceRoutes = require('./routes/priceRoutes');
+const traderJoeRoutes = require('./routes/traderJoeRoutes');
 
 // Importa configurações
 const { NETWORKS, RATE_LIMIT, SECURITY } = require('./config/constants');
@@ -173,8 +172,7 @@ app.get('/config', (req, res) => {
 });
 
 // Registra as rotas
-app.use('/swap', swapRoutes);
-app.use('/price', priceRoutes);
+app.use('/dex', traderJoeRoutes);
 
 // Middleware de tratamento de erros
 app.use((err, req, res, next) => {
@@ -197,8 +195,7 @@ app.use((req, res) => {
       'GET /info',
       'GET /network/status',
       'GET /config',
-      'POST /swap/*',
-      'GET /price/*'
+      'GET/POST /dex/*'
     ]
   });
 });
@@ -232,8 +229,7 @@ async function initializeAPI() {
       console.log(`   API Info: GET /info`);
       console.log(`   Network Status: GET /network/status`);
       console.log(`   Configuration: GET /config`);
-      console.log(`   Swap Routes: POST /swap/*`);
-      console.log(`   Price Routes: GET /price/*`);
+      console.log(`   Trader Joe API: GET/POST /dex/*`);
       console.log('');
       console.log('💡 Para testar a API, use:');
       console.log(`   curl http://localhost:${port}/health`);
