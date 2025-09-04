@@ -10,6 +10,9 @@ import { ThirdwebSwapAdapter } from "../adapters/thirdweb.swap.adapter";
 import { ChainProviderAdapter } from "../adapters/chain.provider.adapter";
 import { SwapRepositoryAdapter } from "../adapters/swap.repository.adapter";
 import { SwapController } from "../http/controllers/swap.controller";
+import { GetSwapStatusUseCase } from "../../application/usecases/get.status.usecase";
+import { EngineExecutionAdapter } from "../adapters/engine.execution.adapter";
+import { IExecutionPort } from "../../domain/ports/execution.port";
 
 export class DIContainer {
   private static instance: DIContainer;
@@ -27,6 +30,7 @@ export class DIContainer {
   private readonly _prepareSwapUseCase: PrepareSwapUseCase;
   private readonly _executeSwapUseCase: ExecuteSwapUseCase;
   private readonly _getSwapHistoryUseCase: GetSwapHistoryUseCase;
+  private readonly _getSwapStatusUseCase: GetSwapStatusUseCase;
 
   // Controllers
   private readonly _swapController: SwapController;
@@ -49,17 +53,42 @@ export class DIContainer {
     // Initialize use cases
     this._getQuoteUseCase = new GetQuoteUseCase(this._swapDomainService);
     this._prepareSwapUseCase = new PrepareSwapUseCase(this._swapDomainService);
-    this._executeSwapUseCase = new ExecuteSwapUseCase(this._swapDomainService); // manter compat.
+    // Execution port (conditionally enabled)
+    const engineEnabled = process.env.ENGINE_ENABLED === "true";
+    let executionPort: IExecutionPort;
+    if (engineEnabled) {
+      try {
+        executionPort = new EngineExecutionAdapter();
+        console.log("[DIContainer] Engine execution enabled");
+      } catch (err) {
+        console.error("[DIContainer] Engine execution initialization failed:", (err as Error).message);
+        executionPort = {
+          async executeOriginTxs() {
+            throw new Error("Engine initialization failed; execution unavailable");
+          },
+        };
+      }
+    } else {
+      executionPort = {
+        async executeOriginTxs() {
+          throw new Error("Server-side execution disabled (ENGINE_ENABLED !== true)");
+        },
+      };
+    }
+
+    this._executeSwapUseCase = new ExecuteSwapUseCase(this._swapDomainService, executionPort);
     this._getSwapHistoryUseCase = new GetSwapHistoryUseCase(
       this._swapDomainService
     );
+    this._getSwapStatusUseCase = new GetSwapStatusUseCase(this._swapDomainService);
 
     // Initialize controller
     this._swapController = new SwapController(
       this._getQuoteUseCase,
       this._prepareSwapUseCase,
       this._executeSwapUseCase,
-      this._getSwapHistoryUseCase
+      this._getSwapHistoryUseCase,
+      this._getSwapStatusUseCase
     );
 
     console.log(
@@ -96,5 +125,9 @@ export class DIContainer {
 
   public get swapDomainService(): SwapDomainService {
     return this._swapDomainService;
+  }
+
+  public get getSwapStatusUseCase(): GetSwapStatusUseCase {
+    return this._getSwapStatusUseCase;
   }
 }

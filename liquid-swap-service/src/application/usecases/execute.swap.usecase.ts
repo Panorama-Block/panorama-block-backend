@@ -1,6 +1,7 @@
 // Application Use Cases
 import { SwapRequest, SwapResult } from "../../domain/entities/swap";
 import { SwapDomainService } from "../../domain/services/swap.domain.service";
+import { IExecutionPort, PreparedOriginTx } from "../../domain/ports/execution.port";
 
 export interface ExecuteSwapUseCaseRequest {
   fromChainId: number;
@@ -9,7 +10,9 @@ export interface ExecuteSwapUseCaseRequest {
   toToken: string;
   amount: string;
   sender: string;
-  receiver: string;
+  receiver?: string;
+  smartAccountAddress: string;
+  signerAddress: string;
 }
 
 export interface ExecuteSwapUseCaseResponse {
@@ -20,7 +23,10 @@ export interface ExecuteSwapUseCaseResponse {
 }
 
 export class ExecuteSwapUseCase {
-  constructor(private readonly swapDomainService: SwapDomainService) {}
+  constructor(
+    private readonly swapDomainService: SwapDomainService,
+    private readonly executionPort: IExecutionPort
+  ) {}
 
   public async execute(request: ExecuteSwapUseCaseRequest): Promise<ExecuteSwapUseCaseResponse> {
     try {
@@ -37,14 +43,59 @@ export class ExecuteSwapUseCase {
         request.receiver
       );
 
-      // Process swap through domain service
-      const result = await this.swapDomainService.processSwap(swapRequest);
+      // Prepare route/transactions on origin chain
+      const prepared: any = await this.swapDomainService.prepareSwap(swapRequest);
+
+      // Extract origin transactions from prepared object
+      const txs: PreparedOriginTx[] = [];
+      if (Array.isArray(prepared?.transactions)) {
+        for (const t of prepared.transactions) {
+          if (t?.to && t?.data) {
+            txs.push({
+              chainId: t.chainId ?? request.fromChainId,
+              to: t.to,
+              data: t.data,
+              value: t.value ?? "0",
+            });
+          }
+        }
+      }
+      if (!txs.length && Array.isArray(prepared?.steps)) {
+        for (const s of prepared.steps) {
+          if (Array.isArray(s?.transactions)) {
+            for (const t of s.transactions) {
+              if (t?.to && t?.data) {
+                txs.push({
+                  chainId: t.chainId ?? request.fromChainId,
+                  to: t.to,
+                  data: t.data,
+                  value: t.value ?? "0",
+                });
+              }
+            }
+          }
+        }
+      }
+
+      if (!txs.length) {
+        throw new Error("No origin transactions found in prepared quote");
+      }
+
+      const execResults = await this.executionPort.executeOriginTxs(
+        txs,
+        {
+          type: "ERC4337",
+          smartAccountAddress: request.smartAccountAddress,
+          signerAddress: request.signerAddress,
+        },
+        { sender: request.sender }
+      );
 
       return {
         success: true,
-        transactionHashes: result.transactions.map(tx => tx.hash),
-        estimatedDuration: result.quote.estimatedDuration,
-        message: "Swap executed successfully"
+        transactionHashes: execResults.map((r) => r.transactionHash),
+        estimatedDuration: Math.floor((prepared?.estimatedExecutionTimeMs ?? 0) / 1000),
+        message: "Swap executed via Engine (ERC4337)",
       };
 
     } catch (error) {

@@ -110,7 +110,11 @@ try {
           "/health": "Service health check",
           "/swap/quote": "Get quote (requires JWT auth)",
           "/swap/tx": "Get prepared tx bundle (requires JWT auth)",
+          "/swap/execute": process.env.ENGINE_ENABLED === "true"
+            ? "Execute via Engine (ERC4337, requires JWT)"
+            : "Disabled (set ENGINE_ENABLED=true)",
           "/swap/history": "Get user swap history (requires JWT auth)",
+          "/swap/status/:transactionHash?chainId=...": "Get route status for a transaction (requires JWT)",
         },
         supportedChains: {
           "1": "Ethereum Mainnet",
@@ -166,6 +170,8 @@ try {
         "POST /swap/quote",
         "POST /swap/tx",
         "GET /swap/history",
+        "POST /swap/execute",
+        "GET /swap/status/:transactionHash?chainId=...",
       ],
     });
   });

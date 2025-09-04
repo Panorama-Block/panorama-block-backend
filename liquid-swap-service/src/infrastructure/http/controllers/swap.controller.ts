@@ -9,6 +9,7 @@ import {
   GetSwapHistoryUseCase,
 } from "../../../application/usecases/execute.swap.usecase";
 import { PrepareSwapUseCase } from "../../../application/usecases/prepare.swap.usecase";
+import { GetSwapStatusUseCase } from "../../../application/usecases/get.status.usecase";
 
 // Alias dos tipos base
 type Request = ExpressRequest;
@@ -24,7 +25,8 @@ export class SwapController {
     private readonly getQuoteUseCase: GetQuoteUseCase,
     private readonly prepareSwapUseCase: PrepareSwapUseCase,
     private readonly executeSwapUseCase: ExecuteSwapUseCase,
-    private readonly getSwapHistoryUseCase: GetSwapHistoryUseCase
+    private readonly getSwapHistoryUseCase: GetSwapHistoryUseCase,
+    private readonly getSwapStatusUseCase: GetSwapStatusUseCase
   ) {}
 
   public getQuote = async (req: Request, res: Response): Promise<Response> => {
@@ -160,14 +162,92 @@ export class SwapController {
    * Mantido por compatibilidade; retorna 501 no V1 non-custodial.
    */
   public executeSwap = async (
-    _req: Request,
+    req: Request,
     res: Response
   ): Promise<Response> => {
-    return res.status(501).json({
-      error: "Server-side execution disabled",
-      message:
-        "Use /swap/tx para obter o bundle e assine no cliente. A execução no servidor é desativada no V1 non-custodial.",
-    });
+    try {
+      if (process.env.ENGINE_ENABLED !== "true") {
+        return res.status(501).json({
+          error: "Server-side execution disabled",
+          message:
+            "Set ENGINE_ENABLED=true to enable server-side execution via Engine.",
+        });
+      }
+
+      const {
+        fromChainId,
+        toChainId,
+        fromToken,
+        toToken,
+        amount,
+        receiver,
+        smartAccountAddress,
+        signerAddress,
+      } = (req.body ?? {}) as {
+        fromChainId?: number;
+        toChainId?: number;
+        fromToken?: string;
+        toToken?: string;
+        amount?: string;
+        receiver?: string;
+        smartAccountAddress?: string;
+        signerAddress?: string;
+      };
+
+      if (
+        !fromChainId ||
+        !toChainId ||
+        !fromToken ||
+        !toToken ||
+        !amount ||
+        !smartAccountAddress ||
+        !signerAddress
+      ) {
+        return res.status(400).json({
+          error: "Missing required parameters",
+          requiredParams: [
+            "fromChainId",
+            "toChainId",
+            "fromToken",
+            "toToken",
+            "amount",
+            "smartAccountAddress",
+            "signerAddress",
+          ],
+        });
+      }
+
+      const aReq = req as RequestWithUser;
+      if (!aReq.user?.address) {
+        return res.status(401).json({
+          error: "Unauthorized",
+          message: "User address not found in authentication token",
+        });
+      }
+
+      const sender = aReq.user.address;
+
+      const resp = await this.executeSwapUseCase.execute({
+        fromChainId,
+        toChainId,
+        fromToken,
+        toToken,
+        amount,
+        sender,
+        receiver,
+        smartAccountAddress,
+        signerAddress,
+      });
+
+      return res.json(resp);
+    } catch (error) {
+      console.error("[SwapController] Error executing swap:", error);
+      return res.status(500).json({
+        error: "Internal server error",
+        message:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      });
+    }
   };
 
   public getSwapHistory = async (
@@ -248,15 +328,21 @@ export class SwapController {
         });
       }
 
-      // TODO: integrar com monitor real (adapter.monitorTransaction)
-      return res.json({
-        success: true,
-        data: {
-          transactionHash,
-          status: "pending",
-          userAddress: aReq.user.address,
-        },
+      const chainIdRaw = (req.query?.chainId as string) || "";
+      const chainId = Number(chainIdRaw);
+      if (!chainId || Number.isNaN(chainId)) {
+        return res.status(400).json({
+          error: "Missing or invalid chainId",
+          requiredQuery: ["chainId"],
+        });
+      }
+
+      const out = await this.getSwapStatusUseCase.execute({
+        transactionHash,
+        chainId,
       });
+
+      return res.json({ success: true, data: { ...out, userAddress: aReq.user.address } });
     } catch (error) {
       console.error("[SwapController] Error getting swap status:", error);
       return res.status(500).json({
