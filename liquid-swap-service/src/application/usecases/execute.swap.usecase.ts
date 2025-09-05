@@ -40,7 +40,7 @@ export class ExecuteSwapUseCase {
         request.toToken,
         BigInt(request.amount),
         request.sender,
-        request.receiver
+        request.receiver || request.sender
       );
 
       // Prepare route/transactions on origin chain
