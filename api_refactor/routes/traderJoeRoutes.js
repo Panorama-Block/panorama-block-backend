@@ -7,7 +7,7 @@ const {
   validateNetwork,
   sanitizeInput
 } = require('../middleware/auth');
-const { NETWORKS, TRADER_JOE } = require('../config/constants');
+const { NETWORKS, TRADER_JOE, listTokens, getTokenAddress, addToken } = require('../config/constants');
 
 const router = express.Router();
 
@@ -95,9 +95,8 @@ router.get('/getprice',
         staticNetwork: true
       });
       
-      // Obtém private key do body se disponível
-      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
-      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+      // Usa o endereço verificado pela assinatura
+      const traderJoeService = new TraderJoeService(provider, req.verifiedAddress);
 
       // Obtém o preço usando o primeiro e último token do path
       const tokenIn = tokenPath[0];
@@ -199,9 +198,8 @@ router.get('/getuserliquidity',
         staticNetwork: true
       });
       
-      // Obtém private key do body se disponível
-      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
-      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+      // Usa o endereço verificado pela assinatura
+      const traderJoeService = new TraderJoeService(provider, req.verifiedAddress);
 
       // Obtém informações de liquidez do usuário
       // Nota: Esta é uma implementação simplificada
@@ -292,9 +290,8 @@ router.get('/getpoolliquidity',
       }, {
         staticNetwork: true
       });
-      // Obtém private key do body se disponível
-      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
-      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+      // Usa o endereço verificado pela assinatura
+      const traderJoeService = new TraderJoeService(provider, req.verifiedAddress);
 
       // Obtém liquidez total do pool
       const poolLiquidity = await traderJoeService.getPoolLiquidity(poolAddress, id);
@@ -383,9 +380,8 @@ router.get('/gettokenliquidity',
       }, {
         staticNetwork: true
       });
-      // Obtém private key do body se disponível
-      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
-      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+      // Usa o endereço verificado pela assinatura
+      const traderJoeService = new TraderJoeService(provider, req.verifiedAddress);
 
       // Obtém liquidez individual dos tokens
       const tokenLiquidity = await traderJoeService.getTokenLiquidity(poolAddress);
@@ -515,20 +511,10 @@ router.post('/swap',
       }, {
         staticNetwork: true
       });
-      // Obtém private key do body se disponível
-      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
-      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+      // Usa o endereço verificado pela assinatura
+      const traderJoeService = new TraderJoeService(provider, req.verifiedAddress);
 
-      // Se não temos private key, não podemos executar a transação
-      if (!privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatória para executar swaps'
-          }
-        });
-      }
+      // Para smart wallet, a assinatura já foi verificada no middleware
 
       // Executa o swap
       const swapResult = await traderJoeService.executeSwap({
@@ -680,20 +666,10 @@ router.post('/addliquidity',
       }, {
         staticNetwork: true
       });
-      // Obtém private key do body se disponível
-      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
-      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+      // Usa o endereço verificado pela assinatura
+      const traderJoeService = new TraderJoeService(provider, req.verifiedAddress);
 
-      // Se não temos private key, não podemos executar a transação
-      if (!privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatória para adicionar liquidez'
-          }
-        });
-      }
+      // Para smart wallet, a assinatura já foi verificada no middleware
 
       // Adiciona liquidez
       const addLiquidityResult = await traderJoeService.addLiquidity({
@@ -849,20 +825,10 @@ router.post('/removeliquidity',
       }, {
         staticNetwork: true
       });
-      // Obtém private key do body se disponível
-      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
-      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+      // Usa o endereço verificado pela assinatura
+      const traderJoeService = new TraderJoeService(provider, req.verifiedAddress);
 
-      // Se não temos private key, não podemos executar a transação
-      if (!privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatória para remover liquidez'
-          }
-        });
-      }
+      // Para smart wallet, a assinatura já foi verificada no middleware
 
       // Remove liquidez
       const removeLiquidityResult = await traderJoeService.removeLiquidity({
@@ -899,5 +865,79 @@ router.post('/removeliquidity',
     }
   }
 );
+
+/**
+ * @route GET /tokens
+ * @desc Lista todos os tokens disponíveis
+ * @access Public
+ */
+router.get('/tokens', traderJoeRateLimiter, async (req, res) => {
+  try {
+    const tokens = listTokens();
+    
+    res.json({
+      status: 200,
+      msg: 'success',
+      data: {
+        tokens: tokens,
+        total: tokens.length,
+        note: 'Lista de todos os tokens disponíveis na API'
+      }
+    });
+  } catch (error) {
+    console.error('❌ Erro ao listar tokens:', error.message);
+    res.status(500).json({
+      status: 500,
+      msg: 'error',
+      data: {
+        error: 'Erro ao listar tokens',
+        details: error.message
+      }
+    });
+  }
+});
+
+/**
+ * @route GET /tokens/:symbol
+ * @desc Obtém o endereço de um token específico
+ * @access Public
+ */
+router.get('/tokens/:symbol', traderJoeRateLimiter, async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const address = getTokenAddress(symbol);
+    
+    if (!address) {
+      return res.status(404).json({
+        status: 404,
+        msg: 'error',
+        data: {
+          error: 'Token não encontrado',
+          details: `Token ${symbol} não está disponível`
+        }
+      });
+    }
+    
+    res.json({
+      status: 200,
+      msg: 'success',
+      data: {
+        symbol: symbol.toUpperCase(),
+        address: address,
+        note: 'Endereço do token solicitado'
+      }
+    });
+  } catch (error) {
+    console.error('❌ Erro ao obter token:', error.message);
+    res.status(500).json({
+      status: 500,
+      msg: 'error',
+      data: {
+        error: 'Erro ao obter token',
+        details: error.message
+      }
+    });
+  }
+});
 
 module.exports = router;

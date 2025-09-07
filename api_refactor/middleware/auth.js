@@ -2,60 +2,22 @@ const { ethers } = require('ethers');
 const { SECURITY } = require('../config/constants');
 
 /**
- * Middleware para verificar assinatura de wallet (modo simplificado com private key)
- * Para testes - aceita private key diretamente ou assinatura tradicional
+ * Middleware para verificar assinatura de wallet (smart wallet)
+ * Usa apenas assinatura do frontend, sem private key
  */
 function verifySignature(req, res, next) {
   try {
-    const { address, signature, message, timestamp, privateKey } = req.body;
+    const { address, signature, message, timestamp } = req.body;
 
-    // Modo simplificado: se privateKey for fornecida, usa ela diretamente
-    if (privateKey) {
-      console.log('🔍 Debug Auth - privateKey recebida:', privateKey.substring(0, 10) + '...');
-      try {
-        // Valida se a private key é válida
-        if (!privateKey.startsWith('0x') || privateKey.length !== 66) {
-          console.log('❌ Debug Auth - privateKey inválida:', privateKey);
-          return res.status(400).json({
-            error: 'Private key inválida',
-            message: 'Private key deve começar com 0x e ter 66 caracteres'
-          });
-        }
-
-        // Cria wallet a partir da private key
-        const wallet = new ethers.Wallet(privateKey);
-        
-        // Adiciona informações verificadas ao request
-        req.verifiedAddress = wallet.address.toLowerCase();
-        req.wallet = wallet;
-        req.authMode = 'privateKey';
-        req.signatureData = {
-          address: wallet.address.toLowerCase(),
-          privateKey: privateKey.substring(0, 10) + '...', // Log apenas parte da key
-          timestamp: Date.now()
-        };
-
-        console.log(`🔐 Autenticação via private key para endereço: ${wallet.address}`);
-        next();
-        return;
-      } catch (error) {
-        return res.status(400).json({
-          error: 'Private key inválida',
-          details: error.message
-        });
-      }
-    }
-
-    // Modo tradicional: verificação de assinatura
+    // Verificação de assinatura obrigatória
     if (!address || !signature || !message) {
       return res.status(400).json({
         error: 'Parâmetros inválidos',
-        required: ['address', 'signature', 'message'] + ' OU [' + 'privateKey' + ']',
+        required: ['address', 'signature', 'message'],
         received: { 
           address: !!address, 
           signature: !!signature, 
-          message: !!message,
-          privateKey: !!privateKey 
+          message: !!message
         }
       });
     }

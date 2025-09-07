@@ -35,17 +35,45 @@ const TRADER_JOE = {
 
 
 // Tokens Comuns na Avalanche
+// Usa variáveis de ambiente se disponíveis, senão usa valores padrão
 const COMMON_TOKENS = {
-  WAVAX: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
-  USDC: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
-  USDT: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
-  DAI: '0xd586E7F844cEa2F87f50152665BCbc2C279D8d70',
-  WETH: '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB',
-  JOE: '0x6e84a6216eA6dACC71eE8E6b0a5B7322EEbC0fDd',
-
-  LINK: '0x5947BB275c521040051D82396192181b413227A3',
-  UNI: '0x8eBAf22B6F053dFFeaf46f4Dd9eFA95D89ba8580'
+  WAVAX: process.env.WAVAX_ADDRESS || '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
+  USDC: process.env.USDC_ADDRESS || '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
+  USDT: process.env.USDT_ADDRESS || '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+  DAI: process.env.DAI_ADDRESS || '0xd586E7F844cEa2F87f50152665BCbc2C279D8d70',
+  WETH: process.env.WETH_ADDRESS || '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB',
+  JOE: process.env.JOE_ADDRESS || '0x6e84a6216eA6dACC71eE8E6b0a5B7322EEbC0fDd',
+  LINK: process.env.LINK_ADDRESS || '0x5947BB275c521040051D82396192181b413227A3',
+  UNI: process.env.UNI_ADDRESS || '0x8eBAf22B6F053dFFeaf46f4Dd9eFA95D89ba8580',
+  
+  // Tokens DeFi (opcional)
+  AAVE: process.env.AAVE_ADDRESS || '0x63a72806098Bd3D9520cC43356dD78afe5D386D9',
+  COMP: process.env.COMP_ADDRESS || '0xc3048E19E76CB9a3Aa9d77D8C03c29Fc906e2437',
+  CRV: process.env.CRV_ADDRESS || '0x249848BeCA43aC405b8102Ec90Dd5F22CA513c06',
+  
+  // Tokens de Meme (opcional - você pode adicionar mais)
+  PEPE: process.env.PEPE_ADDRESS || '0x0000000000000000000000000000000000000000',
+  DOGE: process.env.DOGE_ADDRESS || '0x0000000000000000000000000000000000000000'
 };
+
+// Função para adicionar novos tokens dinamicamente
+function addToken(symbol, address) {
+  COMMON_TOKENS[symbol.toUpperCase()] = address;
+  console.log(`✅ Token ${symbol} adicionado: ${address}`);
+}
+
+// Função para obter endereço de um token
+function getTokenAddress(symbol) {
+  return COMMON_TOKENS[symbol.toUpperCase()] || null;
+}
+
+// Função para listar todos os tokens disponíveis
+function listTokens() {
+  return Object.keys(COMMON_TOKENS).map(symbol => ({
+    symbol,
+    address: COMMON_TOKENS[symbol]
+  }));
+}
 
 // Configurações de Slippage
 const SLIPPAGE_OPTIONS = {
@@ -89,11 +117,14 @@ const SECURITY = {
 module.exports = {
   NETWORKS,
   TRADER_JOE,
-
   COMMON_TOKENS,
   SLIPPAGE_OPTIONS,
   GAS_SETTINGS,
   API_URLS,
   RATE_LIMIT,
-  SECURITY
+  SECURITY,
+  // Funções para gerenciar tokens
+  addToken,
+  getTokenAddress,
+  listTokens
 };
