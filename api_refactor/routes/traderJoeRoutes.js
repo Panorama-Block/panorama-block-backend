@@ -16,8 +16,33 @@ const traderJoeRateLimiter = createRateLimiter(100, 15 * 60 * 1000); // 100 requ
 
 /**
  * @route GET /getprice
- * @desc Returns the swap quotation for the given token pair
- * @access Public (com assinatura)
+ * @desc Retorna a cotação de swap para um par de tokens específico
+ * @access Public (com autenticação)
+ * 
+ * COMO CHAMAR:
+ * GET /dex/getprice?dexId=2100&path=0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7,0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB&amountIn=1000000000000000000
+ * 
+ * Headers: Content-Type: application/json
+ * Body: {
+ *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ * }
+ * 
+ * Parâmetros:
+ * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
+ * - path: Caminho dos tokens separados por vírgula (tokenIn,tokenOut)
+ * - amountIn: Quantidade de entrada em wei
+ * - rpc: (opcional) URL do RPC customizado
+ * 
+ * Exemplo de resposta:
+ * {
+ *   "status": 200,
+ *   "msg": "success",
+ *   "data": {
+ *     "amountIn": "1000000000000000000",
+ *     "path": ["0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB"],
+ *     "amountsOut": "1234567890123456789"
+ *   }
+ * }
  */
 router.get('/getprice', 
   verifySignature, 
@@ -63,8 +88,16 @@ router.get('/getprice',
 
       // Usa RPC fornecido ou padrão
       const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const traderJoeService = new TraderJoeService(provider);
+      const provider = new ethers.JsonRpcProvider(rpcUrl, {
+        name: 'avalanche',
+        chainId: 43114
+      }, {
+        staticNetwork: true
+      });
+      
+      // Obtém private key do body se disponível
+      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
+      const traderJoeService = new TraderJoeService(provider, null, privateKey);
 
       // Obtém o preço usando o primeiro e último token do path
       const tokenIn = tokenPath[0];
@@ -97,8 +130,36 @@ router.get('/getprice',
 
 /**
  * @route GET /getuserliquidity
- * @desc Returns the balance of a particular token pair of an account
- * @access Public (com assinatura)
+ * @desc Retorna o saldo de liquidez de um par de tokens específico para uma conta
+ * @access Public (com autenticação)
+ * 
+ * COMO CHAMAR:
+ * GET /dex/getuserliquidity?tokenA=0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7&tokenB=0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB&dexId=2100&address=0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0&id=1
+ * 
+ * Headers: Content-Type: application/json
+ * Body: {
+ *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ * }
+ * 
+ * Parâmetros:
+ * - tokenA: Endereço do primeiro token do par
+ * - tokenB: Endereço do segundo token do par
+ * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
+ * - address: Endereço da wallet para verificar liquidez
+ * - id: ID do pool (opcional)
+ * - rpc: (opcional) URL do RPC customizado
+ * 
+ * Exemplo de resposta:
+ * {
+ *   "status": 200,
+ *   "msg": "success",
+ *   "data": {
+ *     "pairAddress": "0x0000000000000000000000000000000000000000",
+ *     "liquidity": "0",
+ *     "tokenA": "0",
+ *     "tokenB": "0"
+ *   }
+ * }
  */
 router.get('/getuserliquidity', 
   verifySignature, 
@@ -131,8 +192,16 @@ router.get('/getuserliquidity',
 
       // Usa RPC fornecido ou padrão
       const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const traderJoeService = new TraderJoeService(provider);
+      const provider = new ethers.JsonRpcProvider(rpcUrl, {
+        name: 'avalanche',
+        chainId: 43114
+      }, {
+        staticNetwork: true
+      });
+      
+      // Obtém private key do body se disponível
+      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
+      const traderJoeService = new TraderJoeService(provider, null, privateKey);
 
       // Obtém informações de liquidez do usuário
       // Nota: Esta é uma implementação simplificada
@@ -160,8 +229,31 @@ router.get('/getuserliquidity',
 
 /**
  * @route GET /getpoolliquidity
- * @desc Returns the total liquidity for a specified pool
- * @access Public (com assinatura)
+ * @desc Retorna a liquidez total de um pool específico
+ * @access Public (com autenticação)
+ * 
+ * COMO CHAMAR:
+ * GET /dex/getpoolliquidity?poolAddress=0x0000000000000000000000000000000000000000&dexId=2100&id=1
+ * 
+ * Headers: Content-Type: application/json
+ * Body: {
+ *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ * }
+ * 
+ * Parâmetros:
+ * - poolAddress: Endereço do pool de liquidez
+ * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
+ * - id: ID do pool
+ * - rpc: (opcional) URL do RPC customizado
+ * 
+ * Exemplo de resposta:
+ * {
+ *   "status": 200,
+ *   "msg": "success",
+ *   "data": {
+ *     "totalLiquidity": "0"
+ *   }
+ * }
  */
 router.get('/getpoolliquidity', 
   verifySignature, 
@@ -194,8 +286,15 @@ router.get('/getpoolliquidity',
 
       // Usa RPC fornecido ou padrão
       const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const traderJoeService = new TraderJoeService(provider);
+      const provider = new ethers.JsonRpcProvider(rpcUrl, {
+        name: 'avalanche',
+        chainId: 43114
+      }, {
+        staticNetwork: true
+      });
+      // Obtém private key do body se disponível
+      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
+      const traderJoeService = new TraderJoeService(provider, null, privateKey);
 
       // Obtém liquidez total do pool
       const poolLiquidity = await traderJoeService.getPoolLiquidity(poolAddress, id);
@@ -221,8 +320,31 @@ router.get('/getpoolliquidity',
 
 /**
  * @route GET /gettokenliquidity
- * @desc Returns the individual token liquidity within the specified liquidity pool
- * @access Public (com assinatura)
+ * @desc Retorna a liquidez individual dos tokens dentro de um pool específico
+ * @access Public (com autenticação)
+ * 
+ * COMO CHAMAR:
+ * GET /dex/gettokenliquidity?poolAddress=0x0000000000000000000000000000000000000000&dexId=2100
+ * 
+ * Headers: Content-Type: application/json
+ * Body: {
+ *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ * }
+ * 
+ * Parâmetros:
+ * - poolAddress: Endereço do pool de liquidez
+ * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
+ * - rpc: (opcional) URL do RPC customizado
+ * 
+ * Exemplo de resposta:
+ * {
+ *   "status": 200,
+ *   "msg": "success",
+ *   "data": {
+ *     "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7": "0",
+ *     "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB": "0"
+ *   }
+ * }
  */
 router.get('/gettokenliquidity', 
   verifySignature, 
@@ -255,8 +377,15 @@ router.get('/gettokenliquidity',
 
       // Usa RPC fornecido ou padrão
       const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const traderJoeService = new TraderJoeService(provider);
+      const provider = new ethers.JsonRpcProvider(rpcUrl, {
+        name: 'avalanche',
+        chainId: 43114
+      }, {
+        staticNetwork: true
+      });
+      // Obtém private key do body se disponível
+      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
+      const traderJoeService = new TraderJoeService(provider, null, privateKey);
 
       // Obtém liquidez individual dos tokens
       const tokenLiquidity = await traderJoeService.getTokenLiquidity(poolAddress);
@@ -282,8 +411,58 @@ router.get('/gettokenliquidity',
 
 /**
  * @route POST /swap
- * @desc Initiate a swap transaction on a specified DEX
+ * @desc Inicia uma transação de swap em um DEX específico
  * @access Private (com transação assinada)
+ * 
+ * COMO CHAMAR:
+ * POST /dex/swap
+ * 
+ * Headers: Content-Type: application/json
+ * Body: {
+ *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+ *   "dexId": "2100",
+ *   "path": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7,0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB",
+ *   "amountIn": "1000000000000000000",
+ *   "amountOutMin": "950000000000000000",
+ *   "to": "0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0",
+ *   "from": "0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0",
+ *   "deadline": 1735689600,
+ *   "gas": "500000",
+ *   "gasPriority": "medium",
+ *   "slippage": 1.0
+ *   // A transação será assinada automaticamente usando a privateKey
+ * }
+ * 
+ * Parâmetros obrigatórios:
+ * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
+ * - path: Caminho dos tokens separados por vírgula
+ * - amountIn: Quantidade de entrada em wei
+ * - amountOutMin: Quantidade mínima de saída em wei
+ * - to: Endereço de destino dos tokens
+ * - from: Endereço de origem
+ * - deadline: Timestamp de expiração da transação
+ * - privateKey: Private key para executar a transação
+ * 
+ * Parâmetros opcionais:
+ * - gas: Limite de gas
+ * - gasPriority: Prioridade do gas (low, medium, high)
+ * - slippage: Percentual de slippage
+ * - rpc: URL do RPC customizado
+ * 
+ * Exemplo de resposta:
+ * {
+ *   "status": 200,
+ *   "msg": "success",
+ *   "data": {
+ *     "chainId": "43114",
+ *     "from": "0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0",
+ *     "to": "0x60aE616a2155Ee3d9A68541Ba4544862310933d4",
+ *     "value": "0",
+ *     "gas": "100000",
+ *     "data": "0x",
+ *     "referenceId": "abc123def456"
+ *   }
+ * }
  */
 router.post('/swap', 
   verifySignature, 
@@ -304,7 +483,6 @@ router.post('/swap',
         gasPriority, 
         slippage, 
         deadline,
-        signedTransaction 
       } = req.body;
       
       // Validação dos parâmetros obrigatórios
@@ -329,21 +507,28 @@ router.post('/swap',
         });
       }
 
-      // Validação da transação assinada
-      if (!signedTransaction) {
+      // Usa RPC fornecido ou padrão
+      const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
+      const provider = new ethers.JsonRpcProvider(rpcUrl, {
+        name: 'avalanche',
+        chainId: 43114
+      }, {
+        staticNetwork: true
+      });
+      // Obtém private key do body se disponível
+      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
+      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+
+      // Se não temos private key, não podemos executar a transação
+      if (!privateKey) {
         return res.status(400).json({
           status: 400,
           msg: 'error',
           data: {
-            error: 'signedTransaction é obrigatória'
+            error: 'privateKey é obrigatória para executar swaps'
           }
         });
       }
-
-      // Usa RPC fornecido ou padrão
-      const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const traderJoeService = new TraderJoeService(provider);
 
       // Executa o swap
       const swapResult = await traderJoeService.executeSwap({
@@ -356,7 +541,6 @@ router.post('/swap',
         gasPriority,
         slippage,
         deadline,
-        signedTransaction
       });
       
       res.json({
@@ -380,8 +564,66 @@ router.post('/swap',
 
 /**
  * @route POST /addliquidity
- * @desc Add liquidity to a specified pool in a specified DEX
+ * @desc Adiciona liquidez a um pool específico em um DEX específico
  * @access Private (com transação assinada)
+ * 
+ * COMO CHAMAR:
+ * POST /dex/addliquidity
+ * 
+ * Headers: Content-Type: application/json
+ * Body: {
+ *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+ *   "dexId": "2100",
+ *   "tokenA": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+ *   "tokenB": "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB",
+ *   "amountA": "1000000000000000000",
+ *   "amountB": "2000000000000000000",
+ *   "amountAMin": "950000000000000000",
+ *   "amountBMin": "1900000000000000000",
+ *   "deadline": 1735689600,
+ *   "to": "0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0",
+ *   "from": "0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0",
+ *   "gas": "530000",
+ *   "gasPriority": "medium",
+ *   "slippage": 1.0,
+ *   "strategy": "standard"
+ *   // A transação será assinada automaticamente usando a privateKey
+ * }
+ * 
+ * Parâmetros obrigatórios:
+ * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
+ * - tokenA: Endereço do primeiro token
+ * - tokenB: Endereço do segundo token
+ * - amountA: Quantidade do token A em wei
+ * - amountB: Quantidade do token B em wei
+ * - amountAMin: Quantidade mínima do token A
+ * - amountBMin: Quantidade mínima do token B
+ * - deadline: Timestamp de expiração da transação
+ * - to: Endereço de destino
+ * - from: Endereço de origem
+ * - privateKey: Private key para executar a transação
+ * 
+ * Parâmetros opcionais:
+ * - gas: Limite de gas
+ * - gasPriority: Prioridade do gas (low, medium, high)
+ * - slippage: Percentual de slippage
+ * - strategy: Estratégia de adição de liquidez
+ * - rpc: URL do RPC customizado
+ * 
+ * Exemplo de resposta:
+ * {
+ *   "status": 200,
+ *   "msg": "success",
+ *   "data": {
+ *     "chainId": "43114",
+ *     "from": "0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0",
+ *     "to": "0x60aE616a2155Ee3d9A68541Ba4544862310933d4",
+ *     "value": "0",
+ *     "gas": "530000",
+ *     "data": "0x",
+ *     "referenceId": "abc123def456"
+ *   }
+ * }
  */
 router.post('/addliquidity', 
   verifySignature, 
@@ -406,7 +648,6 @@ router.post('/addliquidity',
         gasPriority, 
         slippage, 
         strategy,
-        signedTransaction 
       } = req.body;
       
       // Validação dos parâmetros obrigatórios
@@ -431,21 +672,28 @@ router.post('/addliquidity',
         });
       }
 
-      // Validação da transação assinada
-      if (!signedTransaction) {
+      // Usa RPC fornecido ou padrão
+      const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
+      const provider = new ethers.JsonRpcProvider(rpcUrl, {
+        name: 'avalanche',
+        chainId: 43114
+      }, {
+        staticNetwork: true
+      });
+      // Obtém private key do body se disponível
+      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
+      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+
+      // Se não temos private key, não podemos executar a transação
+      if (!privateKey) {
         return res.status(400).json({
           status: 400,
           msg: 'error',
           data: {
-            error: 'signedTransaction é obrigatória'
+            error: 'privateKey é obrigatória para adicionar liquidez'
           }
         });
       }
-
-      // Usa RPC fornecido ou padrão
-      const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const traderJoeService = new TraderJoeService(provider);
 
       // Adiciona liquidez
       const addLiquidityResult = await traderJoeService.addLiquidity({
@@ -462,7 +710,6 @@ router.post('/addliquidity',
         gasPriority,
         slippage,
         strategy,
-        signedTransaction
       });
       
       res.json({
@@ -486,8 +733,66 @@ router.post('/addliquidity',
 
 /**
  * @route POST /removeliquidity
- * @desc Remove liquidity from a specified pool for a specified DEX
+ * @desc Remove liquidez de um pool específico em um DEX específico
  * @access Private (com transação assinada)
+ * 
+ * COMO CHAMAR:
+ * POST /dex/removeliquidity
+ * 
+ * Headers: Content-Type: application/json
+ * Body: {
+ *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+ *   "dexId": "2100",
+ *   "tokenA": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+ *   "tokenB": "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB",
+ *   "amountAMin": "950000000000000000",
+ *   "amountBMin": "1900000000000000000",
+ *   "deadline": 1735689600,
+ *   "from": "0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0",
+ *   "to": "0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0",
+ *   "gas": "500000",
+ *   "gasPriority": "medium",
+ *   "binStep": "25",
+ *   "ids": ["1", "2", "3"],
+ *   "amounts": ["1000000000000000000", "2000000000000000000", "3000000000000000000"],
+ *   "slippage": 1.0
+ *   // A transação será assinada automaticamente usando a privateKey
+ * }
+ * 
+ * Parâmetros obrigatórios:
+ * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
+ * - tokenA: Endereço do primeiro token
+ * - tokenB: Endereço do segundo token
+ * - amountAMin: Quantidade mínima do token A
+ * - amountBMin: Quantidade mínima do token B
+ * - deadline: Timestamp de expiração da transação
+ * - from: Endereço de origem
+ * - to: Endereço de destino
+ * - binStep: Passo do bin (para Trader Joe v2)
+ * - ids: Array de IDs dos bins
+ * - amounts: Array de quantidades para cada bin
+ * - privateKey: Private key para executar a transação
+ * 
+ * Parâmetros opcionais:
+ * - gas: Limite de gas
+ * - gasPriority: Prioridade do gas (low, medium, high)
+ * - slippage: Percentual de slippage
+ * - rpc: URL do RPC customizado
+ * 
+ * Exemplo de resposta:
+ * {
+ *   "status": 200,
+ *   "msg": "success",
+ *   "data": {
+ *     "chainId": "43114",
+ *     "from": "0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0",
+ *     "to": "0x60aE616a2155Ee3d9A68541Ba4544862310933d4",
+ *     "value": "0",
+ *     "gas": "0",
+ *     "data": "0x",
+ *     "referenceId": "abc123def456"
+ *   }
+ * }
  */
 router.post('/removeliquidity', 
   verifySignature, 
@@ -512,7 +817,6 @@ router.post('/removeliquidity',
         amounts, 
         to, 
         slippage,
-        signedTransaction 
       } = req.body;
       
       // Validação dos parâmetros obrigatórios
@@ -537,21 +841,28 @@ router.post('/removeliquidity',
         });
       }
 
-      // Validação da transação assinada
-      if (!signedTransaction) {
+      // Usa RPC fornecido ou padrão
+      const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
+      const provider = new ethers.JsonRpcProvider(rpcUrl, {
+        name: 'avalanche',
+        chainId: 43114
+      }, {
+        staticNetwork: true
+      });
+      // Obtém private key do body se disponível
+      const privateKey = req.body.privateKey || process.env.PRIVATE_KEY;
+      const traderJoeService = new TraderJoeService(provider, null, privateKey);
+
+      // Se não temos private key, não podemos executar a transação
+      if (!privateKey) {
         return res.status(400).json({
           status: 400,
           msg: 'error',
           data: {
-            error: 'signedTransaction é obrigatória'
+            error: 'privateKey é obrigatória para remover liquidez'
           }
         });
       }
-
-      // Usa RPC fornecido ou padrão
-      const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const traderJoeService = new TraderJoeService(provider);
 
       // Remove liquidez
       const removeLiquidityResult = await traderJoeService.removeLiquidity({
@@ -568,7 +879,6 @@ router.post('/removeliquidity',
         ids,
         amounts,
         slippage,
-        signedTransaction
       });
       
       res.json({

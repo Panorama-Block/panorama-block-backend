@@ -2,17 +2,40 @@ const { ethers } = require('ethers');
 const axios = require('axios');
 const { TRADER_JOE, COMMON_TOKENS, API_URLS } = require('../config/constants');
 
-// ABI simplificado para Trader Joe Router
+// ABI completo para Trader Joe Router
 const TRADER_JOE_ROUTER_ABI = [
+  // Funções de consulta
   'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)',
-  'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
-  'function swapExactAVAXForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)',
-  'function swapExactTokensForAVAX(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
-  'function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external',
-  'function swapExactAVAXForTokensSupportingFeeOnTransferTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)',
-  'function swapExactTokensForAVAXSupportingFeeOnTransferTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external',
+  'function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)',
   'function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut) public pure returns (uint amountOut)',
-  'function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut) public pure returns (uint amountIn)'
+  'function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut) public pure returns (uint amountIn)',
+  'function quote(uint amountA, uint reserveA, uint reserveB) public pure returns (uint amountB)',
+  'function getReserves(address factory, address tokenA, address tokenB) public view returns (uint reserveA, uint reserveB)',
+  
+  // Funções de swap
+  'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
+  'function swapTokensForExactTokens(uint amountOut, uint amountInMax, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
+  'function swapExactAVAXForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)',
+  'function swapTokensForExactAVAX(uint amountOut, uint amountInMax, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
+  'function swapExactTokensForAVAX(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
+  'function swapAVAXForExactTokens(uint amountOut, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)',
+  
+  // Funções de swap com suporte a fee on transfer
+  'function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external',
+  'function swapExactAVAXForTokensSupportingFeeOnTransferTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable',
+  'function swapExactTokensForAVAXSupportingFeeOnTransferTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external',
+  
+  // Funções de liquidez
+  'function addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) external returns (uint amountA, uint amountB, uint liquidity)',
+  'function addLiquidityAVAX(address token, uint amountTokenDesired, uint amountTokenMin, uint amountAVAXMin, address to, uint deadline) external payable returns (uint amountToken, uint amountAVAX, uint liquidity)',
+  'function removeLiquidity(address tokenA, address tokenB, uint liquidity, uint amountAMin, uint amountBMin, address to, uint deadline) external returns (uint amountA, uint amountB)',
+  'function removeLiquidityAVAX(address token, uint liquidity, uint amountTokenMin, uint amountAVAXMin, address to, uint deadline) external returns (uint amountToken, uint amountAVAX)',
+  'function removeLiquidityWithPermit(address tokenA, address tokenB, uint liquidity, uint amountAMin, uint amountBMin, address to, uint deadline, bool approveMax, uint8 v, bytes32 r, bytes32 s) external returns (uint amountA, uint amountB)',
+  'function removeLiquidityAVAXWithPermit(address token, uint liquidity, uint amountTokenMin, uint amountAVAXMin, address to, uint deadline, bool approveMax, uint8 v, bytes32 r, bytes32 s) external returns (uint amountToken, uint amountAVAX)',
+  
+  // Funções de factory
+  'function factory() external pure returns (address)',
+  'function WAVAX() external pure returns (address)'
 ];
 
 // ABI para ERC20
@@ -29,9 +52,19 @@ const ERC20_ABI = [
 ];
 
 class TraderJoeService {
-  constructor(provider, walletAddress = null) {
+  constructor(provider, walletAddress = null, privateKey = null) {
     this.provider = provider;
     this.walletAddress = walletAddress;
+    this.privateKey = privateKey;
+    
+    // Se private key for fornecida, cria uma wallet conectada
+    if (privateKey) {
+      this.wallet = new ethers.Wallet(privateKey, provider);
+      this.walletAddress = this.wallet.address;
+      // Para operações que precisam de wallet (escrita)
+      this.routerWithWallet = new ethers.Contract(TRADER_JOE.ROUTER, TRADER_JOE_ROUTER_ABI, this.wallet);
+    }
+    
     // Para operações de leitura, não precisamos de wallet
     this.router = new ethers.Contract(TRADER_JOE.ROUTER, TRADER_JOE_ROUTER_ABI, provider);
   }
@@ -81,109 +114,6 @@ class TraderJoeService {
     return ethers.parseUnits(minAmountOut.toString(), 18);
   }
 
-  /**
-   * Executa swap de tokens para tokens
-   * @param {string} tokenIn - Endereço do token de entrada
-   * @param {string} tokenOut - Endereço do token de saída
-   * @param {string} amountIn - Quantidade de entrada
-   * @param {string} amountOutMin - Quantidade mínima de saída
-   * @param {number} slippage - Percentual de slippage
-   * @param {string} signedTransaction - Transação assinada pelo frontend
-   * @returns {Object} Resultado da transação
-   */
-  async swapTokensForTokens(tokenIn, tokenOut, amountIn, amountOutMin, slippage = 1.0, signedTransaction = null) {
-    try {
-      if (!signedTransaction) {
-        throw new Error('Transação assinada é obrigatória para executar swaps');
-      }
-
-      // Envia a transação assinada
-      const tx = await this.provider.broadcastTransaction(signedTransaction);
-      
-      return {
-        txHash: tx.hash,
-        status: 'pending',
-        details: {
-          tokenIn,
-          tokenOut,
-          amountIn: amountIn.toString(),
-          amountOutMin: amountOutMin.toString(),
-          slippage: `${slippage}%`,
-          note: 'Transação enviada via smart wallet do frontend'
-        }
-      };
-    } catch (error) {
-      throw new Error(`Erro no swap de tokens: ${error.message}`);
-    }
-  }
-
-  /**
-   * Executa swap de AVAX para tokens
-   * @param {string} tokenOut - Endereço do token de saída
-   * @param {string} amountOutMin - Quantidade mínima de saída
-   * @param {number} slippage - Percentual de slippage
-   * @param {string} signedTransaction - Transação assinada pelo frontend
-   * @returns {Object} Resultado da transação
-   */
-  async swapAVAXForTokens(tokenOut, amountOutMin, slippage = 1.0, signedTransaction = null) {
-    try {
-      if (!signedTransaction) {
-        throw new Error('Transação assinada é obrigatória para executar swaps');
-      }
-
-      // Envia a transação assinada
-      const tx = await this.provider.broadcastTransaction(signedTransaction);
-      
-      return {
-        txHash: tx.hash,
-        status: 'pending',
-        details: {
-          tokenIn: 'AVAX',
-          tokenOut,
-          amountOutMin: amountOutMin.toString(),
-          slippage: `${slippage}%`,
-          note: 'Transação enviada via smart wallet do frontend'
-        }
-      };
-    } catch (error) {
-      throw new Error(`Erro no swap de AVAX para tokens: ${error.message}`);
-    }
-  }
-
-  /**
-   * Executa swap de tokens para AVAX
-   * @param {string} tokenIn - Endereço do token de entrada
-   * @param {string} amountIn - Quantidade de entrada
-   * @param {string} amountOutMin - Quantidade mínima de saída
-   * @param {number} slippage - Percentual de slippage
-   * @param {string} signedTransaction - Transação assinada pelo frontend
-   * @returns {Object} Resultado da transação
-   */
-  async swapTokensForAVAX(tokenIn, amountIn, amountOutMin, slippage = 1.0, signedTransaction = null) {
-    try {
-      if (!signedTransaction) {
-        throw new Error('Transação assinada é obrigatória para executar swaps');
-      }
-
-      // Envia a transação assinada
-      const tx = await this.provider.broadcastTransaction(signedTransaction);
-      
-      return {
-        txHash: tx.hash,
-        status: 'pending',
-        details: {
-          tokenIn,
-          tokenOut: 'AVAX',
-          amountIn: amountIn.toString(),
-          amountOutMin: amountOutMin.toString(),
-          slippage: `${slippage}%`,
-          note: 'Transação enviada via smart wallet do frontend'
-        }
-      };
-    } catch (error) {
-      throw new Error(`Erro no swap de tokens para AVAX: ${error.message}`);
-    }
-  }
 
   /**
    * Obtém informações de liquidez de um par
@@ -292,16 +222,50 @@ class TraderJoeService {
    */
   async getUserLiquidity(tokenA, tokenB, address, id) {
     try {
-      // Implementação simplificada - em produção, você integraria com a API do Trader Joe
-      // Para fins de demonstração, retornamos dados mockados
+      // Busca informações do par na API do Trader Joe
+      const pairResponse = await axios.get(`${API_URLS.TRADER_JOE}/v1/pairs/${tokenA}/${tokenB}`);
+      const pairData = pairResponse.data;
+      
+      // Busca posições de liquidez do usuário
+      const userPositionsResponse = await axios.get(`${API_URLS.TRADER_JOE}/v1/positions/${address}?tokenA=${tokenA}&tokenB=${tokenB}`);
+      const userPositions = userPositionsResponse.data;
+      
+      // Calcula liquidez total do usuário neste par
+      let totalLiquidity = '0';
+      let totalTokenA = '0';
+      let totalTokenB = '0';
+      
+      if (userPositions && userPositions.length > 0) {
+        for (const position of userPositions) {
+          totalLiquidity = (BigInt(totalLiquidity) + BigInt(position.liquidity || '0')).toString();
+          totalTokenA = (BigInt(totalTokenA) + BigInt(position.amountA || '0')).toString();
+          totalTokenB = (BigInt(totalTokenB) + BigInt(position.amountB || '0')).toString();
+        }
+      }
+      
       return {
-        pairAddress: '0x0000000000000000000000000000000000000000', // Endereço do par
-        liquidity: '0',
-        tokenA: '0',
-        tokenB: '0'
+        pairAddress: pairData.pairAddress || '0x0000000000000000000000000000000000000000',
+        liquidity: totalLiquidity,
+        tokenA: totalTokenA,
+        tokenB: totalTokenB,
+        pairInfo: {
+          tokenA: pairData.tokenA,
+          tokenB: pairData.tokenB,
+          reserveA: pairData.reserveA || '0',
+          reserveB: pairData.reserveB || '0',
+          totalSupply: pairData.totalSupply || '0'
+        }
       };
     } catch (error) {
-      throw new Error(`Erro ao obter liquidez do usuário: ${error.message}`);
+      console.warn(`Aviso: Não foi possível obter liquidez do usuário via API: ${error.message}`);
+      // Fallback para dados básicos
+      return {
+        pairAddress: '0x0000000000000000000000000000000000000000',
+        liquidity: '0',
+        tokenA: '0',
+        tokenB: '0',
+        note: 'Dados não disponíveis via API'
+      };
     }
   }
 
@@ -310,12 +274,35 @@ class TraderJoeService {
    */
   async getPoolLiquidity(poolAddress, id) {
     try {
-      // Implementação simplificada - em produção, você integraria com a API do Trader Joe
+      // Busca informações do pool na API do Trader Joe
+      const poolResponse = await axios.get(`${API_URLS.TRADER_JOE}/v1/pools/${poolAddress}`);
+      const poolData = poolResponse.data;
+      
       return {
-        totalLiquidity: '0'
+        totalLiquidity: poolData.totalLiquidity || '0',
+        reserveA: poolData.reserveA || '0',
+        reserveB: poolData.reserveB || '0',
+        totalSupply: poolData.totalSupply || '0',
+        tokenA: poolData.tokenA,
+        tokenB: poolData.tokenB,
+        poolInfo: {
+          address: poolAddress,
+          id: id,
+          volume24h: poolData.volume24h || '0',
+          fees24h: poolData.fees24h || '0',
+          apr: poolData.apr || '0'
+        }
       };
     } catch (error) {
-      throw new Error(`Erro ao obter liquidez do pool: ${error.message}`);
+      console.warn(`Aviso: Não foi possível obter liquidez do pool via API: ${error.message}`);
+      // Fallback para dados básicos
+      return {
+        totalLiquidity: '0',
+        reserveA: '0',
+        reserveB: '0',
+        totalSupply: '0',
+        note: 'Dados não disponíveis via API'
+      };
     }
   }
 
@@ -324,14 +311,32 @@ class TraderJoeService {
    */
   async getTokenLiquidity(poolAddress) {
     try {
-      // Implementação simplificada - em produção, você integraria com a API do Trader Joe
+      // Busca informações do pool na API do Trader Joe
+      const poolResponse = await axios.get(`${API_URLS.TRADER_JOE}/v1/pools/${poolAddress}`);
+      const poolData = poolResponse.data;
+      
       return {
-        // Retorna liquidez mockada para demonstração
-        '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7': '0', // WAVAX
-        '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB': '0'  // USDC
+        [poolData.tokenA]: poolData.reserveA || '0',
+        [poolData.tokenB]: poolData.reserveB || '0',
+        totalLiquidity: poolData.totalLiquidity || '0',
+        poolInfo: {
+          address: poolAddress,
+          tokenA: poolData.tokenA,
+          tokenB: poolData.tokenB,
+          volume24h: poolData.volume24h || '0',
+          fees24h: poolData.fees24h || '0',
+          apr: poolData.apr || '0'
+        }
       };
     } catch (error) {
-      throw new Error(`Erro ao obter liquidez dos tokens: ${error.message}`);
+      console.warn(`Aviso: Não foi possível obter liquidez dos tokens via API: ${error.message}`);
+      // Fallback para dados básicos
+      return {
+        '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7': '0', // WAVAX
+        '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB': '0', // USDC
+        totalLiquidity: '0',
+        note: 'Dados não disponíveis via API'
+      };
     }
   }
 
@@ -340,6 +345,8 @@ class TraderJoeService {
    */
   async executeSwap(params) {
     try {
+      console.log('🔍 Debug executeSwap - params recebidos:', JSON.stringify(params, null, 2));
+      
       const {
         path,
         amountIn,
@@ -350,28 +357,86 @@ class TraderJoeService {
         gasPriority,
         slippage,
         deadline,
-        signedTransaction
+        isAVAXSwap
       } = params;
 
-      if (!signedTransaction) {
-        throw new Error('Transação assinada é obrigatória para executar swaps');
+      // Verifica se temos private key
+      if (!this.wallet || !this.routerWithWallet) {
+        throw new Error('Private key é obrigatória para executar swaps');
       }
 
-      // Envia a transação assinada
-      const tx = await this.provider.broadcastTransaction(signedTransaction);
+      const tokenPath = path.split(',').map(addr => addr.trim());
+      const swapDeadline = deadline || Math.floor(Date.now() / 1000) + 1200;
       
-      // Retorna no formato da documentação
+      // Converte os valores para BigInt para evitar overflow
+      const amountInBigInt = BigInt(amountIn);
+      const amountOutMinBigInt = BigInt(amountOutMin);
+      
+      console.log('🔄 Executando swap com private key...');
+      console.log('📍 Path:', tokenPath);
+      console.log('💰 Amount In (BigInt):', amountInBigInt.toString());
+      console.log('🎯 Amount Out Min (BigInt):', amountOutMinBigInt.toString());
+      console.log('⏰ Deadline:', swapDeadline);
+      console.log('🪙 Is AVAX Swap:', isAVAXSwap);
+      
+      let tx;
+      
+      // Detectar se é swap de AVAX nativo
+      const isAVAXNativeSwap = isAVAXSwap || 
+        (tokenPath.length >= 2 && tokenPath[0].toLowerCase() === TRADER_JOE.WAVAX.toLowerCase());
+      
+      if (isAVAXNativeSwap) {
+        console.log('🪙 Executando swap de AVAX nativo → tokens');
+        
+        // Para AVAX nativo, usamos swapExactAVAXForTokens
+        // O path deve ser [WAVAX, tokenOut]
+        const avaxPath = [TRADER_JOE.WAVAX, tokenPath[tokenPath.length - 1]];
+        
+        tx = await this.routerWithWallet.swapExactAVAXForTokens(
+          amountOutMinBigInt,
+          avaxPath,
+          to || this.walletAddress,
+          swapDeadline,
+          {
+            value: amountInBigInt, // O valor em AVAX é enviado como "value"
+            gasLimit: gas || 500000,
+            ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
+          }
+        );
+      } else {
+        console.log('🪙 Executando swap de tokens → tokens');
+        
+        // Para tokens normais, usamos swapExactTokensForTokens
+        tx = await this.routerWithWallet.swapExactTokensForTokens(
+          amountInBigInt,
+          amountOutMinBigInt,
+          tokenPath,
+          to || this.walletAddress,
+          swapDeadline,
+          {
+            gasLimit: gas || 500000,
+            ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
+          }
+        );
+      }
+      
+      console.log('✅ Swap executado com sucesso!');
+      console.log('🔗 TX Hash:', tx.hash);
+      
       return {
         chainId: '43114',
-        from: from,
+        from: this.walletAddress,
         to: TRADER_JOE.ROUTER,
         value: '0',
-        gas: gas || '100000',
-        data: '0x', // Dados da transação (seria preenchido pelo frontend)
+        gas: gas || '500000',
+        txHash: tx.hash,
         referenceId: this.generateReferenceId(),
+        status: 'pending',
+        note: 'Transação executada e assinada automaticamente via private key',
         ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
       };
     } catch (error) {
+      console.error('❌ Erro ao executar swap:', error.message);
       throw new Error(`Erro ao executar swap: ${error.message}`);
     }
   }
@@ -394,29 +459,66 @@ class TraderJoeService {
         gas,
         gasPriority,
         slippage,
-        strategy,
-        signedTransaction
+        strategy
       } = params;
 
-      if (!signedTransaction) {
-        throw new Error('Transação assinada é obrigatória para adicionar liquidez');
+      // Verifica se temos private key
+      if (!this.wallet || !this.routerWithWallet) {
+        throw new Error('Private key é obrigatória para adicionar liquidez');
       }
 
-      // Envia a transação assinada
-      const tx = await this.provider.broadcastTransaction(signedTransaction);
+      const addLiquidityDeadline = deadline || Math.floor(Date.now() / 1000) + 1200;
+      
+      // Converte os valores para BigInt para evitar overflow
+      const amountABigInt = BigInt(amountA);
+      const amountBBigInt = BigInt(amountB);
+      const amountAMinBigInt = BigInt(amountAMin);
+      const amountBMinBigInt = BigInt(amountBMin);
+      
+      console.log('🔄 Adicionando liquidez com private key...');
+      console.log('🪙 Token A:', tokenA);
+      console.log('🪙 Token B:', tokenB);
+      console.log('💰 Amount A (BigInt):', amountABigInt.toString());
+      console.log('💰 Amount B (BigInt):', amountBBigInt.toString());
+      console.log('⏰ Deadline:', addLiquidityDeadline);
+      
+      // Aguarda um pouco para evitar conflitos de nonce
+      await this.waitForNextBlock();
+      
+      // Executa a adição de liquidez diretamente usando a private key
+      const tx = await this.routerWithWallet.addLiquidity(
+        tokenA,
+        tokenB,
+        amountABigInt,
+        amountBBigInt,
+        amountAMinBigInt,
+        amountBMinBigInt,
+        to || this.walletAddress,
+        addLiquidityDeadline,
+        {
+          gasLimit: gas || 530000,
+          ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
+        }
+      );
+      
+      console.log('✅ Liquidez adicionada com sucesso!');
+      console.log('🔗 TX Hash:', tx.hash);
       
       // Retorna no formato da documentação
       return {
         chainId: '43114',
-        from: from,
+        from: this.walletAddress,
         to: TRADER_JOE.ROUTER,
         value: '0',
         gas: gas || '530000',
-        data: '0x', // Dados da transação (seria preenchido pelo frontend)
+        txHash: tx.hash,
         referenceId: this.generateReferenceId(),
+        status: 'pending',
+        note: 'Transação executada e assinada automaticamente via private key',
         ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
       };
     } catch (error) {
+      console.error('❌ Erro ao adicionar liquidez:', error.message);
       throw new Error(`Erro ao adicionar liquidez: ${error.message}`);
     }
   }
@@ -439,29 +541,66 @@ class TraderJoeService {
         binStep,
         ids,
         amounts,
-        slippage,
-        signedTransaction
+        slippage
       } = params;
 
-      if (!signedTransaction) {
-        throw new Error('Transação assinada é obrigatória para remover liquidez');
+      // Verifica se temos private key
+      if (!this.wallet || !this.routerWithWallet) {
+        throw new Error('Private key é obrigatória para remover liquidez');
       }
 
-      // Envia a transação assinada
-      const tx = await this.provider.broadcastTransaction(signedTransaction);
+      const removeLiquidityDeadline = deadline || Math.floor(Date.now() / 1000) + 1200;
+      
+      // Converte os valores para BigInt para evitar overflow
+      const amountAMinBigInt = BigInt(amountAMin);
+      const amountBMinBigInt = BigInt(amountBMin);
+      
+      console.log('🔄 Removendo liquidez com private key...');
+      console.log('🪙 Token A:', tokenA);
+      console.log('🪙 Token B:', tokenB);
+      console.log('💰 Amount Min A (BigInt):', amountAMinBigInt.toString());
+      console.log('💰 Amount Min B (BigInt):', amountBMinBigInt.toString());
+      console.log('⏰ Deadline:', removeLiquidityDeadline);
+      
+      // Executa a remoção de liquidez diretamente usando a private key
+      // A função removeLiquidity espera: (tokenA, tokenB, liquidity, amountAMin, amountBMin, to, deadline)
+      const liquidityAmount = BigInt(amounts?.[0] || '1000000000000000'); // Default 0.001 LP tokens
+      
+      // Aguarda um pouco para evitar conflitos de nonce
+      await this.waitForNextBlock();
+      
+      const tx = await this.routerWithWallet.removeLiquidity(
+        tokenA,
+        tokenB,
+        liquidityAmount,
+        amountAMinBigInt,
+        amountBMinBigInt,
+        to || this.walletAddress,
+        removeLiquidityDeadline,
+        {
+          gasLimit: gas || 500000,
+          ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
+        }
+      );
+      
+      console.log('✅ Liquidez removida com sucesso!');
+      console.log('🔗 TX Hash:', tx.hash);
       
       // Retorna no formato da documentação
       return {
         chainId: '43114',
-        from: from,
+        from: this.walletAddress,
         to: TRADER_JOE.ROUTER,
         value: '0',
-        gas: gas || '0',
-        data: '0x', // Dados da transação (seria preenchido pelo frontend)
+        gas: gas || '500000',
+        txHash: tx.hash,
         referenceId: this.generateReferenceId(),
+        status: 'pending',
+        note: 'Transação executada e assinada automaticamente via private key',
         ...(gasPriority && { gasPrice: this.getGasPrice(gasPriority) })
       };
     } catch (error) {
+      console.error('❌ Erro ao remover liquidez:', error.message);
       throw new Error(`Erro ao remover liquidez: ${error.message}`);
     }
   }
@@ -471,6 +610,27 @@ class TraderJoeService {
    */
   generateReferenceId() {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  }
+
+  /**
+   * Obtém o nonce atual da wallet
+   */
+  async getCurrentNonce() {
+    try {
+      const nonce = await this.wallet.getNonce('pending');
+      console.log('🔢 Nonce atual (pending):', nonce);
+      return nonce;
+    } catch (error) {
+      console.error('❌ Erro ao obter nonce:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Aguarda um tempo para evitar conflitos de nonce
+   */
+  async waitForNextBlock() {
+    return new Promise(resolve => setTimeout(resolve, 5000)); // 5 segundos
   }
 
   /**
