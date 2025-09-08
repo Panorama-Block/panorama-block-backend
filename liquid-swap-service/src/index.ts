@@ -1,6 +1,8 @@
 // backend/liquid-swap-service/src/index.ts
 
-import "dotenv/config";
+import path from "path";
+import dotenv from "dotenv";
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 // Usamos require() para garantir o objeto de runtime do express,
 // evitando o erro "This expression is not callable" no seu setup.
 const expressLib = require("express") as any;
@@ -155,6 +157,15 @@ try {
         .status(500)
         .json({ error: "Internal error while retrieving information" });
     }
+  });
+
+  // expose engine's signer address
+  app.get("/engine/signer", (_req: Request, res: Response) => {
+    const address = process.env.ENGINE_SESSION_SIGNER_ADDRESS || process.env.ADMIN_WALLET_ADDRESS;
+    if (!address) {
+      return res.status(503).json({ error: "Engine signer not configured" });
+    }
+    res.json({address});
   });
 
   // 404 handler

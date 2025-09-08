@@ -8,6 +8,7 @@ import {
   TransactionStatus,
 } from "../../domain/entities/swap";
 import { ISwapService } from "../../domain/ports/swap.repository";
+import { isNativeLike } from "../../utils/native.utils";
 
 export class ThirdwebSwapAdapter implements ISwapService {
   private client: ReturnType<typeof createThirdwebClient>;
@@ -48,12 +49,13 @@ export class ThirdwebSwapAdapter implements ISwapService {
 
       const quote = await Bridge.Sell.quote({
         originChainId: swapRequest.fromChainId,
-        originTokenAddress:
-          swapRequest.fromToken.toLowerCase() === "native"
-            ? NATIVE_TOKEN_ADDRESS
-            : swapRequest.fromToken,
+        originTokenAddress: isNativeLike(swapRequest.fromToken)
+          ? NATIVE_TOKEN_ADDRESS
+          : swapRequest.fromToken,
         destinationChainId: swapRequest.toChainId,
-        destinationTokenAddress: swapRequest.toToken,
+        destinationTokenAddress: isNativeLike(swapRequest.toToken)
+          ? NATIVE_TOKEN_ADDRESS
+          : swapRequest.toToken,
         amount: sellAmountWei,
         client: this.client,
       });
@@ -89,12 +91,13 @@ export class ThirdwebSwapAdapter implements ISwapService {
     try {
       const prepared = await Bridge.Sell.prepare({
         originChainId: swapRequest.fromChainId,
-        originTokenAddress:
-          swapRequest.fromToken.toLowerCase() === "native"
-            ? NATIVE_TOKEN_ADDRESS
-            : swapRequest.fromToken,
+        originTokenAddress: isNativeLike(swapRequest.fromToken)
+          ? NATIVE_TOKEN_ADDRESS
+          : swapRequest.fromToken,
         destinationChainId: swapRequest.toChainId,
-        destinationTokenAddress: swapRequest.toToken,
+        destinationTokenAddress: isNativeLike(swapRequest.toToken)
+          ? NATIVE_TOKEN_ADDRESS
+          : swapRequest.toToken,
         amount: swapRequest.amount,
         sender: swapRequest.sender, // <<— carteira do usuário
         receiver: swapRequest.receiver || swapRequest.sender,

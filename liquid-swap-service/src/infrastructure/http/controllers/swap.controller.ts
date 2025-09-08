@@ -181,8 +181,7 @@ export class SwapController {
         toToken,
         amount,
         receiver,
-        smartAccountAddress,
-        signerAddress,
+        backendWallet,
       } = (req.body ?? {}) as {
         fromChainId?: number;
         toChainId?: number;
@@ -190,8 +189,7 @@ export class SwapController {
         toToken?: string;
         amount?: string;
         receiver?: string;
-        smartAccountAddress?: string;
-        signerAddress?: string;
+        backendWallet?: string;
       };
 
       if (
@@ -200,8 +198,7 @@ export class SwapController {
         !fromToken ||
         !toToken ||
         !amount ||
-        !smartAccountAddress ||
-        !signerAddress
+        !backendWallet
       ) {
         return res.status(400).json({
           error: "Missing required parameters",
@@ -211,8 +208,7 @@ export class SwapController {
             "fromToken",
             "toToken",
             "amount",
-            "smartAccountAddress",
-            "signerAddress",
+            "backendWalet",
           ],
         });
       }
@@ -235,8 +231,7 @@ export class SwapController {
         amount,
         sender,
         receiver,
-        smartAccountAddress,
-        signerAddress,
+        backendWallet,
       });
 
       return res.json(resp);
