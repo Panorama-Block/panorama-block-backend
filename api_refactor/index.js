@@ -8,6 +8,8 @@ const rateLimit = require('express-rate-limit');
 
 // Importa rotas
 const traderJoeRoutes = require('./routes/traderJoeRoutes');
+const validationRoutes = require('./routes/validationRoutes');
+const validationSwapRoutes = require('./routes/validationSwapRoutes');
 
 // Importa configurações
 const { NETWORKS, RATE_LIMIT, SECURITY } = require('./config/constants');
@@ -95,7 +97,7 @@ app.get('/info', (req, res) => {
     version: '1.0.0',
     network: NETWORKS.AVALANCHE.name,
     chainId: NETWORKS.AVALANCHE.chainId,
-    supportedProtocols: ['Trader Joe'],
+    supportedProtocols: ['Trader Joe', 'Validation Contract', 'Validation + Swap'],
     features: [
       'Swap de tokens',
       'Comparação de preços',
@@ -105,11 +107,17 @@ app.get('/info', (req, res) => {
       'Tendências de mercado',
       'Cache inteligente',
       'Rate limiting',
-      'Autenticação por assinatura'
+      'Autenticação por assinatura',
+      'Contrato de validação e taxas',
+      'Pagamentos com validação',
+      'Gestão de taxas',
+      'Validação + Swap integrado'
     ],
     endpoints: {
-      swap: '/swap',
-      price: '/price',
+      swap: '/dex/swap',
+      price: '/dex/getprice',
+      validation: '/validation/*',
+      validationSwap: '/validation-swap/*',
       health: '/health',
       info: '/info'
     },
@@ -173,6 +181,8 @@ app.get('/config', (req, res) => {
 
 // Registra as rotas
 app.use('/dex', traderJoeRoutes);
+app.use('/validation', validationRoutes);
+app.use('/validation-swap', validationSwapRoutes);
 
 // Middleware de tratamento de erros
 app.use((err, req, res, next) => {
@@ -195,7 +205,9 @@ app.use((req, res) => {
       'GET /info',
       'GET /network/status',
       'GET /config',
-      'GET/POST /dex/*'
+      'GET/POST /dex/*',
+      'GET/POST /validation/*',
+      'POST /validation-swap/*'
     ]
   });
 });
@@ -230,6 +242,7 @@ async function initializeAPI() {
       console.log(`   Network Status: GET /network/status`);
       console.log(`   Configuration: GET /config`);
       console.log(`   Trader Joe API: GET/POST /dex/*`);
+      console.log(`   Validation API: GET/POST /validation/*`);
       console.log('');
       console.log('💡 Para testar a API, use:');
       console.log(`   curl http://localhost:${port}/health`);

@@ -1,6 +1,6 @@
-# 🚀 API Trader Joe - Avalanche
+# 🚀 API Trader Joe & Validation - Avalanche
 
-API simples para interagir com o Trader Joe DEX no Avalanche usando private key.
+API completa para interagir com o Trader Joe DEX e contrato Validation no Avalanche usando autenticação por assinatura.
 
 ## 📋 Pré-requisitos
 
@@ -27,14 +27,27 @@ PRIVATE_KEY=0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
 
 **Nota**: A private key é usada apenas para gerar assinaturas nos testes. Em produção, o frontend deve assinar as mensagens com a wallet do usuário.
 
-## 🧪 Teste Básico
+## 🧪 Testes
 
+### Teste Trader Joe
 Execute o teste de swap:
 ```bash
+npm run test:traderjoe
+# ou
 node test.js
 ```
 
-Este teste faz:
+### Teste Validation Contract
+Execute o teste do contrato Validation:
+```bash
+npm run test:validation
+# ou
+node test-validation.js
+```
+
+### O que os testes fazem:
+
+**Trader Joe:**
 - ✅ Verifica saldos (AVAX, WAVAX, USDT)
 - ✅ Obtém preço atual WAVAX → USDT
 - ✅ Prepara dados de swap para assinatura
@@ -42,7 +55,14 @@ Este teste faz:
 - ✅ Testa todas as rotas da API com autenticação por assinatura
 - ✅ Mostra resultados e saldos finais
 
-**Nota**: Os últimos 3 testes (swap, add/remove liquidity) executam transações reais na blockchain usando a private key do `.env` para demonstração. Em produção, o frontend deve assinar e executar as transações.
+**Validation Contract:**
+- ✅ Obtém informações do contrato (owner, taxRate)
+- ✅ Calcula taxas para montantes específicos
+- ✅ Obtém saldo do contrato
+- ✅ Prepara transações para assinatura no frontend
+- ✅ Testa todas as rotas de validação com autenticação por assinatura
+
+**Nota**: Os testes de transação real executam transações na blockchain usando a private key do `.env` para demonstração. Em produção, o frontend deve assinar e executar as transações.
 
 ## 🚀 Iniciar API
 
@@ -124,6 +144,121 @@ Prepara dados de swap para assinatura no frontend.
 ```
 
 **No Frontend:** Use `wallet.sendTransaction(txData)` para executar a transação.
+
+## 📋 API Validation Contract
+
+### GET `/validation/info`
+Obtém informações do contrato Validation.
+**Retorna:** Owner, taxa atual, endereço do contrato
+
+### POST `/validation/calculate`
+Calcula o valor da taxa para um montante específico.
+
+**Body:**
+```json
+{
+  "address": "0x1234...",
+  "signature": "0xabcd...",
+  "message": "Calculate tax\nTimestamp: 1234567890",
+  "timestamp": 1234567890,
+  "amount": "1000000000000000000"
+}
+```
+
+**Retorna:**
+```json
+{
+  "status": 200,
+  "msg": "success",
+  "data": {
+    "amount": "1000000000000000000",
+    "taxAmount": "100000000000000000",
+    "taxRate": "10",
+    "restAmount": "900000000000000000"
+  }
+}
+```
+
+### GET `/validation/balance`
+Obtém saldo do contrato.
+**Retorna:** Saldo em wei e formato legível
+
+### POST `/validation/setTaxRate`
+Define nova taxa do contrato (apenas owner).
+
+**Body:**
+```json
+{
+  "address": "0x1234...",
+  "signature": "0xabcd...",
+  "message": "Set tax rate\nTimestamp: 1234567890",
+  "timestamp": 1234567890,
+  "newTaxRate": "15",
+  "privateKey": "0x1234567890abcdef..."
+}
+```
+
+### POST `/validation/payAndValidate`
+Executa pagamento e validação (função payable).
+
+**Body:**
+```json
+{
+  "address": "0x1234...",
+  "signature": "0xabcd...",
+  "message": "Pay and validate\nTimestamp: 1234567890",
+  "timestamp": 1234567890,
+  "amount": "1000000000000000000",
+  "privateKey": "0x1234567890abcdef..."
+}
+```
+
+### POST `/validation/withdraw`
+Retira fundos do contrato (apenas owner).
+
+**Body:**
+```json
+{
+  "address": "0x1234...",
+  "signature": "0xabcd...",
+  "message": "Withdraw funds\nTimestamp: 1234567890",
+  "timestamp": 1234567890,
+  "privateKey": "0x1234567890abcdef..."
+}
+```
+
+### POST `/validation/prepare`
+Prepara dados de transação para assinatura no frontend.
+
+**Body:**
+```json
+{
+  "address": "0x1234...",
+  "signature": "0xabcd...",
+  "message": "Prepare transaction\nTimestamp: 1234567890",
+  "timestamp": 1234567890,
+  "functionName": "setTaxRate",
+  "params": ["15"]
+}
+```
+
+**Retorna:**
+```json
+{
+  "status": 200,
+  "msg": "success",
+  "data": {
+    "to": "0x...",
+    "data": "0x...",
+    "value": "0",
+    "gas": "100000",
+    "gasPrice": "30000000000",
+    "chainId": "43114",
+    "functionName": "setTaxRate",
+    "params": ["15"]
+  }
+}
+```
 
 ## 🎯 Implementação no Frontend
 

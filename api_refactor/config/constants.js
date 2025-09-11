@@ -32,6 +32,13 @@ const TRADER_JOE = {
   WAVAX: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7'
 };
 
+// Endereços dos Contratos Validation
+const VALIDATION = {
+  CONTRACT_ADDRESS: process.env.VALIDATION_CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000', // Será definido após deploy
+  DEFAULT_TAX_RATE: 10, // 10% por padrão
+  MAX_TAX_RATE: 100 // Máximo 100%
+};
+
 
 
 // Tokens Comuns na Avalanche
@@ -117,6 +124,7 @@ const SECURITY = {
 module.exports = {
   NETWORKS,
   TRADER_JOE,
+  VALIDATION,
   COMMON_TOKENS,
   SLIPPAGE_OPTIONS,
   GAS_SETTINGS,

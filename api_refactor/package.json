@@ -7,6 +7,8 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "jest",
+    "test:validation": "node test-validation.js",
+    "test:traderjoe": "node test.js",
     "lint": "eslint ."
   },
   "keywords": ["avalanche", "swap", "defi", "traderjoe", "pangolin"],
