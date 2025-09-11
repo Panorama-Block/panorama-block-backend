@@ -57,7 +57,8 @@ try {
 
   // Rotas protegidas por JWT
   console.log("[Liquid Swap Service] 🔗 Registering routes...");
-  app.use("/swap", verifyJwtMiddleware, swapRouter);
+  // app.use("/swap", verifyJwtMiddleware, swapRouter);
+  app.use("/swap", swapRouter) // just for testing
 
   // Health check
   app.get("/health", (_req: Request, res: Response) => {
@@ -159,8 +160,16 @@ try {
     }
   });
 
+  // CORS for engine signer endpoint (explicit, even though global CORS is enabled)
+  const signerCors = cors({
+    origin: "*", // reflect request origin
+    credentials: false,
+    methods: ["GET", "OPTIONS"],
+  });
+  app.options("/engine/signer", signerCors);
+
   // expose engine's signer address
-  app.get("/engine/signer", (_req: Request, res: Response) => {
+  app.get("/engine/signer", signerCors, (_req: Request, res: Response) => {
     const address = process.env.ENGINE_SESSION_SIGNER_ADDRESS || process.env.ADMIN_WALLET_ADDRESS;
     if (!address) {
       return res.status(503).json({ error: "Engine signer not configured" });

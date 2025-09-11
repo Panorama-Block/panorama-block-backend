@@ -33,16 +33,17 @@ export class SwapController {
     try {
       console.log("[SwapController] Getting swap quote");
 
-      const { fromChainId, toChainId, fromToken, toToken, amount } =
+      const { fromChainId, toChainId, fromToken, toToken, amount, smartAccountAddress } =
         (req.body ?? {}) as {
           fromChainId?: number;
           toChainId?: number;
           fromToken?: string;
           toToken?: string;
           amount?: string;
+          smartAccountAddress?: string;
         };
 
-      if (!fromChainId || !toChainId || !fromToken || !toToken || !amount) {
+      if (!fromChainId || !toChainId || !fromToken || !toToken || !amount || !smartAccountAddress) {
         return res.status(400).json({
           error: "Missing required parameters",
           requiredParams: [
@@ -51,21 +52,14 @@ export class SwapController {
             "fromToken",
             "toToken",
             "amount",
+            "smartAccountAddress"
           ],
         });
       }
 
-      const aReq = req as RequestWithUser;
-      if (!aReq.user?.address) {
-        return res.status(401).json({
-          error: "Unauthorized",
-          message: "User address not found in authentication token",
-        });
-      }
-
-      const sender = aReq.user.address;
+      const sender = smartAccountAddress
       console.log(`[SwapController] Getting quote for user: ${sender}`);
-
+      if (!sender) throw new Error("Missing smartAccountAddress");
       const quote = await this.getQuoteUseCase.execute({
         fromChainId,
         toChainId,
@@ -180,16 +174,16 @@ export class SwapController {
         fromToken,
         toToken,
         amount,
+        smartAccountAddress,
         receiver,
-        backendWallet,
       } = (req.body ?? {}) as {
         fromChainId?: number;
         toChainId?: number;
         fromToken?: string;
         toToken?: string;
         amount?: string;
+        smartAccountAddress?: string;
         receiver?: string;
-        backendWallet?: string;
       };
 
       if (
@@ -198,7 +192,7 @@ export class SwapController {
         !fromToken ||
         !toToken ||
         !amount ||
-        !backendWallet
+        !smartAccountAddress
       ) {
         return res.status(400).json({
           error: "Missing required parameters",
@@ -208,20 +202,16 @@ export class SwapController {
             "fromToken",
             "toToken",
             "amount",
-            "backendWalet",
+            "smartAccountAddress",
           ],
         });
       }
 
-      const aReq = req as RequestWithUser;
-      if (!aReq.user?.address) {
-        return res.status(401).json({
-          error: "Unauthorized",
-          message: "User address not found in authentication token",
-        });
-      }
-
-      const sender = aReq.user.address;
+      const sender = smartAccountAddress;
+      if (!sender) throw new Error("Missing user's smart account address")
+      
+      const signerAddress = process.env.ADMIN_WALLET_ADDRESS;
+      if (!signerAddress) throw new Error("Missing backend wallet address")
 
       const resp = await this.executeSwapUseCase.execute({
         fromChainId,
@@ -231,7 +221,7 @@ export class SwapController {
         amount,
         sender,
         receiver,
-        backendWallet,
+        signerAddress,
       });
 
       return res.json(resp);

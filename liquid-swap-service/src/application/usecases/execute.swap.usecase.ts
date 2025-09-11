@@ -11,7 +11,7 @@ export interface ExecuteSwapUseCaseRequest {
   amount: string;
   sender: string;
   receiver?: string;
-  backendWallet: string;
+  signerAddress: string;
 }
 
 export interface ExecuteSwapUseCaseResponse {
@@ -85,7 +85,7 @@ export class ExecuteSwapUseCase {
         {
           type: "ERC4337",
           smartAccountAddress: request.sender,
-          signerAddress: request.backendWallet,
+          signerAddress: request.signerAddress,
         },
         { sender: request.sender }
       );
