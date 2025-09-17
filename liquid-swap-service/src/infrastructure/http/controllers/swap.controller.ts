@@ -213,6 +213,18 @@ export class SwapController {
       const signerAddress = process.env.ADMIN_WALLET_ADDRESS;
       if (!signerAddress) throw new Error("Missing backend wallet address")
 
+      if (process.env.DEBUG === "true") {
+        console.log("[SwapController] Execute payload:", {
+          fromChainId,
+          toChainId,
+          fromToken,
+          toToken,
+          amount,
+          sender,
+          receiver: receiver || sender,
+        });
+      }
+
       const resp = await this.executeSwapUseCase.execute({
         fromChainId,
         toChainId,

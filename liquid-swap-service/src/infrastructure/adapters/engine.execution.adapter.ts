@@ -1,4 +1,5 @@
 import { IExecutionPort, ExecutionOptions, PreparedOriginTx, ExecutionResult } from "../../domain/ports/execution.port";
+import { EngineTokenManager } from "./engine.token.manager";
 
 /**
  * EngineExecutionAdapter
@@ -7,7 +8,7 @@ import { IExecutionPort, ExecutionOptions, PreparedOriginTx, ExecutionResult } f
  */
 export class EngineExecutionAdapter implements IExecutionPort {
   private readonly url: string;
-  private readonly token?: string;
+  private readonly tokenManager: EngineTokenManager;
 
   constructor() {
     const url = process.env.ENGINE_URL;
@@ -16,7 +17,12 @@ export class EngineExecutionAdapter implements IExecutionPort {
       throw new Error("ENGINE_URL is required when ENGINE_ENABLED=true");
     }
     this.url = url.replace(/\/$/, "");
-    this.token = token;
+    this.tokenManager = new EngineTokenManager(
+      this.url,
+      token,
+      process.env.THIRDWEB_CLIENT_ID,
+      process.env.THIRDWEB_SECRET_KEY
+    );
   }
 
   public async executeOriginTxs(
@@ -34,7 +40,11 @@ export class EngineExecutionAdapter implements IExecutionPort {
         chainId: t.chainId,
         to: t.to as `0x${string}`,
         data: t.data as `0x${string}`,
-        value: t.value ?? "0",
+        // ensure string serialization; avoid BigInt in JSON.stringify
+        value:
+          typeof (t as any).value === "bigint"
+            ? (t as any).value.toString()
+            : `${(t as any).value ?? "0"}`,
       })),
       executionOptions: {
         type: options.type,
@@ -52,17 +62,47 @@ export class EngineExecutionAdapter implements IExecutionPort {
     let lastErr: any;
     for (const path of endpointCandidates) {
       try {
+        const accessToken = await this.tokenManager.getToken();
         const res = await fetch(`${this.url}${path}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
           },
-          body: JSON.stringify(payload),
+          // replacer to safely serialize any unexpected BigInt
+          body: JSON.stringify(payload, (_k, v) =>
+            typeof v === "bigint" ? v.toString() : v
+          ),
         });
 
         if (!res.ok) {
           const text = await res.text();
+          // if unauthorized, try to refresh token once and retry immediately
+          if (res.status === 401) {
+            this.tokenManager.invalidate();
+            const retryToken = await this.tokenManager.getToken();
+            const retry = await fetch(`${this.url}${path}`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(retryToken ? { Authorization: `Bearer ${retryToken}` } : {}),
+              },
+              body: JSON.stringify(payload, (_k, v) =>
+                typeof v === "bigint" ? v.toString() : v
+              ),
+            });
+            if (!retry.ok) {
+              const t2 = await retry.text();
+              throw new Error(`Engine error (${retry.status}): ${t2}`);
+            }
+            const out2: any = await retry.json();
+            const results2 = (out2.results || out2.result || out2 || []) as any[];
+            return results2.map((r) => ({
+              transactionHash: r.transactionHash || r.txHash || r.hash,
+              chainId: r.chainId || txs[0].chainId,
+              userOpHash: r.userOpHash || r.opHash,
+            }));
+          }
           throw new Error(`Engine error (${res.status}): ${text}`);
         }
 
@@ -81,4 +121,3 @@ export class EngineExecutionAdapter implements IExecutionPort {
     throw lastErr ?? new Error("Failed to send transactions via Engine");
   }
 }
-

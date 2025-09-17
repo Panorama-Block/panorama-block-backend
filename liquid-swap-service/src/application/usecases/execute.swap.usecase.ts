@@ -54,7 +54,10 @@ export class ExecuteSwapUseCase {
               chainId: t.chainId ?? request.fromChainId,
               to: t.to,
               data: t.data,
-              value: t.value ?? "0",
+              value:
+                typeof t.value === "bigint"
+                  ? t.value.toString()
+                  : t.value ?? "0",
             });
           }
         }
@@ -68,7 +71,10 @@ export class ExecuteSwapUseCase {
                   chainId: t.chainId ?? request.fromChainId,
                   to: t.to,
                   data: t.data,
-                  value: t.value ?? "0",
+                  value:
+                    typeof t.value === "bigint"
+                      ? t.value.toString()
+                      : t.value ?? "0",
                 });
               }
             }
