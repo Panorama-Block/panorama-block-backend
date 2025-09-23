@@ -90,17 +90,17 @@ export class SwapController {
     try {
       console.log("[SwapController] Preparing swap (bundle)");
 
-      const { fromChainId, toChainId, fromToken, toToken, amount, receiver } =
+      const { fromChainId, toChainId, fromToken, toToken, amount, sender } =
         (req.body ?? {}) as {
           fromChainId?: number;
           toChainId?: number;
           fromToken?: string;
           toToken?: string;
           amount?: string;
-          receiver?: string;
+          sender?: string;
         };
 
-      if (!fromChainId || !toChainId || !fromToken || !toToken || !amount) {
+      if (!fromChainId || !toChainId || !fromToken || !toToken || !amount || !sender) {
         return res.status(400).json({
           error: "Missing required parameters",
           requiredParams: [
@@ -109,19 +109,12 @@ export class SwapController {
             "fromToken",
             "toToken",
             "amount",
+            "sender"
           ],
         });
       }
 
-      const aReq = req as RequestWithUser;
-      if (!aReq.user?.address) {
-        return res.status(401).json({
-          error: "Unauthorized",
-          message: "User address not found in authentication token",
-        });
-      }
-
-      const sender = aReq.user.address;
+      const receiver = sender
 
       const { prepared } = await this.prepareSwapUseCase.execute({
         fromChainId,
