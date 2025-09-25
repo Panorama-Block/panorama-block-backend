@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import https from 'https';
+import * as fs from 'fs';
 import { createClient, RedisClientType } from 'redis';
 import authRoutes from './routes/auth';
 import { getAuthInstance, isAuthConfigured } from './utils/thirdwebAuth';
@@ -11,6 +13,33 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || process.env.AUTH_PORT || 3001;
+
+// SSL certificate options for HTTPS
+const getSSLOptions = () => {
+  try {
+    const certPath = process.env.FULLCHAIN || "/etc/letsencrypt/live/api.panoramablock.com/fullchain.pem";
+    const keyPath = process.env.PRIVKEY || "/etc/letsencrypt/live/api.panoramablock.com/privkey.pem";
+    
+    console.log(`[Auth Service] Verificando certificados SSL em: ${certPath} e ${keyPath}`);
+    
+    if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+      console.log('[Auth Service] Certificados SSL encontrados!');
+      return {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      };
+    } else {
+      console.warn('[Auth Service] Certificados SSL não encontrados nos caminhos:');
+      console.warn(`- Cert: ${certPath} (${fs.existsSync(certPath) ? 'existe' : 'não existe'})`);
+      console.warn(`- Key: ${keyPath} (${fs.existsSync(keyPath) ? 'existe' : 'não existe'})`);
+      console.warn('Executando em modo HTTP.');
+      return null;
+    }
+  } catch (error) {
+    console.warn('[Auth Service] Erro ao carregar certificados SSL:', error);
+    return null;
+  }
+};
 
 // Set up middleware
 app.use(express.json());
@@ -87,7 +116,19 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`[Auth Service] Running on port ${PORT}`);
-  console.log(`[Auth Service] Health check available at http://localhost:${PORT}/health`);
-}); 
+const sslOptions = getSSLOptions();
+
+if (sslOptions) {
+  https.createServer(sslOptions, app).listen(PORT, () => {
+    console.log(`[Auth Service] Running on HTTPS port ${PORT}`);
+    console.log(`[Auth Service] Health check available at https://localhost:${PORT}/health`);
+  });
+} else {
+  app.listen(PORT, () => {
+    console.log(`[Auth Service] Running on HTTP port ${PORT}`);
+    console.log(`[Auth Service] Health check available at http://localhost:${PORT}/health`);
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[Auth Service] WARNING: Running in HTTP mode in production. SSL certificates not found.');
+    }
+  });
+} 

@@ -2,6 +2,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import https from "https";
+import * as fs from "fs";
 import { swapRouter } from "./routes/swap";
 import { authRouter } from "./routes/auth";
 
@@ -10,6 +12,34 @@ const PORT = process.env.PORT || 3001;
 try {
   console.log("[Service] Initializing Thirdweb service...");
   const app = express();
+
+  // SSL certificate options for HTTPS
+  const getSSLOptions = () => {
+    try {
+      const certPath = process.env.FULLCHAIN || "/etc/letsencrypt/live/api.panoramablock.com/fullchain.pem";
+      const keyPath = process.env.PRIVKEY || "/etc/letsencrypt/live/api.panoramablock.com/privkey.pem";
+      
+      console.log(`[Liquid Swap Service] Verificando certificados SSL em: ${certPath} e ${keyPath}`);
+      
+      if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+        console.log('[Liquid Swap Service] ✅ Certificados SSL encontrados!');
+        return {
+          key: fs.readFileSync(keyPath),
+          cert: fs.readFileSync(certPath),
+        };
+      } else {
+        console.warn('[Liquid Swap Service] ⚠️ Certificados SSL não encontrados nos caminhos:');
+        console.warn(`- Cert: ${certPath} (${fs.existsSync(certPath) ? 'existe' : 'não existe'})`);
+        console.warn(`- Key: ${keyPath} (${fs.existsSync(keyPath) ? 'existe' : 'não existe'})`);
+        console.warn('Executando em modo HTTP.');
+        return null;
+      }
+    } catch (error) {
+      console.warn('[Liquid Swap Service] ❌ Erro ao carregar certificados SSL:', error);
+      return null;
+    }
+  };
+
 
   // Middleware configuration
   console.log("[Service] Configuring middlewares (CORS, JSON)...");
@@ -96,13 +126,66 @@ try {
   });
 
   // Start server
-  console.log("[Service] Starting server on port", PORT);
-  app.listen(PORT, () => {
-    console.log(`[Service] Thirdweb service running on port ${PORT}`);
-    console.log(`[Service] Health check available at http://localhost:${PORT}/health`);
-    console.log(`[Service] Documentation available at http://localhost:${PORT}/`);
-  });
+  const sslOptions = getSSLOptions();
+  
+  if (sslOptions) {
+    const server = https.createServer(sslOptions, app).listen(PORT, () => {
+      console.log(`\n🎉 [Thirdweb Service] HTTPS Server running successfully!`);
+      console.log(`📊 Port: ${PORT}`);
+      console.log(`🔒 Protocol: HTTPS`);
+      console.log(`🏗️  Architecture: Hexagonal (Domain-Driven Design)`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`📋 Health check: https://localhost:${PORT}/health`);
+      console.log(`📖 Documentation: https://localhost:${PORT}/`);
+      console.log(`🔄 Swap API: https://localhost:${PORT}/swap/`);
+      console.log(`✨ Ready to process cross-chain swaps!\n`);
+    });
+
+    // Graceful shutdown
+    process.on("SIGTERM", () => {
+      console.log(
+        "[Thirdweb Service] SIGTERM received, shutting down gracefully..."
+      );
+      server.close(() => {
+        console.log("[Thirdweb Service] Server closed");
+        process.exit(0);
+      });
+    });
+  } else {
+    const server = app.listen(PORT, () => {
+      console.log(`\n🎉 [Thirdweb Service] HTTP Server running successfully!`);
+      console.log(`📊 Port: ${PORT}`);
+      console.log(`🔓 Protocol: HTTP`);
+      console.log(`🏗️  Architecture: Hexagonal (Domain-Driven Design)`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`📋 Health check: http://localhost:${PORT}/health`);
+      console.log(`📖 Documentation: http://localhost:${PORT}/`);
+      console.log(`🔄 Swap API: http://localhost:${PORT}/swap/`);
+      console.log(`✨ Ready to process cross-chain swaps!\n`);
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('[Thirdweb Service] WARNING: Running in HTTP mode in production. SSL certificates not found.');
+      }
+    });
+
+    // Graceful shutdown
+    process.on("SIGTERM", () => {
+      console.log(
+        "[Thirdweb Service] SIGTERM received, shutting down gracefully..."
+      );
+      server.close(() => {
+        console.log("[Thirdweb Service] Server closed");
+        process.exit(0);
+      });
+    });
+  }
 } catch (error) {
-  console.error("[Service] Fatal error initializing service:", error);
+  const err = error as Error;
+  console.error(
+    "[Thirdweb Service] 💥 Fatal error initializing service:",
+    err.message
+  );
+  if (process.env.DEBUG === "true") {
+    console.error("[Thirdweb Service] Stack trace:", err.stack);
+  }
   process.exit(1);
 }
