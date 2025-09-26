@@ -3,6 +3,7 @@ import { SwapRequest } from "../../domain/entities/swap";
 import { SwapDomainService } from "../../domain/services/swap.domain.service";
 import { getTokenSpotUsdPrice } from "../services/price.service";
 import { getTokenDecimals, toWei } from "../../utils/token.utils";
+import { normalizeToNative } from "../../utils/native.utils";
 
 export interface GetQuoteUseCaseRequest {
   fromChainId: number;
@@ -42,16 +43,18 @@ export class GetQuoteUseCase {
       console.log(`[GetQuoteUseCase] Getting quote for swap`);
 
       const unit = request.unit || "token";
-      const fromDecimals = await getTokenDecimals(request.fromChainId, request.fromToken);
-      const toDecimals = await getTokenDecimals(request.toChainId, request.toToken);
+      const fromTok = normalizeToNative(request.fromToken);
+      const toTok = normalizeToNative(request.toToken);
+      const fromDecimals = await getTokenDecimals(request.fromChainId, fromTok);
+      const toDecimals = await getTokenDecimals(request.toChainId, toTok);
       const amountWei = unit === "wei" ? BigInt(request.amount) : toWei(request.amount, fromDecimals);
 
       // Convert to domain entity
       const swapRequest = new SwapRequest(
         request.fromChainId,
         request.toChainId,
-        request.fromToken,
-        request.toToken,
+        fromTok,
+        toTok,
         amountWei,
         request.sender,
         request.sender // For quote, receiver is same as sender
@@ -61,8 +64,8 @@ export class GetQuoteUseCase {
       const quote = await this.swapDomainService.getQuote(swapRequest);
 
       // Enriquecimento USD via thirdweb
-      const fromUsd = await getTokenSpotUsdPrice(request.fromChainId, request.fromToken);
-      const toUsd = await getTokenSpotUsdPrice(request.toChainId, request.toToken);
+      const fromUsd = await getTokenSpotUsdPrice(request.fromChainId, fromTok);
+      const toUsd = await getTokenSpotUsdPrice(request.toChainId, toTok);
       const amountHuman = unit === "token" ? request.amount : undefined;
       const amountUsd = fromUsd && amountHuman ? (Number(amountHuman) * fromUsd).toFixed(2) : undefined;
 
@@ -81,8 +84,8 @@ export class GetQuoteUseCase {
       return {
         fromChainId: request.fromChainId,
         toChainId: request.toChainId,
-        fromToken: request.fromToken,
-        toToken: request.toToken,
+        fromToken: fromTok,
+        toToken: toTok,
         amount: amountWei.toString(),
         amountHuman,
         amountUsd,

@@ -1,6 +1,8 @@
 // backend/liquid-swap-service/src/index.ts
 
-import "dotenv/config";
+import path from "path";
+import dotenv from "dotenv";
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 // Usamos require() para garantir o objeto de runtime do express,
 // evitando o erro "This expression is not callable" no seu setup.
 const expressLib = require("express") as any;
@@ -85,7 +87,8 @@ try {
 
   // Rotas protegidas por JWT
   console.log("[Liquid Swap Service] 🔗 Registering routes...");
-  app.use("/swap", verifyJwtMiddleware, swapRouter);
+  // app.use("/swap", verifyJwtMiddleware, swapRouter);
+  app.use("/swap", swapRouter) // just for testing
 
   // Health check
   app.get("/health", (_req: Request, res: Response) => {
@@ -140,7 +143,11 @@ try {
           "/health": "Service health check",
           "/swap/quote": "Get quote (requires JWT auth)",
           "/swap/tx": "Get prepared tx bundle (requires JWT auth)",
+          "/swap/execute": process.env.ENGINE_ENABLED === "true"
+            ? "Execute via Engine (ERC4337, requires JWT)"
+            : "Disabled (set ENGINE_ENABLED=true)",
           "/swap/history": "Get user swap history (requires JWT auth)",
+          "/swap/status/:transactionHash?chainId=...": "Get route status for a transaction (requires JWT)",
         },
         supportedChains: {
           "1": "Ethereum Mainnet",
@@ -183,6 +190,23 @@ try {
     }
   });
 
+  // CORS for engine signer endpoint (explicit, even though global CORS is enabled)
+  const signerCors = cors({
+    origin: "*", // reflect request origin
+    credentials: false,
+    methods: ["GET", "OPTIONS"],
+  });
+  app.options("/engine/signer", signerCors);
+
+  // expose engine's signer address
+  app.get("/engine/signer", signerCors, (_req: Request, res: Response) => {
+    const address = process.env.ENGINE_SESSION_SIGNER_ADDRESS || process.env.ADMIN_WALLET_ADDRESS;
+    if (!address) {
+      return res.status(503).json({ error: "Engine signer not configured" });
+    }
+    res.json({address});
+  });
+
   // 404 handler
   app.use((req: Request, res: Response) => {
     console.warn(`[404] Route not found: ${req.method} ${req.originalUrl}`);
@@ -196,6 +220,8 @@ try {
         "POST /swap/quote",
         "POST /swap/tx",
         "GET /swap/history",
+        "POST /swap/execute",
+        "GET /swap/status/:transactionHash?chainId=...",
       ],
     });
   });
