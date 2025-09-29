@@ -10,6 +10,8 @@ const rateLimit = require('express-rate-limit');
 const traderJoeRoutes = require('./routes/traderJoeRoutes');
 const validationRoutes = require('./routes/validationRoutes');
 const validationSwapRoutes = require('./routes/validationSwapRoutes');
+const benqiRoutes = require('./routes/benqiRoutes');
+const benqiValidationRoutes = require('./routes/benqiValidationRoutes');
 
 // Importa configurações
 const { NETWORKS, RATE_LIMIT, SECURITY } = require('./config/constants');
@@ -97,7 +99,7 @@ app.get('/info', (req, res) => {
     version: '1.0.0',
     network: NETWORKS.AVALANCHE.name,
     chainId: NETWORKS.AVALANCHE.chainId,
-    supportedProtocols: ['Trader Joe', 'Validation Contract', 'Validation + Swap'],
+    supportedProtocols: ['Trader Joe', 'Validation Contract', 'Validation + Swap', 'Benqi Lending', 'Benqi + Validation'],
     features: [
       'Swap de tokens',
       'Comparação de preços',
@@ -111,13 +113,22 @@ app.get('/info', (req, res) => {
       'Contrato de validação e taxas',
       'Pagamentos com validação',
       'Gestão de taxas',
-      'Validação + Swap integrado'
+      'Validação + Swap integrado',
+      'Lending e borrowing',
+      'Supply de ativos',
+      'Redeem de qTokens',
+      'Borrow de ativos',
+      'Repay de empréstimos',
+      'Gestão de liquidez',
+      'Enter/Exit markets'
     ],
     endpoints: {
       swap: '/dex/swap',
       price: '/dex/getprice',
       validation: '/validation/*',
       validationSwap: '/validation-swap/*',
+      benqi: '/benqi/*',
+      benqiValidation: '/benqi-validation/*',
       health: '/health',
       info: '/info'
     },
@@ -183,6 +194,8 @@ app.get('/config', (req, res) => {
 app.use('/dex', traderJoeRoutes);
 app.use('/validation', validationRoutes);
 app.use('/validation-swap', validationSwapRoutes);
+app.use('/benqi', benqiRoutes);
+app.use('/benqi-validation', benqiValidationRoutes);
 
 // Middleware de tratamento de erros
 app.use((err, req, res, next) => {
@@ -207,7 +220,9 @@ app.use((req, res) => {
       'GET /config',
       'GET/POST /dex/*',
       'GET/POST /validation/*',
-      'POST /validation-swap/*'
+      'POST /validation-swap/*',
+      'GET/POST /benqi/*',
+      'POST /benqi-validation/*'
     ]
   });
 });
