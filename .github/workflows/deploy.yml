@@ -1,0 +1,29 @@
+name: Deploy Panorama Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Panorama VM via Azure CLI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Run deploy script on VM
+        run: |
+          az vm run-command invoke \
+            --resource-group Core-Deploy \
+            --name core-deploy \
+            --command-id RunShellScript \
+            --scripts '
+              cd /home/panorama/panorama-block-backend &&
+              git pull origin main &&
+              sudo docker-compose -f docker-compose-deploy.yml up -d --build
+            '
