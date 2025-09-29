@@ -23,7 +23,7 @@ jobs:
             --name core-deploy \
             --command-id RunShellScript \
             --scripts '
-              git config --global --add safe.directory /home/panorama/panorama-block-backend &&
+              sudo git config --system --add safe.directory /home/panorama/panorama-block-backend &&
               cd /home/panorama/panorama-block-backend &&
               git pull origin main &&
               sudo docker-compose -f docker-compose-deploy.yml up -d --build
