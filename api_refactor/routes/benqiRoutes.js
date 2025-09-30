@@ -25,10 +25,13 @@ router.get('/qtokens', benqiRateLimiter, async (req, res) => {
       { symbol: 'qAVAX', address: BENQI.QAVAX, underlying: 'AVAX' },
       { symbol: 'qUSDC', address: BENQI.QUSDC, underlying: 'USDC' },
       { symbol: 'qUSDT', address: BENQI.QUSDT, underlying: 'USDT' },
-      { symbol: 'qWETH', address: BENQI.QWETH, underlying: 'WETH' },
       { symbol: 'qDAI', address: BENQI.QDAI, underlying: 'DAI' },
+      { symbol: 'qWETH', address: BENQI.QWETH, underlying: 'WETH' },
+      { symbol: 'qBTC', address: BENQI.QBTC, underlying: 'BTC.b' },
       { symbol: 'qLINK', address: BENQI.QLINK, underlying: 'LINK' },
-      { symbol: 'qJOE', address: BENQI.QJOE, underlying: 'JOE' }
+      { symbol: 'qJOE', address: BENQI.QJOE, underlying: 'JOE' },
+      { symbol: 'qQI', address: BENQI.QQI, underlying: 'QI' },
+      { symbol: 'qCOQ', address: BENQI.QCOQ, underlying: 'COQ' }
     ];
     
     res.json({

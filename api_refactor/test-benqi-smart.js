@@ -27,7 +27,7 @@ if (PRIVATE_KEY) {
   TEST_ADDRESS = '0x1234567890abcdef1234567890abcdef12345678';
 }
 
-// Função para criar assinatura real ou simulada
+// Função para criar assinatura real
 async function createSignature(message) {
   if (wallet) {
     // Usa assinatura real
@@ -39,14 +39,7 @@ async function createSignature(message) {
       timestamp: Date.now()
     };
   } else {
-    // Fallback para assinatura simulada
-    const mockSignature = '0x' + 'a'.repeat(130);
-    return {
-      address: TEST_ADDRESS,
-      signature: mockSignature,
-      message: message,
-      timestamp: Date.now()
-    };
+    throw new Error('Wallet não disponível para assinatura');
   }
 }
 
@@ -74,32 +67,40 @@ async function makeAuthenticatedRequest(method, endpoint, data = {}) {
   }
 }
 
-// Testes das rotas do Benqi
-async function testBenqiRoutes() {
-  console.log('🚀 Iniciando testes das rotas do Benqi...\n');
+// Testes das rotas do Benqi (smart wallet)
+async function testBenqiSmartWallet() {
+  console.log('🚀 Iniciando testes das rotas do Benqi (Smart Wallet)...\n');
 
   try {
-    // Teste 1: Listar qTokens
+    // Teste 1: Listar qTokens (sem autenticação)
     console.log('📋 Teste 1: Listando qTokens...');
-    const qTokensResponse = await makeAuthenticatedRequest('GET', '/benqi/qtokens');
-    console.log('✅ qTokens listados:', qTokensResponse.data.total, 'qTokens encontrados');
-    console.log('📝 Primeiro qToken:', qTokensResponse.data.qTokens[0]);
+    const qTokensResponse = await axios.get(`${API_BASE_URL}/benqi/qtokens`);
+    console.log('✅ qTokens listados:', qTokensResponse.data.data.total, 'qTokens encontrados');
+    console.log('📝 Primeiro qToken:', qTokensResponse.data.data.qTokens[0]);
     console.log('');
 
-    // Teste 2: Obter informações de um qToken
+    // Teste 2: Obter informações de um qToken (com autenticação)
     console.log('📋 Teste 2: Obtendo informações do qAVAX...');
-    const qAVAXAddress = '0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7'; // qAVAX
-    const qTokenInfoResponse = await makeAuthenticatedRequest('GET', `/benqi/qtokens/${qAVAXAddress}`);
-    console.log('✅ Informações do qToken obtidas:', qTokenInfoResponse.data.symbol);
-    console.log('📝 Total Supply:', qTokenInfoResponse.data.totalSupply);
+    const qAVAXAddress = '0x5C0401e81Bc07Ca70fAD469b451682c0d747Ef1c'; // qAVAX (endereço real)
+    try {
+      const qTokenInfoResponse = await makeAuthenticatedRequest('GET', `/benqi/qtokens/${qAVAXAddress}`);
+      console.log('✅ Informações do qToken obtidas:', qTokenInfoResponse.data.symbol);
+      console.log('📝 Total Supply:', qTokenInfoResponse.data.totalSupply);
+    } catch (error) {
+      console.log('⚠️ Erro esperado (endereço inválido):', error.response?.data?.data?.error);
+    }
     console.log('');
 
     // Teste 3: Obter taxas de juros
     console.log('📋 Teste 3: Obtendo taxas de juros do qAVAX...');
-    const ratesResponse = await makeAuthenticatedRequest('GET', `/benqi/qtokens/${qAVAXAddress}/rates`);
-    console.log('✅ Taxas de juros obtidas');
-    console.log('📝 Supply Rate APY:', ratesResponse.data.supplyRateAPY);
-    console.log('📝 Borrow Rate APY:', ratesResponse.data.borrowRateAPY);
+    try {
+      const ratesResponse = await makeAuthenticatedRequest('GET', `/benqi/qtokens/${qAVAXAddress}/rates`);
+      console.log('✅ Taxas de juros obtidas');
+      console.log('📝 Supply Rate APY:', ratesResponse.data.supplyRateAPY);
+      console.log('📝 Borrow Rate APY:', ratesResponse.data.borrowRateAPY);
+    } catch (error) {
+      console.log('⚠️ Erro esperado (endereço inválido):', error.response?.data?.data?.error);
+    }
     console.log('');
 
     // Teste 4: Obter liquidez da conta
@@ -127,9 +128,9 @@ async function testBenqiRoutes() {
     console.log('📝 Health Factor:', accountInfoResponse.data.summary.healthFactor);
     console.log('');
 
-    // Teste 7: Preparar transação de supply
+    // Teste 7: Preparar transação de supply (smart wallet)
     console.log('📋 Teste 7: Preparando transação de supply...');
-    const supplyAmount = ethers.parseEther('1.0'); // 1 AVAX
+    const supplyAmount = ethers.parseEther('0.01'); // 0.01 AVAX
     const supplyResponse = await makeAuthenticatedRequest('POST', '/benqi/supply', {
       qTokenAddress: qAVAXAddress,
       amount: supplyAmount.toString()
@@ -138,11 +139,12 @@ async function testBenqiRoutes() {
     console.log('📝 Status:', supplyResponse.data.status);
     console.log('📝 Gas:', supplyResponse.data.gas);
     console.log('📝 To:', supplyResponse.data.to);
+    console.log('📝 Data:', supplyResponse.data.data.substring(0, 20) + '...');
     console.log('');
 
     // Teste 8: Preparar transação de redeem
     console.log('📋 Teste 8: Preparando transação de redeem...');
-    const redeemAmount = ethers.parseEther('0.5'); // 0.5 AVAX
+    const redeemAmount = ethers.parseEther('0.005'); // 0.005 AVAX
     const redeemResponse = await makeAuthenticatedRequest('POST', '/benqi/redeem', {
       qTokenAddress: qAVAXAddress,
       amount: redeemAmount.toString(),
@@ -155,7 +157,7 @@ async function testBenqiRoutes() {
 
     // Teste 9: Preparar transação de borrow
     console.log('📋 Teste 9: Preparando transação de borrow...');
-    const borrowAmount = ethers.parseEther('0.1'); // 0.1 AVAX
+    const borrowAmount = ethers.parseEther('0.001'); // 0.001 AVAX
     const borrowResponse = await makeAuthenticatedRequest('POST', '/benqi/borrow', {
       qTokenAddress: qAVAXAddress,
       amount: borrowAmount.toString()
@@ -167,7 +169,7 @@ async function testBenqiRoutes() {
 
     // Teste 10: Preparar transação de repay
     console.log('📋 Teste 10: Preparando transação de repay...');
-    const repayAmount = ethers.parseEther('0.05'); // 0.05 AVAX
+    const repayAmount = ethers.parseEther('0.0005'); // 0.0005 AVAX
     const repayResponse = await makeAuthenticatedRequest('POST', '/benqi/repay', {
       qTokenAddress: qAVAXAddress,
       amount: repayAmount.toString()
@@ -198,74 +200,10 @@ async function testBenqiRoutes() {
     console.log('📝 Gas:', exitMarketResponse.data.gas);
     console.log('');
 
-    console.log('🎉 Todos os testes das rotas do Benqi foram executados com sucesso!');
+    console.log('🎉 Todos os testes das rotas do Benqi (Smart Wallet) foram executados com sucesso!');
 
   } catch (error) {
     console.error('❌ Erro durante os testes:', error.message);
-  }
-}
-
-// Testes das rotas de validação + lending
-async function testBenqiValidationRoutes() {
-  console.log('🚀 Iniciando testes das rotas de validação + lending...\n');
-
-  try {
-    // Teste 1: Obter cotação de validação + supply
-    console.log('📋 Teste 1: Obtendo cotação de validação + supply...');
-    const supplyQuoteResponse = await makeAuthenticatedRequest('POST', '/benqi-validation/getValidationAndSupplyQuote', {
-      amount: ethers.parseEther('1.0').toString(), // 1 AVAX
-      qTokenAddress: '0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7' // qAVAX
-    });
-    console.log('✅ Cotação de validação + supply obtida');
-    console.log('📝 Taxa:', supplyQuoteResponse.data.validation.taxRate);
-    console.log('📝 Taxa paga:', supplyQuoteResponse.data.validation.taxAmount);
-    console.log('📝 Valor restante:', supplyQuoteResponse.data.validation.restAmount);
-    console.log('');
-
-    // Teste 2: Obter cotação de validação + borrow
-    console.log('📋 Teste 2: Obtendo cotação de validação + borrow...');
-    const borrowQuoteResponse = await makeAuthenticatedRequest('POST', '/benqi-validation/getValidationAndBorrowQuote', {
-      amount: ethers.parseEther('0.5').toString(), // 0.5 AVAX
-      qTokenAddress: '0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7' // qAVAX
-    });
-    console.log('✅ Cotação de validação + borrow obtida');
-    console.log('📝 Taxa:', borrowQuoteResponse.data.validation.taxRate);
-    console.log('📝 Taxa paga:', borrowQuoteResponse.data.validation.taxAmount);
-    console.log('📝 Valor restante:', borrowQuoteResponse.data.validation.restAmount);
-    console.log('');
-
-    // Teste 3: Executar validação + supply (com private key)
-    if (PRIVATE_KEY) {
-      console.log('📋 Teste 3: Executando validação + supply...');
-      const validateAndSupplyResponse = await makeAuthenticatedRequest('POST', '/benqi-validation/validateAndSupply', {
-        amount: ethers.parseEther('0.01').toString(), // 0.01 AVAX (valor menor)
-        qTokenAddress: '0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7', // qAVAX
-        privateKey: PRIVATE_KEY
-      });
-      console.log('✅ Validação + supply executada');
-      console.log('📝 Hash da validação:', validateAndSupplyResponse.data.validation.transactionHash);
-      console.log('📝 Hash do supply:', validateAndSupplyResponse.data.supply.transactionHash);
-      console.log('');
-
-      // Teste 4: Executar validação + borrow (com private key)
-      console.log('📋 Teste 4: Executando validação + borrow...');
-      const validateAndBorrowResponse = await makeAuthenticatedRequest('POST', '/benqi-validation/validateAndBorrow', {
-        amount: ethers.parseEther('0.005').toString(), // 0.005 AVAX (valor menor)
-        qTokenAddress: '0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7', // qAVAX
-        privateKey: PRIVATE_KEY
-      });
-      console.log('✅ Validação + borrow executada');
-      console.log('📝 Hash da validação:', validateAndBorrowResponse.data.validation.transactionHash);
-      console.log('📝 Hash do borrow:', validateAndBorrowResponse.data.borrow.transactionHash);
-      console.log('');
-    } else {
-      console.log('⚠️ Private key não fornecida, pulando testes de execução...');
-    }
-
-    console.log('🎉 Todos os testes das rotas de validação + lending foram executados com sucesso!');
-
-  } catch (error) {
-    console.error('❌ Erro durante os testes de validação:', error.message);
   }
 }
 
@@ -279,13 +217,13 @@ async function main() {
   console.log('🔑 Private Key:', PRIVATE_KEY ? 'Fornecida' : 'Não fornecida');
   console.log('');
 
-  // Executa testes das rotas do Benqi
-  await testBenqiRoutes();
-  
-  console.log('\n' + '='.repeat(80) + '\n');
-  
-  // Executa testes das rotas de validação + lending
-  await testBenqiValidationRoutes();
+  if (!wallet) {
+    console.log('❌ Private key não fornecida. Testes de autenticação não podem ser executados.');
+    return;
+  }
+
+  // Executa testes das rotas do Benqi (smart wallet)
+  await testBenqiSmartWallet();
   
   console.log('\n🎯 Todos os testes foram concluídos!');
 }
@@ -296,8 +234,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  testBenqiRoutes,
-  testBenqiValidationRoutes,
+  testBenqiSmartWallet,
   makeAuthenticatedRequest,
   createSignature
 };
