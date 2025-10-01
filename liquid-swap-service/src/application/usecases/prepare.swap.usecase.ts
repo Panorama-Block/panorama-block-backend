@@ -1,6 +1,7 @@
 // Application Use Cases - Prepare Swap (V1 non-custodial)
 import { SwapRequest } from "../../domain/entities/swap";
 import { SwapDomainService } from "../../domain/services/swap.domain.service";
+import { normalizeToNative } from "../../utils/native.utils";
 
 export interface PrepareSwapUseCaseRequest {
   fromChainId: number;
@@ -22,11 +23,13 @@ export class PrepareSwapUseCase {
   public async execute(
     req: PrepareSwapUseCaseRequest
   ): Promise<PrepareSwapUseCaseResponse> {
+    const fromTok = normalizeToNative(req.fromToken);
+    const toTok = normalizeToNative(req.toToken);
     const swapRequest = new SwapRequest(
       req.fromChainId,
       req.toChainId,
-      req.fromToken,
-      req.toToken,
+      fromTok,
+      toTok,
       BigInt(req.amount),
       req.sender,
       req.receiver || req.sender

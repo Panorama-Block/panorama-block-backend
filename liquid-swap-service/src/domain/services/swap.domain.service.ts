@@ -67,4 +67,8 @@ export class SwapDomainService {
   public async getSwapHistory(userAddress: string): Promise<SwapResult[]> {
     return await this.swapRepository.getSwapHistory(userAddress);
   }
+
+  public async monitorStatus(transactionHash: string, chainId: number): Promise<string> {
+    return await this.swapService.monitorTransaction(transactionHash, chainId);
+  }
 }
