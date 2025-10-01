@@ -57,8 +57,8 @@ try {
 
   // Rotas protegidas por JWT
   console.log("[Liquid Swap Service] 🔗 Registering routes...");
-  // app.use("/swap", verifyJwtMiddleware, swapRouter);
-  app.use("/swap", swapRouter) // just for testing
+  
+  app.use("/swap", verifyJwtMiddleware, swapRouter);
 
   // Health check
   app.get("/health", (_req: Request, res: Response) => {

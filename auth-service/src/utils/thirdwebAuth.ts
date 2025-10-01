@@ -1,5 +1,6 @@
 import { ThirdwebAuth } from '@thirdweb-dev/auth';
 import { PrivateKeyWallet } from '@thirdweb-dev/auth/evm';
+import { verifySignature as thirdwebVerifySignature } from 'thirdweb/auth';
 
 // Singleton for ThirdwebAuth
 // Avoids creating multiple instances
@@ -41,21 +42,52 @@ export const getAuthInstance = (): any => {
 // Generate login payload with proper structure
 export const generateLoginPayload = async (address: string): Promise<any> => {
   const auth = getAuthInstance();
+  
+  const normalizedAddress = (await import("ethers")).ethers.utils.getAddress(address);
+
   return await auth.payload({
-    address: (await import("ethers")).ethers.utils.getAddress(address),
+    address: normalizedAddress,
     statement: 'Login to Panorama Block platform',
-    domain: process.env.AUTH_DOMAIN || 'panoramablock.com',
+    domain: process.env.AUTH_DOMAIN,
     version: '1',
   });
 };
 
-// Verify login payload
+// Verify signature using Thirdweb v5 utils
 export const verifySignature = async (payload: any, signature: string): Promise<string> => {
-  const auth = getAuthInstance();
-  return await auth.verify(
-    { payload, signature },
-    { domain: process.env.AUTH_DOMAIN || 'panoramablock.com' },
-  );
+    
+  try {
+
+    const result = await thirdwebVerifySignature({
+      message: payload,
+      signature: signature,
+      address: payload.address,
+    });
+    
+    console.log('[verifySignature] Verification result:', result);
+    
+    if (result) {
+      return payload.address;
+    } else {
+      throw new Error('Signature verification failed');
+    }
+  } catch (error) {
+    console.error('[verifySignature] Verification error:', error);
+    
+    try {
+      
+      const auth = getAuthInstance();
+      const result = await auth.verify(
+        { payload, signature },
+        { domain: process.env.AUTH_DOMAIN }
+      );
+      console.log('[verifySignature] Auth instance verification result:', result);
+      return result;
+    } catch (altError) {
+      console.error('[verifySignature] Auth instance verification error:', altError);
+      throw error;
+    }
+  }
 };
 
 // Generate auth token
