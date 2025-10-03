@@ -8,6 +8,7 @@ import {
   TransactionStatus,
 } from "../../domain/entities/swap";
 import { ISwapService } from "../../domain/ports/swap.repository";
+import { isNativeLike } from "../../utils/native.utils";
 
 export class ThirdwebSwapAdapter implements ISwapService {
   private client: ReturnType<typeof createThirdwebClient>;
@@ -48,12 +49,13 @@ export class ThirdwebSwapAdapter implements ISwapService {
 
       const quote = await Bridge.Sell.quote({
         originChainId: swapRequest.fromChainId,
-        originTokenAddress:
-          swapRequest.fromToken.toLowerCase() === "native"
-            ? NATIVE_TOKEN_ADDRESS
-            : swapRequest.fromToken,
+        originTokenAddress: isNativeLike(swapRequest.fromToken)
+          ? NATIVE_TOKEN_ADDRESS
+          : swapRequest.fromToken,
         destinationChainId: swapRequest.toChainId,
-        destinationTokenAddress: swapRequest.toToken,
+        destinationTokenAddress: isNativeLike(swapRequest.toToken)
+          ? NATIVE_TOKEN_ADDRESS
+          : swapRequest.toToken,
         amount: sellAmountWei,
         client: this.client,
       });
@@ -79,33 +81,103 @@ export class ThirdwebSwapAdapter implements ISwapService {
         Math.floor(estMs / 1000)
       );
     } catch (error: any) {
-      console.error("[ThirdwebSwapAdapter] Error getting quote:", error);
-      throw new Error(`Failed to get quote: ${error.message}`);
+      const status = error?.statusCode || error?.status || error?.response?.status;
+      const code = error?.code || error?.response?.data?.code;
+      const correlationId = error?.correlationId || error?.response?.data?.correlationId;
+      console.error("[ThirdwebSwapAdapter] Error getting quote:", {
+        message: error?.message,
+        status,
+        code,
+        correlationId,
+      });
+      const detail = [
+        error?.message,
+        status ? `status=${status}` : undefined,
+        code ? `code=${code}` : undefined,
+        correlationId ? `correlationId=${correlationId}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      throw new Error(`Failed to get quote: ${detail}`);
     }
   }
 
 
   public async prepareSwap(swapRequest: SwapRequest): Promise<any> {
     try {
-      const prepared = await Bridge.Sell.prepare({
+      const payload = {
         originChainId: swapRequest.fromChainId,
-        originTokenAddress:
-          swapRequest.fromToken.toLowerCase() === "native"
-            ? NATIVE_TOKEN_ADDRESS
-            : swapRequest.fromToken,
+        originTokenAddress: isNativeLike(swapRequest.fromToken)
+          ? NATIVE_TOKEN_ADDRESS
+          : swapRequest.fromToken,
         destinationChainId: swapRequest.toChainId,
-        destinationTokenAddress: swapRequest.toToken,
+        destinationTokenAddress: isNativeLike(swapRequest.toToken)
+          ? NATIVE_TOKEN_ADDRESS
+          : swapRequest.toToken,
         amount: swapRequest.amount,
-        sender: swapRequest.sender, // <<— carteira do usuário
+        sender: swapRequest.sender,
         receiver: swapRequest.receiver || swapRequest.sender,
         client: this.client,
-      });
+      } as const;
+
+      if (process.env.DEBUG === "true") {
+        console.log("[ThirdwebSwapAdapter] Prepare payload:", {
+          originChainId: payload.originChainId,
+          originTokenAddress: payload.originTokenAddress,
+          destinationChainId: payload.destinationChainId,
+          destinationTokenAddress: payload.destinationTokenAddress,
+          amount: payload.amount.toString(),
+          sender: payload.sender,
+          receiver: payload.receiver,
+        });
+        // Optional preflight quote for debugging
+        try {
+          const q = await Bridge.Sell.quote({
+            originChainId: payload.originChainId,
+            originTokenAddress: payload.originTokenAddress,
+            destinationChainId: payload.destinationChainId,
+            destinationTokenAddress: payload.destinationTokenAddress,
+            amount: payload.amount,
+            client: this.client,
+          });
+          console.log("[ThirdwebSwapAdapter] Preflight quote:", {
+            originAmount: q.originAmount?.toString?.() ?? String(q.originAmount),
+            destinationAmount: q.destinationAmount?.toString?.() ?? String(q.destinationAmount),
+            estimatedExecutionTimeMs: q.estimatedExecutionTimeMs,
+          });
+        } catch (preErr: any) {
+          console.log("[ThirdwebSwapAdapter] Preflight quote failed:", {
+            message: preErr?.message,
+            status: preErr?.statusCode || preErr?.status,
+            code: preErr?.code,
+            correlationId: preErr?.correlationId,
+          });
+        }
+      }
+
+      const prepared = await Bridge.Sell.prepare(payload);
 
       // `prepared` normalmente contém { steps: [{ transactions: [...] }], expiresAt, ... }
       return prepared;
     } catch (error: any) {
-      console.error("[ThirdwebSwapAdapter] Error preparing swap:", error);
-      throw new Error(`Failed to prepare swap: ${error.message}`);
+      const status = error?.statusCode || error?.status || error?.response?.status;
+      const code = error?.code || error?.response?.data?.code;
+      const correlationId = error?.correlationId || error?.response?.data?.correlationId;
+      console.error("[ThirdwebSwapAdapter] Error preparing swap:", {
+        message: error?.message,
+        status,
+        code,
+        correlationId,
+      });
+      const detail = [
+        error?.message,
+        status ? `status=${status}` : undefined,
+        code ? `code=${code}` : undefined,
+        correlationId ? `correlationId=${correlationId}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      throw new Error(`Failed to prepare swap: ${detail}`);
     }
   }
 

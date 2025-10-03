@@ -82,65 +82,76 @@ npm start
 
 ## 📡 API Endpoints
 
-### Health Check
+### Health
 ```http
 GET /health
 ```
 
-### Execute Swap
+### Quote
 ```http
-POST /swap/manual
-Authorization: Bearer <JWT_TOKEN>
+POST /swap/quote  (JWT)
 Content-Type: application/json
-
 {
   "fromChainId": 1,
   "toChainId": 137,
-  "fromToken": "NATIVE",
+  "fromToken": "native",
   "toToken": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-  "amount": "1000000000000000000"
+  "amount": "1000000000000000",
+  "unit": "wei"
 }
 ```
 
-### Get Swap History
+### Prepare (non-custodial)
 ```http
-GET /swap/history/:userAddress
-Authorization: Bearer <JWT_TOKEN>
+POST /swap/tx  (JWT)
+Content-Type: application/json
+{
+  "fromChainId": 1,
+  "toChainId": 137,
+  "fromToken": "native",
+  "toToken": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+  "amount": "1000000000000000",
+  "receiver": "0x...optional"
+}
 ```
 
-### Module Health Check
+### Execute via Engine (optional)
+Enabled when `ENGINE_ENABLED=true`.
 ```http
-GET /swap/health
+POST /swap/execute  (JWT)
+Content-Type: application/json
+{
+  "fromChainId": 1,
+  "toChainId": 137,
+  "fromToken": "native",
+  "toToken": "0x2791...",
+  "amount": "1000000000000000",
+  "receiver": "0x...optional",
+  "smartAccountAddress": "0xSmartAccount",
+  "signerAddress": "0xSessionKey"
+}
+```
+
+### Swap History
+```http
+GET /swap/history  (JWT)
+```
+
+### Status
+```http
+GET /swap/status/:transactionHash?chainId={originChainId}  (JWT)
 ```
 
 ## 🧪 Testing Examples
 
-### 1. ETH to USDC (Ethereum → Polygon)
+Use the helper script:
 ```bash
-curl -X POST http://localhost:3002/swap/manual \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "fromChainId": 1,
-    "toChainId": 137,
-    "fromToken": "NATIVE",
-    "toToken": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-    "amount": "1000000000000000000"
-  }'
+AUTH_TOKEN=eyJ... ./test-api.sh 3002
 ```
 
-### 2. USDC to BNB (Polygon → BSC)
+To test Engine execution:
 ```bash
-curl -X POST http://localhost:3002/swap/manual \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "fromChainId": 137,
-    "toChainId": 56,
-    "fromToken": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-    "toToken": "NATIVE",
-    "amount": "1000000"
-  }'
+ENGINE_ENABLED=true SMART_ACCOUNT=0x... SESSION_KEY=0x... AUTH_TOKEN=eyJ... ./test-api.sh 3002
 ```
 
 ## 🔧 Domain Logic
@@ -152,7 +163,10 @@ curl -X POST http://localhost:3002/swap/manual \
 - **SwapResult**: Complete swap operation result
 
 ### Use Cases
-- **ExecuteSwapUseCase**: Orchestrates the complete swap process
+- **GetQuoteUseCase**: Returns cross-chain quote (+ USD enrichment)
+- **PrepareSwapUseCase**: Returns origin-chain steps/transactions bundle
+- **ExecuteSwapUseCase**: Prepares and executes origin txs via Engine (when enabled)
+- **GetSwapStatusUseCase**: Returns Universal Bridge status by origin tx hash
 - **GetSwapHistoryUseCase**: Retrieves user's swap history
 
 ### Adapters
@@ -182,7 +196,18 @@ The service uses real ThirdWeb Universal Bridge API:
 1. ✅ Uses official `Bridge, NATIVE_TOKEN_ADDRESS` imports from "thirdweb"
 2. ✅ Configure ThirdWeb Client ID in environment variables
 3. ✅ Supports cross-chain swaps on all major networks
-4. ✅ Real-time transaction monitoring and status tracking
+4. ✅ Real-time transaction monitoring and status tracking (via `/swap/status`)
+
+### Engine & Session Key
+
+Optional server-side execution using thirdweb Engine + ERC‑4337 session key when `ENGINE_ENABLED=true`.
+
+Env vars:
+```
+ENGINE_ENABLED=true
+ENGINE_URL=http://engine:3005
+ENGINE_ACCESS_TOKEN=your-engine-token
+```
 
 ## 🔒 Security
 
