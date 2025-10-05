@@ -1,0 +1,472 @@
+const express = require('express');
+const BackendService = require('../services/backendService');
+const { 
+  verifySignature, 
+  checkBackendHealth,
+  sanitizeInput,
+  validateNetwork,
+  createRateLimiter
+} = require('../middleware/auth');
+
+const router = express.Router();
+
+// Rate limiting para rotas de lending
+const lendingRateLimiter = createRateLimiter(100, 15 * 60 * 1000); // 100 requests por 15 minutos
+
+/**
+ * @route GET /lending/qtokens
+ * @desc Lista todos os qTokens disponíveis
+ * @access Public
+ */
+router.get('/qtokens', 
+  checkBackendHealth,
+  lendingRateLimiter,
+  async (req, res) => {
+    try {
+      const backendService = new BackendService();
+      const result = await backendService.getQTokens();
+
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: {
+            code: 'BACKEND_ERROR',
+            message: 'Erro ao obter qTokens do backend',
+            details: result.error
+          }
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          message: 'qTokens listados com sucesso',
+          qTokens: result.data.data.qTokens,
+          total: result.data.data.total
+        }
+      });
+
+    } catch (error) {
+      console.error('Erro ao listar qTokens:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Erro interno ao listar qTokens'
+        }
+      });
+    }
+  }
+);
+
+/**
+ * @route POST /lending/enter-markets
+ * @desc Preparar transação de enterMarkets (entrar em mercados)
+ * @access Private (Smart Wallet)
+ */
+router.post('/enter-markets',
+  verifySignature,
+  checkBackendHealth,
+  lendingRateLimiter,
+  sanitizeInput,
+  validateNetwork,
+  async (req, res) => {
+    try {
+      const { qTokenAddresses } = req.body;
+
+      if (!qTokenAddresses || !Array.isArray(qTokenAddresses)) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'MISSING_PARAMETERS',
+            message: 'qTokenAddresses é obrigatório e deve ser um array'
+          }
+        });
+      }
+
+      const backendService = new BackendService();
+      const result = await backendService.prepareEnterMarkets(
+        req.authData,
+        qTokenAddresses
+      );
+
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: {
+            code: 'BACKEND_ERROR',
+            message: 'Erro ao preparar transação de enterMarkets',
+            details: result.error
+          }
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          message: 'Transação de enterMarkets preparada com sucesso',
+          transaction: result.data.data,
+          instructions: {
+            step1: 'Assine a transação no seu wallet',
+            step2: 'Envie a transação para a rede',
+            step3: 'Aguarde a confirmação'
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Erro ao preparar enterMarkets:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Erro interno ao preparar enterMarkets'
+        }
+      });
+    }
+  }
+);
+
+/**
+ * @route POST /lending/exit-market
+ * @desc Preparar transação de exitMarket (sair de um mercado)
+ * @access Private (Smart Wallet)
+ */
+router.post('/exit-market',
+  verifySignature,
+  checkBackendHealth,
+  lendingRateLimiter,
+  sanitizeInput,
+  validateNetwork,
+  async (req, res) => {
+    try {
+      const { qTokenAddress } = req.body;
+
+      if (!qTokenAddress) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'MISSING_PARAMETERS',
+            message: 'qTokenAddress é obrigatório'
+          }
+        });
+      }
+
+      const backendService = new BackendService();
+      const result = await backendService.prepareExitMarket(
+        req.authData,
+        qTokenAddress
+      );
+
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: {
+            code: 'BACKEND_ERROR',
+            message: 'Erro ao preparar transação de exitMarket',
+            details: result.error
+          }
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          message: 'Transação de exitMarket preparada com sucesso',
+          transaction: result.data.data,
+          instructions: {
+            step1: 'Assine a transação no seu wallet',
+            step2: 'Envie a transação para a rede',
+            step3: 'Aguarde a confirmação'
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Erro ao preparar exitMarket:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Erro interno ao preparar exitMarket'
+        }
+      });
+    }
+  }
+);
+
+/**
+ * @route POST /lending/validate-supply
+ * @desc Preparar transação de validação + supply
+ * @access Private (Smart Wallet)
+ */
+router.post('/validate-supply',
+  verifySignature,
+  checkBackendHealth,
+  lendingRateLimiter,
+  sanitizeInput,
+  validateNetwork,
+  async (req, res) => {
+    try {
+      const { qTokenAddress, amount } = req.body;
+
+      if (!qTokenAddress || !amount) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'MISSING_PARAMETERS',
+            message: 'qTokenAddress e amount são obrigatórios'
+          }
+        });
+      }
+
+      const backendService = new BackendService();
+      const result = await backendService.prepareValidationAndSupply(
+        req.authData,
+        qTokenAddress,
+        amount
+      );
+
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: {
+            code: 'BACKEND_ERROR',
+            message: 'Erro ao preparar transação de validação + supply',
+            details: result.error
+          }
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          message: 'Transação de validação + supply preparada com sucesso',
+          operation: 'prepareValidationAndSupply',
+          transaction: result.data.data,
+          qTokenAddress,
+          amount,
+          network: process.env.NETWORK_NAME || 'Avalanche C-Chain'
+        }
+      });
+
+    } catch (error) {
+      console.error('Erro ao preparar transação de validação + supply:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Erro interno ao preparar transação de validação + supply'
+        }
+      });
+    }
+  }
+);
+
+/**
+ * @route POST /lending/validate-redeem
+ * @desc Preparar transação de validação + redeem
+ * @access Private (Smart Wallet)
+ */
+router.post('/validate-redeem',
+  verifySignature,
+  checkBackendHealth,
+  lendingRateLimiter,
+  sanitizeInput,
+  validateNetwork,
+  async (req, res) => {
+    try {
+      const { qTokenAddress, amount, isUnderlying = true } = req.body;
+
+      if (!qTokenAddress || !amount) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'MISSING_PARAMETERS',
+            message: 'qTokenAddress e amount são obrigatórios'
+          }
+        });
+      }
+
+      const backendService = new BackendService();
+      const result = await backendService.prepareValidationAndRedeem(
+        req.authData,
+        qTokenAddress,
+        amount,
+        isUnderlying
+      );
+
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: {
+            code: 'BACKEND_ERROR',
+            message: 'Erro ao preparar transação de validação + redeem',
+            details: result.error
+          }
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          message: 'Transação de validação + redeem preparada com sucesso',
+          operation: 'prepareValidationAndRedeem',
+          transaction: result.data.data,
+          qTokenAddress,
+          amount,
+          isUnderlying,
+          network: process.env.NETWORK_NAME || 'Avalanche C-Chain'
+        }
+      });
+
+    } catch (error) {
+      console.error('Erro ao preparar transação de validação + redeem:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Erro interno ao preparar transação de validação + redeem'
+        }
+      });
+    }
+  }
+);
+
+/**
+ * @route POST /lending/validate-borrow
+ * @desc Preparar transação de validação + borrow
+ * @access Private (Smart Wallet)
+ */
+router.post('/validate-borrow',
+  verifySignature,
+  checkBackendHealth,
+  lendingRateLimiter,
+  sanitizeInput,
+  validateNetwork,
+  async (req, res) => {
+    try {
+      const { qTokenAddress, amount } = req.body;
+
+      if (!qTokenAddress || !amount) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'MISSING_PARAMETERS',
+            message: 'qTokenAddress e amount são obrigatórios'
+          }
+        });
+      }
+
+      const backendService = new BackendService();
+      const result = await backendService.prepareValidationAndBorrow(
+        req.authData,
+        qTokenAddress,
+        amount
+      );
+
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: {
+            code: 'BACKEND_ERROR',
+            message: 'Erro ao preparar transação de validação + borrow',
+            details: result.error
+          }
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          message: 'Transação de validação + borrow preparada com sucesso',
+          operation: 'prepareValidationAndBorrow',
+          transaction: result.data.data,
+          qTokenAddress,
+          amount,
+          network: process.env.NETWORK_NAME || 'Avalanche C-Chain'
+        }
+      });
+
+    } catch (error) {
+      console.error('Erro ao preparar transação de validação + borrow:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Erro interno ao preparar transação de validação + borrow'
+        }
+      });
+    }
+  }
+);
+
+/**
+ * @route POST /lending/validate-repay
+ * @desc Preparar transação de validação + repay
+ * @access Private (Smart Wallet)
+ */
+router.post('/validate-repay',
+  verifySignature,
+  checkBackendHealth,
+  lendingRateLimiter,
+  sanitizeInput,
+  validateNetwork,
+  async (req, res) => {
+    try {
+      const { qTokenAddress, amount } = req.body;
+
+      if (!qTokenAddress || !amount) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'MISSING_PARAMETERS',
+            message: 'qTokenAddress e amount são obrigatórios'
+          }
+        });
+      }
+
+      const backendService = new BackendService();
+      const result = await backendService.prepareValidationAndRepay(
+        req.authData,
+        qTokenAddress,
+        amount
+      );
+
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: {
+            code: 'BACKEND_ERROR',
+            message: 'Erro ao preparar transação de validação + repay',
+            details: result.error
+          }
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          message: 'Transação de validação + repay preparada com sucesso',
+          operation: 'prepareValidationAndRepay',
+          transaction: result.data.data,
+          qTokenAddress,
+          amount,
+          network: process.env.NETWORK_NAME || 'Avalanche C-Chain'
+        }
+      });
+
+    } catch (error) {
+      console.error('Erro ao preparar transação de validação + repay:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Erro interno ao preparar transação de validação + repay'
+        }
+      });
+    }
+  }
+);
+
+module.exports = router;
