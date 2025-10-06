@@ -8,16 +8,18 @@ import {
   TransactionStatus,
 } from "../../domain/entities/swap";
 import { ISwapService } from "../../domain/ports/swap.repository";
+import { ISwapProvider, RouteParams, PreparedSwap } from "../../domain/ports/swap.provider.port";
 import { isNativeLike } from "../../utils/native.utils";
 
-export class ThirdwebSwapAdapter implements ISwapService {
+export class ThirdwebProviderAdapter implements ISwapService, ISwapProvider {
+  public readonly name = 'thirdweb';
   private client: ReturnType<typeof createThirdwebClient>;
 
   constructor() {
     const clientId = process.env.THIRDWEB_CLIENT_ID;
     const secretKey = process.env.THIRDWEB_SECRET_KEY;
 
-    console.log("[ThirdwebSwapAdapter] Initializing with credentials:");
+    console.log("[ThirdwebProviderAdapter] Initializing with credentials:");
     console.log(
       "- CLIENT_ID:",
       clientId ? `${clientId.substring(0, 8)}...` : "[NOT SET]"
@@ -34,14 +36,21 @@ export class ThirdwebSwapAdapter implements ISwapService {
     });
 
     console.log(
-      "[ThirdwebSwapAdapter] Initialized successfully (non-custodial mode)"
+      "[ThirdwebProviderAdapter] Initialized successfully (non-custodial mode)"
     );
+  }
+
+  // NOVO método para ISwapProvider
+  async supportsRoute(params: RouteParams): Promise<boolean> {
+    // Thirdweb suporta QUALQUER chain-to-chain (é especializado em bridges)
+    // É o fallback universal
+    return true;
   }
 
   public async getQuote(swapRequest: SwapRequest): Promise<SwapQuote> {
     try {
       console.log(
-        "[ThirdwebSwapAdapter] Getting quote for:",
+        "[ThirdwebProviderAdapter] Getting quote for:",
         swapRequest.toLogString()
       );
 
@@ -84,7 +93,7 @@ export class ThirdwebSwapAdapter implements ISwapService {
       const status = error?.statusCode || error?.status || error?.response?.status;
       const code = error?.code || error?.response?.data?.code;
       const correlationId = error?.correlationId || error?.response?.data?.correlationId;
-      console.error("[ThirdwebSwapAdapter] Error getting quote:", {
+      console.error("[ThirdwebProviderAdapter] Error getting quote:", {
         message: error?.message,
         status,
         code,
@@ -121,7 +130,7 @@ export class ThirdwebSwapAdapter implements ISwapService {
       } as const;
 
       if (process.env.DEBUG === "true") {
-        console.log("[ThirdwebSwapAdapter] Prepare payload:", {
+        console.log("[ThirdwebProviderAdapter] Prepare payload:", {
           originChainId: payload.originChainId,
           originTokenAddress: payload.originTokenAddress,
           destinationChainId: payload.destinationChainId,
@@ -140,13 +149,13 @@ export class ThirdwebSwapAdapter implements ISwapService {
             amount: payload.amount,
             client: this.client,
           });
-          console.log("[ThirdwebSwapAdapter] Preflight quote:", {
+          console.log("[ThirdwebProviderAdapter] Preflight quote:", {
             originAmount: q.originAmount?.toString?.() ?? String(q.originAmount),
             destinationAmount: q.destinationAmount?.toString?.() ?? String(q.destinationAmount),
             estimatedExecutionTimeMs: q.estimatedExecutionTimeMs,
           });
         } catch (preErr: any) {
-          console.log("[ThirdwebSwapAdapter] Preflight quote failed:", {
+          console.log("[ThirdwebProviderAdapter] Preflight quote failed:", {
             message: preErr?.message,
             status: preErr?.statusCode || preErr?.status,
             code: preErr?.code,
@@ -163,7 +172,7 @@ export class ThirdwebSwapAdapter implements ISwapService {
       const status = error?.statusCode || error?.status || error?.response?.status;
       const code = error?.code || error?.response?.data?.code;
       const correlationId = error?.correlationId || error?.response?.data?.correlationId;
-      console.error("[ThirdwebSwapAdapter] Error preparing swap:", {
+      console.error("[ThirdwebProviderAdapter] Error preparing swap:", {
         message: error?.message,
         status,
         code,
@@ -264,7 +273,7 @@ export class ThirdwebSwapAdapter implements ISwapService {
       },
     ];
     console.log(
-      `[ThirdwebSwapAdapter] Returning ${supportedChains.length} supported chains`
+      `[ThirdwebProviderAdapter] Returning ${supportedChains.length} supported chains`
     );
     return supportedChains;
   }
@@ -308,7 +317,7 @@ export class ThirdwebSwapAdapter implements ISwapService {
       },
     ];
     console.log(
-      `[ThirdwebSwapAdapter] Returning ${mockRoutes.length} supported routes`
+      `[ThirdwebProviderAdapter] Returning ${mockRoutes.length} supported routes`
     );
     return mockRoutes;
   }
