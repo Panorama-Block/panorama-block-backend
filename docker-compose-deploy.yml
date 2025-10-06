@@ -102,8 +102,13 @@ services:
       - BASE_RPC_URL=${BASE_RPC_URL}
       - OPTIMISM_RPC_URL=${OPTIMISM_RPC_URL}
       - ARBITRUM_RPC_URL=${ARBITRUM_RPC_URL}
+      - FULLCHAIN=${FULLCHAIN}
+      - PRIVKEY=${PRIVKEY}
+      - FORCE_HTTPS=${FORCE_HTTPS}
     env_file:
       - .env
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       auth_service:
         condition: service_started
