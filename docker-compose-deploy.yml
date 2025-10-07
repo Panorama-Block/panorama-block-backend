@@ -43,8 +43,13 @@ services:
       - AUTH_DOMAIN=${AUTH_DOMAIN}
       - AUTH_PRIVATE_KEY=${AUTH_PRIVATE_KEY}
       - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
+      - FULLCHAIN=${FULLCHAIN}
+      - PRIVKEY=${PRIVKEY}
+      - FORCE_HTTPS=${FORCE_HTTPS}
     env_file:
       - .env
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       redis:
         condition: service_started
