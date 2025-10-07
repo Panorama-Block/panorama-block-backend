@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import * as fs from 'fs';
+import https from 'https';
 import { createClient, RedisClientType } from 'redis';
 import authRoutes from './routes/auth';
 import { getAuthInstance, isAuthConfigured } from './utils/thirdwebAuth';
@@ -11,6 +13,33 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || process.env.AUTH_PORT || 3001;
+
+// SSL certificate options for HTTPS
+const getSSLOptions = () => {
+  try {
+    const certPath = process.env.FULLCHAIN || "/etc/letsencrypt/live/api.panoramablock.com/fullchain.pem";
+    const keyPath = process.env.PRIVKEY || "/etc/letsencrypt/live/api.panoramablock.com/privkey.pem";
+    
+    console.log(`[Auth Service] Verificando certificados SSL em: ${certPath} e ${keyPath}`);
+    
+    if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+      console.log('[Auth Service] ✅ Certificados SSL encontrados!');
+      return {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      };
+    } else {
+      console.warn('[Auth Service] ⚠️ Certificados SSL não encontrados nos caminhos:');
+      console.warn(`- Cert: ${certPath} (${fs.existsSync(certPath) ? 'existe' : 'não existe'})`);
+      console.warn(`- Key: ${keyPath} (${fs.existsSync(keyPath) ? 'existe' : 'não existe'})`);
+      console.warn('Executando em modo HTTP.');
+      return null;
+    }
+  } catch (error) {
+    console.warn('[Auth Service] ❌ Erro ao carregar certificados SSL:', error);
+    return null;
+  }
+};
 
 // Set up middleware
 app.use(express.json());
@@ -86,8 +115,51 @@ app.get('/', (req, res) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`[Auth Service] Running on port ${PORT}`);
-  console.log(`[Auth Service] Health check available at http://localhost:${PORT}/health`);
-}); 
+const sslOptions = getSSLOptions();
+
+if (sslOptions) {
+  const server = https.createServer(sslOptions, app).listen(PORT, () => {
+    console.log(`\n🎉 [Auth Service] HTTPS Server running successfully!`);
+    console.log(`📊 Port: ${PORT}`);
+    console.log(`🔒 Protocol: HTTPS`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+    console.log(`📋 Health check: https://localhost:${PORT}/health`);
+    console.log(`🔐 Auth API: https://localhost:${PORT}/auth/`);
+    console.log(`✨ Ready to handle authentication!\n`);
+  });
+
+  // Graceful shutdown
+  process.on("SIGTERM", () => {
+    console.log(
+      "[Auth Service] SIGTERM received, shutting down gracefully..."
+    );
+    server.close(() => {
+      console.log("[Auth Service] Server closed");
+      process.exit(0);
+    });
+  });
+} else {
+  const server = app.listen(PORT, () => {
+    console.log(`\n🎉 [Auth Service] HTTP Server running successfully!`);
+    console.log(`📊 Port: ${PORT}`);
+    console.log(`🔓 Protocol: HTTP`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+    console.log(`📋 Health check: http://localhost:${PORT}/health`);
+    console.log(`🔐 Auth API: http://localhost:${PORT}/auth/`);
+    console.log(`✨ Ready to handle authentication!\n`);
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[Auth Service] WARNING: Running in HTTP mode in production. SSL certificates not found.');
+    }
+  });
+
+  // Graceful shutdown
+  process.on("SIGTERM", () => {
+    console.log(
+      "[Auth Service] SIGTERM received, shutting down gracefully..."
+    );
+    server.close(() => {
+      console.log("[Auth Service] Server closed");
+      process.exit(0);
+    });
+  });
+} 
