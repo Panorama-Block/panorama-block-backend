@@ -26,6 +26,48 @@ services:
       - redis_data:/data
     restart: always
 
+  # --- ThirdWeb Engine para execução de transações ---
+  engine_postgres:
+    image: postgres:14
+    container_name: panorama-engine-postgres
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      - "5433:5432"
+    volumes:
+      - engine_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  engine:
+    image: thirdweb/engine:latest
+    container_name: thirdweb-engine
+    depends_on:
+      engine_postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      # 🔐 Essenciais
+      THIRDWEB_API_SECRET_KEY: ${THIRDWEB_SECRET_KEY}
+      ADMIN_WALLET_ADDRESS: ${ADMIN_WALLET_ADDRESS}
+      ENCRYPTION_PASSWORD: ${ENCRYPTION_PASSWORD}
+      # 💾 DB & Cache
+      POSTGRES_CONNECTION_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@engine_postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASS}@redis:6379
+      # ⚙️ Opções
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: ${ENGINE_PORT:-3005}
+    ports:
+      - "${ENGINE_PORT:-3005}:3005"
+    restart: unless-stopped
+
   auth_service:
     build:
       context: ./auth-service
@@ -102,6 +144,14 @@ services:
       - BASE_RPC_URL=${BASE_RPC_URL}
       - OPTIMISM_RPC_URL=${OPTIMISM_RPC_URL}
       - ARBITRUM_RPC_URL=${ARBITRUM_RPC_URL}
+      # >>> Engine configuration
+      - ENGINE_URL=http://engine:3005
+      - ENGINE_ENABLED=${ENGINE_ENABLED:-true}
+      - ENGINE_ACCESS_TOKEN=${ENGINE_ACCESS_TOKEN}
+      - THIRDWEB_SECRET_KEY=${THIRDWEB_SECRET_KEY}
+      - ADMIN_WALLET_ADDRESS=${ADMIN_WALLET_ADDRESS}
+      - ENCRYPTION_PASSWORD=${ENCRYPTION_PASSWORD}
+      # >>> SSL configuration
       - FULLCHAIN=${FULLCHAIN}
       - PRIVKEY=${PRIVKEY}
       - FORCE_HTTPS=${FORCE_HTTPS}
@@ -112,9 +162,12 @@ services:
     depends_on:
       auth_service:
         condition: service_started
+      engine:
+        condition: service_started
     restart: always
 
 volumes:
   mongodb_data:
   redis_data:
+  engine_pgdata:
 
