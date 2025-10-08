@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { createClient, RedisClientType } from 'redis';
 import authRoutes from './routes/auth';
 import { getAuthInstance, isAuthConfigured } from './utils/thirdwebAuth';
+import { requestLogger, errorLogger } from './middleware/loggingMiddleware';
 
 // Load environment variables
 dotenv.config();
@@ -16,16 +17,23 @@ const PORT = process.env.PORT || process.env.AUTH_PORT || 3001;
 app.use(express.json());
 app.use(cors());
 
-// Debug logging
-if (process.env.DEBUG === 'true') {
-  console.log('[Auth Service] Starting with environment:');
-  console.log('- PORT:', PORT);
-  console.log('- NODE_ENV:', process.env.NODE_ENV);
-  console.log('- REDIS_HOST:', process.env.REDIS_HOST);
-  console.log('- REDIS_PORT:', process.env.REDIS_PORT);
-  console.log('- AUTH_DOMAIN:', process.env.AUTH_DOMAIN);
-  console.log('- AUTH_PRIVATE_KEY:', process.env.AUTH_PRIVATE_KEY ? '[SET]' : '[NOT SET]');
-}
+// Add logging middleware
+app.use(requestLogger);
+
+// Environment logging - always show on startup
+console.log('\n🌍 [ENVIRONMENT] Auth Service Environment Variables:');
+console.log('='.repeat(60));
+console.log('📊 PORT:', PORT);
+console.log('🌍 NODE_ENV:', process.env.NODE_ENV || 'development');
+console.log('🔗 REDIS_HOST:', process.env.REDIS_HOST || 'localhost');
+console.log('🔗 REDIS_PORT:', process.env.REDIS_PORT || '6379');
+console.log('🔗 REDIS_PASS:', process.env.REDIS_PASS ? '[SET]' : '[NOT SET]');
+console.log('🌐 AUTH_DOMAIN:', process.env.AUTH_DOMAIN || '[NOT SET]');
+console.log('🔑 AUTH_PRIVATE_KEY:', process.env.AUTH_PRIVATE_KEY ? '[SET]' : '[NOT SET]');
+console.log('🐛 DEBUG:', process.env.DEBUG || 'false');
+console.log('🔒 FULLCHAIN:', process.env.FULLCHAIN || '/etc/letsencrypt/live/api.panoramablock.com/fullchain.pem');
+console.log('🔒 PRIVKEY:', process.env.PRIVKEY || '/etc/letsencrypt/live/api.panoramablock.com/privkey.pem');
+console.log('='.repeat(60));
 
 // Initialize ThirdWeb auth if configured
 try {
@@ -60,8 +68,12 @@ redisClient.on('error', (err) => {
 // Pass Redis client to routes
 app.use('/auth', authRoutes(redisClient));
 
+// Add error logging middleware
+app.use(errorLogger);
+
 // Health check endpoint
 app.get('/health', (req, res) => {
+  console.log('🏥 [HEALTH CHECK] Service health check requested');
   res.status(200).json({ 
     status: 'ok', 
     service: 'auth-service',
@@ -72,6 +84,7 @@ app.get('/health', (req, res) => {
 
 // Root endpoint
 app.get('/', (req, res) => {
+  console.log('🏠 [ROOT] Service info requested');
   res.json({
     name: 'PanoramaBlock Auth Service',
     description: 'Authentication service using ThirdWeb',
