@@ -131,7 +131,7 @@ app.get('/', (req, res) => {
 const sslOptions = getSSLOptions();
 
 if (sslOptions) {
-  const server = https.createServer(sslOptions, app).listen(PORT, () => {
+  const server = https.createServer(sslOptions, app).listen(Number(PORT), '0.0.0.0', () => {
     console.log(`\n🎉 [Auth Service] HTTPS Server running successfully!`);
     console.log(`📊 Port: ${PORT}`);
     console.log(`🔒 Protocol: HTTPS`);
@@ -152,7 +152,7 @@ if (sslOptions) {
     });
   });
 } else {
-  const server = app.listen(PORT, () => {
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`\n🎉 [Auth Service] HTTP Server running successfully!`);
     console.log(`📊 Port: ${PORT}`);
     console.log(`🔓 Protocol: HTTP`);

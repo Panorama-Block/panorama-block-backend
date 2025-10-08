@@ -79,11 +79,20 @@ export default function authRoutes(redisClient: RedisClientType) {
       });
       console.log('✅ [AUTH VERIFY] Session created successfully');
       
-      return res.json({ 
+      const response = { 
         token, 
         address,
         sessionId 
+      };
+      
+      console.log('📤 [AUTH VERIFY] Sending response:', {
+        tokenLength: token.length,
+        address: address,
+        sessionId: sessionId,
+        tokenPreview: token.substring(0, 50) + '...'
       });
+      
+      return res.json(response);
     } catch (error: any) {
       console.error('❌ [AUTH VERIFY] Error:', error);
       return res.status(401).json({ error: error.message });
