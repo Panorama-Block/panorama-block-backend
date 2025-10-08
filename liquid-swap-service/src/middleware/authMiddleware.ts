@@ -32,7 +32,11 @@ export const verifyJwtMiddleware = async (req: Request, res: Response, next: Nex
     try {
       const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
       const response: AxiosResponse<TokenValidationResponse> = 
-        await axios.post(`${authServiceUrl}/auth/validate`, { token });
+        await axios.post(`${authServiceUrl}/auth/validate`, { token }, {
+          httpsAgent: new (require('https').Agent)({
+            rejectUnauthorized: false // Desabilita verificação SSL para comunicação interna
+          })
+        });
       
       if (response.data.isValid) {
         // Add user data to request
