@@ -69,7 +69,16 @@ export class SwapController {
         sender,
       });
 
-      return res.json({ success: true, quote });
+      return res.json({
+        success: true,
+        quote,
+        // NOVO: informar provider usado
+        metadata: {
+          provider: quote.provider, // 'uniswap' ou 'thirdweb'
+          routingStrategy: 'auto',
+          timestamp: new Date().toISOString()
+        }
+      });
     } catch (error) {
       console.error("[SwapController] Error getting quote:", error);
       return res.status(500).json({
