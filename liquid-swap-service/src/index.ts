@@ -6,6 +6,8 @@ dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 // Usamos require() para garantir o objeto de runtime do express,
 // evitando o erro "This expression is not callable" no seu setup.
 const expressLib = require("express") as any;
+import * as fs from "fs";
+import https from "https";
 
 import type {
   Request,
@@ -40,6 +42,33 @@ try {
   }
 
   const app = expressLib();
+
+  // SSL certificate options for HTTPS
+  const getSSLOptions = () => {
+    try {
+      const certPath = process.env.FULLCHAIN || "/etc/letsencrypt/live/api.panoramablock.com/fullchain.pem";
+      const keyPath = process.env.PRIVKEY || "/etc/letsencrypt/live/api.panoramablock.com/privkey.pem";
+      
+      console.log(`[Liquid Swap Service] Verificando certificados SSL em: ${certPath} e ${keyPath}`);
+      
+      if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+        console.log('[Liquid Swap Service] ✅ Certificados SSL encontrados!');
+        return {
+          key: fs.readFileSync(keyPath),
+          cert: fs.readFileSync(certPath),
+        };
+      } else {
+        console.warn('[Liquid Swap Service] ⚠️ Certificados SSL não encontrados nos caminhos:');
+        console.warn(`- Cert: ${certPath} (${fs.existsSync(certPath) ? 'existe' : 'não existe'})`);
+        console.warn(`- Key: ${keyPath} (${fs.existsSync(keyPath) ? 'existe' : 'não existe'})`);
+        console.warn('Executando em modo HTTP.');
+        return null;
+      }
+    } catch (error) {
+      console.warn('[Liquid Swap Service] ❌ Erro ao carregar certificados SSL:', error);
+      return null;
+    }
+  };
 
   // Middlewares
   console.log("[Liquid Swap Service] ⚙️  Configuring middlewares...");
@@ -215,29 +244,58 @@ try {
     }
   });
 
-  // Start server
-  console.log(`[Liquid Swap Service] 🌟 Starting server on port ${PORT}...`);
-  const server = app.listen(PORT, () => {
-    console.log(`\n🎉 [Liquid Swap Service] Server running successfully!`);
-    console.log(`📊 Port: ${PORT}`);
-    console.log(`🏗️  Architecture: Hexagonal (Domain-Driven Design)`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
-    console.log(`📋 Health check: http://localhost:${PORT}/health`);
-    console.log(`📖 Documentation: http://localhost:${PORT}/`);
-    console.log(`🔄 Swap API: http://localhost:${PORT}/swap/`);
-    console.log(`✨ Ready to process cross-chain swaps!\n`);
-  });
+  const sslOptions = getSSLOptions();
 
-  // Graceful shutdown
-  process.on("SIGTERM", () => {
-    console.log(
-      "[Liquid Swap Service] SIGTERM received, shutting down gracefully..."
-    );
-    server.close(() => {
-      console.log("[Liquid Swap Service] Server closed");
-      process.exit(0);
+  if (sslOptions) {
+    const server = https.createServer(sslOptions, app).listen(PORT, () => {
+      console.log(`\n🎉 [Liquid Swap Service] HTTPS Server running successfully!`);
+      console.log(`📊 Port: ${PORT}`);
+      console.log(`🔒 Protocol: HTTPS`);
+      console.log(`🏗️  Architecture: Hexagonal (Domain-Driven Design)`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`📋 Health check: https://localhost:${PORT}/health`);
+      console.log(`📖 Documentation: https://localhost:${PORT}/`);
+      console.log(`🔄 Swap API: https://localhost:${PORT}/swap/`);
+      console.log(`✨ Ready to process cross-chain swaps!\n`);
     });
-  });
+
+    // Graceful shutdown
+    process.on("SIGTERM", () => {
+      console.log(
+        "[Liquid Swap Service] SIGTERM received, shutting down gracefully..."
+      );
+      server.close(() => {
+        console.log("[Liquid Swap Service] Server closed");
+        process.exit(0);
+      });
+    });
+  } else {
+    const server = app.listen(PORT, () => {
+      console.log(`\n🎉 [Liquid Swap Service] HTTP Server running successfully!`);
+      console.log(`📊 Port: ${PORT}`);
+      console.log(`🔓 Protocol: HTTP`);
+      console.log(`🏗️  Architecture: Hexagonal (Domain-Driven Design)`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`📋 Health check: http://localhost:${PORT}/health`);
+      console.log(`📖 Documentation: http://localhost:${PORT}/`);
+      console.log(`🔄 Swap API: http://localhost:${PORT}/swap/`);
+      console.log(`✨ Ready to process cross-chain swaps!\n`);
+      if (process.env.NODE_ENV === 'production') {
+        console.warn('[Liquid Swap Service] WARNING: Running in HTTP mode in production. SSL certificates not found.');
+      }
+    });
+
+    // Graceful shutdown
+    process.on("SIGTERM", () => {
+      console.log(
+        "[Liquid Swap Service] SIGTERM received, shutting down gracefully..."
+      );
+      server.close(() => {
+        console.log("[Liquid Swap Service] Server closed");
+        process.exit(0);
+      });
+    });
+  }
 } catch (error) {
   const err = error as Error;
   console.error(
