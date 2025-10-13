@@ -99,6 +99,51 @@ export default function authRoutes(redisClient: RedisClientType) {
     }
   });
 
+  // Create one-time session for Mini App deep link return (nonce -> token)
+  router.post('/miniapp/session/create', async (req: Request, res: Response) => {
+    try {
+      const { token, walletCookie, ttlSeconds } = req.body as { token?: string; walletCookie?: string; ttlSeconds?: number };
+      if (!token && !walletCookie) {
+        return res.status(400).json({ error: 'token or walletCookie required' });
+      }
+      const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+      const key = `miniapp:session:${nonce}`;
+      const ttl = Math.max(60, Math.min(ttlSeconds ?? 300, 1800)); // default 5m, max 30m
+      const payload = JSON.stringify({ token: token || null, walletCookie: walletCookie || null });
+      await redisClient.set(key, payload, { EX: ttl });
+      return res.json({ nonce, expiresIn: ttl });
+    } catch (error: any) {
+      console.error('❌ [MINIAPP SESSION CREATE] Error:', error);
+      return res.status(500).json({ error: error.message || 'internal error' });
+    }
+  });
+
+  // Consume a one-time session returning the token and invalidating it
+  router.post('/miniapp/session/consume', async (req: Request, res: Response) => {
+    try {
+      const { nonce } = req.body as { nonce?: string };
+      if (!nonce) {
+        return res.status(400).json({ error: 'nonce is required' });
+      }
+      const key = `miniapp:session:${nonce}`;
+      const json = await redisClient.get(key);
+      if (!json) {
+        return res.status(404).json({ error: 'session not found or expired' });
+      }
+      await redisClient.del(key);
+      try {
+        const parsed = JSON.parse(json);
+        return res.json(parsed);
+      } catch {
+        // backward compat: if legacy string stored token only
+        return res.json({ token: json });
+      }
+    } catch (error: any) {
+      console.error('❌ [MINIAPP SESSION CONSUME] Error:', error);
+      return res.status(500).json({ error: error.message || 'internal error' });
+    }
+  });
+
   // Validate token route - for internal services
   router.post('/validate', async (req: Request, res: Response) => {
     try {
