@@ -9,6 +9,7 @@ import {
 } from "../../domain/entities/swap";
 import { ISwapService } from "../../domain/ports/swap.repository";
 import { isNativeLike } from "../../utils/native.utils";
+import { getTokenDecimals } from "../../utils/token.utils";
 
 export class ThirdwebSwapAdapter implements ISwapService {
   private client: ReturnType<typeof createThirdwebClient>;
@@ -66,16 +67,39 @@ export class ThirdwebSwapAdapter implements ISwapService {
       const destAmount = BigInt(quote.destinationAmount.toString());
       const estMs = quote.estimatedExecutionTimeMs ?? 60_000;
 
-      // Gas/FX simples para MVP (troque quando integrar campos oficiais)
-      const estimatedGasFee = BigInt("420000000000000"); // ~0.00042 ETH em wei (placeholder)
-      const exchangeRate =
-        Number(destAmount) > 0
-          ? Number(destAmount) / Number(originAmount)
-          : 0.998;
+      // Decimals-aware exchangeRate: (destHuman / originHuman)
+      const fromDecimals = await getTokenDecimals(
+        swapRequest.fromChainId,
+        isNativeLike(swapRequest.fromToken) ? "native" : swapRequest.fromToken
+      );
+      const toDecimals = await getTokenDecimals(
+        swapRequest.toChainId,
+        isNativeLike(swapRequest.toToken) ? "native" : swapRequest.toToken
+      );
+
+      // rate = destWei * 10^fromDecimals / (originWei * 10^toDecimals)
+      const SCALE = 12n; // 12 decimal places of precision
+      const num = destAmount * (10n ** (BigInt(fromDecimals) + SCALE));
+      const den = originAmount * (10n ** BigInt(toDecimals));
+      const scaledRate = den === 0n ? 0n : (num / den);
+      const exchangeRate = Number(scaledRate) / 10 ** Number(SCALE);
+
+      if (process.env.DEBUG === "true") {
+        console.log("[ThirdwebSwapAdapter] Quote breakdown:", {
+          originAmount: originAmount.toString(),
+          destAmount: destAmount.toString(),
+          fromDecimals,
+          toDecimals,
+          exchangeRate,
+        });
+      }
+
+      // Keep gas fee as small placeholder (TODO: replace when provider exposes it)
+      const estimatedGasFee = BigInt("420000000000000"); // ~0.00042 ETH em wei
 
       return new SwapQuote(
         destAmount,
-        originAmount > destAmount ? originAmount - destAmount : 0n, // "bridgeFee" aprox
+        0n, // bridgeFee unknown across assets; do not infer from origin-dest difference
         estimatedGasFee,
         exchangeRate,
         Math.floor(estMs / 1000)
@@ -140,9 +164,22 @@ export class ThirdwebSwapAdapter implements ISwapService {
             amount: payload.amount,
             client: this.client,
           });
+          const qOrigin = BigInt(q.originAmount?.toString?.() ?? String(q.originAmount));
+          const qDest = BigInt(q.destinationAmount?.toString?.() ?? String(q.destinationAmount));
+          // compute normalized rate for diagnostics
+          const fDec = await getTokenDecimals(payload.originChainId, payload.originTokenAddress);
+          const tDec = await getTokenDecimals(payload.destinationChainId, payload.destinationTokenAddress);
+          const SCALE = 12n;
+          const num = qDest * (10n ** (BigInt(fDec) + SCALE));
+          const den = qOrigin * (10n ** BigInt(tDec));
+          const scaled = den === 0n ? 0n : (num / den);
+          const rate = Number(scaled) / 10 ** Number(SCALE);
           console.log("[ThirdwebSwapAdapter] Preflight quote:", {
-            originAmount: q.originAmount?.toString?.() ?? String(q.originAmount),
-            destinationAmount: q.destinationAmount?.toString?.() ?? String(q.destinationAmount),
+            originAmount: qOrigin.toString(),
+            destinationAmount: qDest.toString(),
+            fromDecimals: fDec,
+            toDecimals: tDec,
+            normalizedRate: rate,
             estimatedExecutionTimeMs: q.estimatedExecutionTimeMs,
           });
         } catch (preErr: any) {
