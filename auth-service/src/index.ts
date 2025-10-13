@@ -46,6 +46,14 @@ const getSSLOptions = () => {
 app.use(express.json());
 app.use(cors());
 
+// Normalize duplicated slashes in request URL to avoid 404 on //auth/login
+app.use((req, _res, next) => {
+  if (req.url.includes('//')) {
+    req.url = req.url.replace(/\/+/g, '/');
+  }
+  next();
+});
+
 // Add logging middleware
 app.use(requestLogger);
 
