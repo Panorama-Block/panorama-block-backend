@@ -10,7 +10,7 @@ import { PrepareSwapUseCase } from "../../application/usecases/prepare.swap.usec
 import { ProviderSelectorService } from "../../application/services/provider-selector.service";
 import { ThirdwebSwapAdapter } from "../adapters/thirdweb.swap.adapter";
 import { ThirdwebProviderAdapter } from "../adapters/thirdweb.provider.adapter";
-import { UniswapProviderAdapter } from "../adapters/uniswap.provider.adapter";
+import { UniswapSwapAdapter } from "../adapters/uniswap.swap.adapter";
 import { ChainProviderAdapter } from "../adapters/chain.provider.adapter";
 import { SwapRepositoryAdapter } from "../adapters/swap.repository.adapter";
 import { SwapController } from "../http/controllers/swap.controller";
@@ -23,7 +23,7 @@ export class DIContainer {
   private static instance: DIContainer;
 
   // Infrastructure - Swap Providers
-  private readonly _uniswapProvider: UniswapProviderAdapter;
+  private readonly _uniswapSwapAdapter: UniswapSwapAdapter;
   private readonly _thirdwebProvider: ThirdwebProviderAdapter;
   private readonly _thirdwebSwapAdapter: ThirdwebSwapAdapter; // Legacy adapter for backwards compatibility
   private readonly _chainProviderAdapter: ChainProviderAdapter;
@@ -48,7 +48,7 @@ export class DIContainer {
     console.log("[DIContainer] Initializing dependency injection container");
 
     // Initialize infrastructure adapters
-    this._uniswapProvider = new UniswapProviderAdapter();
+    this._uniswapSwapAdapter = new UniswapSwapAdapter();
     this._thirdwebProvider = new ThirdwebProviderAdapter();
     this._thirdwebSwapAdapter = new ThirdwebSwapAdapter(); // Legacy
     this._chainProviderAdapter = new ChainProviderAdapter();
@@ -56,7 +56,7 @@ export class DIContainer {
 
     // Build provider registry for new multi-provider system
     const providerMap = new Map<string, ISwapProvider>();
-    providerMap.set(this._uniswapProvider.name, this._uniswapProvider);
+    providerMap.set(this._uniswapSwapAdapter.name, this._uniswapSwapAdapter);
     providerMap.set(this._thirdwebProvider.name, this._thirdwebProvider);
 
     // Initialize domain services
