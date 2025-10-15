@@ -116,8 +116,7 @@ export class UniswapProviderAdapter implements ISwapProvider {
 
       console.log("[UniswapProvider] Quote received:", {
         routing: quoteResponse.routing,
-        amountOut: quoteResponse.quote.amountOut,
-        priceImpact: quoteResponse.quote.priceImpact,
+        fullQuote: JSON.stringify(quoteResponse.quote, null, 2),
       });
 
       // Parse to domain entity

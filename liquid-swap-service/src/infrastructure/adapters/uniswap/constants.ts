@@ -116,9 +116,9 @@ export const UNISWAP_NATIVE_TOKEN_ADDRESS =
   '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 
 /**
- * Default slippage tolerance (percentage)
+ * Default slippage tolerance (as decimal number, not percentage string)
  */
-export const DEFAULT_SLIPPAGE_TOLERANCE = '0.5'; // 0.5%
+export const DEFAULT_SLIPPAGE_TOLERANCE = 0.5; // 0.5%
 
 /**
  * Request timeout (milliseconds)

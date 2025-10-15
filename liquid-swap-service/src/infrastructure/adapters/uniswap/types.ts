@@ -35,8 +35,8 @@ export interface QuoteParams {
   /** Swapper wallet address (REQUIRED) */
   swapper: string;
 
-  /** Slippage tolerance as decimal string (e.g., "0.5" for 0.5%) (OPTIONAL) */
-  slippageTolerance?: string;
+  /** Slippage tolerance as decimal number (e.g., 0.5 for 0.5%) (OPTIONAL) */
+  slippageTolerance?: number;
 
   /** Enable UniswapX if available (OPTIONAL) */
   enableUniversalRouter?: boolean;
@@ -93,7 +93,7 @@ export interface QuoteResponse {
     swapper: string;
 
     /** Slippage tolerance */
-    slippageTolerance: string;
+    slippageTolerance: number;
 
     /** Price impact percentage */
     priceImpact?: string;
@@ -223,7 +223,7 @@ export interface SwapParams {
     amountOut: string;
     amountOutDecimals: string;
     swapper: string;
-    slippageTolerance: string;
+    slippageTolerance: number;
     priceImpact?: string;
     tradeType: 'EXACT_INPUT' | 'EXACT_OUTPUT';
   };
@@ -312,7 +312,7 @@ export interface OrderParams {
     amountOut: string;
     amountOutDecimals: string;
     swapper: string;
-    slippageTolerance: string;
+    slippageTolerance: number;
     priceImpact?: string;
     tradeType: 'EXACT_INPUT' | 'EXACT_OUTPUT';
   };
