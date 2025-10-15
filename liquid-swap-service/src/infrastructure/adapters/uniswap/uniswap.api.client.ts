@@ -100,14 +100,11 @@ export class UniswapAPIClient {
       tokenOutChainId: params.tokenOutChainId,
     });
 
-    const response = await this.requestWithRetry<QuoteResponse>({
+    return this.requestWithRetry<QuoteResponse>({
       method: 'POST',
       url: UNISWAP_API_ENDPOINTS.QUOTE,
       data: params,
     });
-
-    console.log('[UniswapAPI] Full response:', JSON.stringify(response, null, 2));
-    return response;
   }
 
   /**
