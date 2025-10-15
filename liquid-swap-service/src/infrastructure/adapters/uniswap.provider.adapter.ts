@@ -104,23 +104,24 @@ export class UniswapProviderAdapter implements ISwapProvider {
 
       // Call Uniswap API
       const quoteResponse = await this.client.getQuote({
+        type: "EXACT_INPUT",
+        amount: request.amount.toString(),
+        tokenInChainId: request.fromChainId,
+        tokenOutChainId: request.toChainId,
         tokenIn,
         tokenOut,
-        amount: request.amount.toString(),
-        type: "EXACT_INPUT",
-        recipient: request.receiver,
-        slippage: DEFAULT_SLIPPAGE_TOLERANCE,
-        chainId: request.fromChainId,
+        swapper: request.sender,
+        slippageTolerance: DEFAULT_SLIPPAGE_TOLERANCE,
       });
 
       console.log("[UniswapProvider] Quote received:", {
         routing: quoteResponse.routing,
-        amount: quoteResponse.quote.amount,
+        amountOut: quoteResponse.quote.amountOut,
         priceImpact: quoteResponse.quote.priceImpact,
       });
 
       // Parse to domain entity
-      const estimatedReceiveAmount = BigInt(quoteResponse.quote.amount);
+      const estimatedReceiveAmount = BigInt(quoteResponse.quote.amountOut);
       const bridgeFee = BigInt(0); // N/A for same-chain
       const gasFee = await this.parseGasFee(quoteResponse, request.fromChainId);
       const exchangeRate = await this.calculateExchangeRate(
@@ -171,13 +172,14 @@ export class UniswapProviderAdapter implements ISwapProvider {
       const tokenOut = this.normalizeTokenAddress(request.toToken);
 
       const quoteResponse = await this.client.getQuote({
+        type: "EXACT_INPUT",
+        amount: request.amount.toString(),
+        tokenInChainId: request.fromChainId,
+        tokenOutChainId: request.toChainId,
         tokenIn,
         tokenOut,
-        amount: request.amount.toString(),
-        type: "EXACT_INPUT",
-        recipient: request.receiver,
-        slippage: DEFAULT_SLIPPAGE_TOLERANCE,
-        chainId: request.fromChainId,
+        swapper: request.sender,
+        slippageTolerance: DEFAULT_SLIPPAGE_TOLERANCE,
       });
 
       const routing = quoteResponse.routing;
@@ -192,17 +194,18 @@ export class UniswapProviderAdapter implements ISwapProvider {
           chainId: request.fromChainId,
         });
 
-        if (approvalCheck.approval.isRequired) {
+        // Check if approval transaction is required
+        if (approvalCheck.approval !== null) {
           console.log("[UniswapProvider] ⚠️ Approval required");
 
-          // Uniswap uses Permit2 (gasless signature)
-          if (approvalCheck.approval.permitData) {
+          // Check if Permit2 (gasless signature) is available
+          if (approvalCheck.permit2) {
             throw new Error(
-              `PERMIT2_SIGNATURE_REQUIRED: ${JSON.stringify(approvalCheck.approval.permitData)}`
+              `PERMIT2_SIGNATURE_REQUIRED: ${JSON.stringify(approvalCheck.permit2)}`
             );
           }
 
-          // Fallback: traditional approval (shouldn't happen)
+          // Traditional approval transaction needed
           throw new Error("APPROVAL_REQUIRED: Token approval needed");
         }
       }
@@ -216,13 +219,7 @@ export class UniswapProviderAdapter implements ISwapProvider {
         console.log("[UniswapProvider] Creating CLASSIC swap transaction");
 
         const swapResponse = await this.client.createSwap({
-          tokenIn,
-          tokenOut,
-          amount: request.amount.toString(),
-          type: "EXACT_INPUT",
-          recipient: request.receiver,
-          slippage: DEFAULT_SLIPPAGE_TOLERANCE,
-          chainId: request.fromChainId,
+          quote: quoteResponse.quote,
         });
 
         transactions.push({
@@ -242,13 +239,7 @@ export class UniswapProviderAdapter implements ISwapProvider {
         console.log("[UniswapProvider] Creating UniswapX order");
 
         const orderResponse = await this.client.createOrder({
-          tokenIn,
-          tokenOut,
-          amount: request.amount.toString(),
-          type: "EXACT_INPUT",
-          swapper: request.sender,
-          slippage: DEFAULT_SLIPPAGE_TOLERANCE,
-          chainId: request.fromChainId,
+          quote: quoteResponse.quote,
         });
 
         console.log("[UniswapProvider] UniswapX order created:", orderResponse.orderId);

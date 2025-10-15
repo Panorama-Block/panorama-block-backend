@@ -52,7 +52,7 @@ export class UniswapAPIClient {
     }
 
     this.apiKey = apiKey;
-    this.baseURL = baseURL || process.env.UNISWAP_API_URL || 'https://api.gateway.uniswap.org/v2';
+    this.baseURL = baseURL || process.env.UNISWAP_API_URL || 'https://trade-api.gateway.uniswap.org/v1';
 
     // Create axios instance with defaults
     this.axios = axios.create({
@@ -96,7 +96,8 @@ export class UniswapAPIClient {
       tokenIn: params.tokenIn,
       tokenOut: params.tokenOut,
       amount: params.amount,
-      chainId: params.chainId,
+      tokenInChainId: params.tokenInChainId,
+      tokenOutChainId: params.tokenOutChainId,
     });
 
     return this.requestWithRetry<QuoteResponse>({
@@ -134,9 +135,9 @@ export class UniswapAPIClient {
    */
   async createSwap(params: SwapParams): Promise<SwapResponse> {
     console.log('[UniswapAPI] Creating swap transaction:', {
-      tokenIn: params.tokenIn,
-      tokenOut: params.tokenOut,
-      chainId: params.chainId,
+      tokenIn: params.quote.tokenIn,
+      tokenOut: params.quote.tokenOut,
+      chainId: params.quote.tokenInChainId,
     });
 
     return this.requestWithRetry<SwapResponse>({
@@ -154,9 +155,9 @@ export class UniswapAPIClient {
    */
   async createOrder(params: OrderParams): Promise<OrderResponse> {
     console.log('[UniswapAPI] Creating UniswapX order:', {
-      tokenIn: params.tokenIn,
-      tokenOut: params.tokenOut,
-      chainId: params.chainId,
+      tokenIn: params.quote.tokenIn,
+      tokenOut: params.quote.tokenOut,
+      chainId: params.quote.tokenInChainId,
     });
 
     return this.requestWithRetry<OrderResponse>({
@@ -334,13 +335,14 @@ export class UniswapAPIClient {
     try {
       // Try a simple quote to test API key
       await this.getQuote({
+        type: 'EXACT_INPUT',
+        amount: '1000000', // 1 USDC
+        tokenInChainId: 1,
+        tokenOutChainId: 1,
         tokenIn: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC on Ethereum
         tokenOut: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH
-        amount: '1000000', // 1 USDC
-        type: 'EXACT_INPUT',
-        recipient: '0x0000000000000000000000000000000000000000',
-        slippage: '0.5',
-        chainId: 1,
+        swapper: '0x0000000000000000000000000000000000000000',
+        slippageTolerance: '0.5',
       });
 
       console.log('[UniswapAPI] ✅ Connection test successful');

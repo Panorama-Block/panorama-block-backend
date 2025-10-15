@@ -20,7 +20,8 @@
  * - Unichain (130)
  * - World Chain (480)
  * - Ink (57073)
- * - Soneium (1946)
+ * - Soneium (1868)
+ * - Celo (42220)
  */
 export const UNISWAP_SUPPORTED_CHAINS = new Set([
   1,       // Ethereum
@@ -36,7 +37,8 @@ export const UNISWAP_SUPPORTED_CHAINS = new Set([
   130,     // Unichain
   480,     // World Chain
   57073,   // Ink
-  1946,    // Soneium
+  1868,    // Soneium (CORRECTED from 1946)
+  42220,   // Celo (ADDED)
 ]);
 
 /**
@@ -91,6 +93,18 @@ export enum UniswapRouting {
 
   /** Priority order (gasless) */
   PRIORITY = 'PRIORITY',
+
+  /** Wrap native token (ETH → WETH) */
+  WRAP = 'WRAP',
+
+  /** Unwrap native token (WETH → ETH) */
+  UNWRAP = 'UNWRAP',
+
+  /** Limit order (UniswapX) */
+  LIMIT_ORDER = 'LIMIT_ORDER',
+
+  /** Dutch limit order (UniswapX hybrid) */
+  DUTCH_LIMIT = 'DUTCH_LIMIT',
 }
 
 /**

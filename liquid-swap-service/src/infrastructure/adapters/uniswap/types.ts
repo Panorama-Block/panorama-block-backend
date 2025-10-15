@@ -14,51 +14,92 @@ import { UniswapRouting } from './constants';
  * https://api-docs.uniswap.org/api-reference/swapping/quote
  */
 export interface QuoteParams {
-  /** Input token address (or 0xEeee... for native) */
-  tokenIn: string;
-
-  /** Output token address (or 0xEeee... for native) */
-  tokenOut: string;
-
-  /** Amount in smallest unit (wei for ETH, etc.) */
-  amount: string;
-
-  /** Trade type */
+  /** Trade type (REQUIRED) */
   type: 'EXACT_INPUT' | 'EXACT_OUTPUT';
 
-  /** Recipient address for the swap */
-  recipient: string;
+  /** Amount in smallest unit (wei for ETH, etc.) (REQUIRED) */
+  amount: string;
 
-  /** Slippage tolerance as percentage string (e.g., "0.5" for 0.5%) */
-  slippage: string;
+  /** Input token chain ID (REQUIRED) */
+  tokenInChainId: number;
 
-  /** Chain ID */
-  chainId: number;
+  /** Output token chain ID (REQUIRED) */
+  tokenOutChainId: number;
 
-  /** Optional: Enable UniswapX if available */
+  /** Input token address (REQUIRED) */
+  tokenIn: string;
+
+  /** Output token address (REQUIRED) */
+  tokenOut: string;
+
+  /** Swapper wallet address (REQUIRED) */
+  swapper: string;
+
+  /** Slippage tolerance as decimal string (e.g., "0.5" for 0.5%) (OPTIONAL) */
+  slippageTolerance?: string;
+
+  /** Enable UniswapX if available (OPTIONAL) */
   enableUniversalRouter?: boolean;
+
+  /** Routing preferences (OPTIONAL) */
+  routingPreference?: 'classic' | 'uniswapx' | 'best_price';
+
+  /** Protocol preferences (OPTIONAL) */
+  protocols?: Array<'v2' | 'v3' | 'v4' | 'mixed'>;
+
+  /** Simulation options (OPTIONAL) */
+  simulate?: boolean;
 }
 
 /**
  * Quote Response
+ *
+ * IMPORTANT: The entire quote object must be passed to /swap or /order endpoints
  */
 export interface QuoteResponse {
+  /** Request ID for tracking */
+  requestId: string;
+
   /** Routing type determines which endpoint to call next */
   routing: UniswapRouting;
 
-  /** Quote details */
+  /** Complete quote object - MUST be passed to /swap or /order */
   quote: {
-    /** Output amount in smallest unit */
-    amount: string;
+    /** Request ID */
+    requestId: string;
+
+    /** Input token chain ID */
+    tokenInChainId: number;
+
+    /** Output token chain ID */
+    tokenOutChainId: number;
+
+    /** Input token address */
+    tokenIn: string;
+
+    /** Output token address */
+    tokenOut: string;
+
+    /** Input amount (wei) */
+    amountIn: string;
+
+    /** Output amount (wei) */
+    amountOut: string;
 
     /** Output amount in human-readable decimals */
-    amountDecimals: string;
+    amountOutDecimals: string;
+
+    /** Swapper address */
+    swapper: string;
+
+    /** Slippage tolerance */
+    slippageTolerance: string;
 
     /** Price impact percentage */
-    priceImpact: string;
+    priceImpact?: string;
 
-    /** Applied slippage */
-    slippage: string;
+    /** Trade type */
+    tradeType: 'EXACT_INPUT' | 'EXACT_OUTPUT';
   };
 
   /** Gas fee estimate (wei as string) - for CLASSIC routing */
@@ -114,42 +155,46 @@ export interface CheckApprovalParams {
 
 /**
  * Check Approval Response
+ *
+ * The API returns either:
+ * 1. null if no approval needed
+ * 2. Permit2 signature data for gasless approval
+ * 3. Traditional approval transaction object
  */
 export interface CheckApprovalResponse {
+  /** Request ID for tracking */
+  requestId: string;
+
+  /** Approval transaction (null if no approval needed) */
   approval: {
-    /** Whether approval transaction is required */
-    isRequired: boolean;
+    to: string;
+    data: string;
+    value: string;
+    chainId: number;
+    gasLimit?: string;
+  } | null;
 
-    /** Permit2 signature data (gasless approval) */
-    permitData?: {
-      /** EIP-712 domain */
-      domain: {
-        name: string;
-        chainId: number;
-        verifyingContract: string;
-      };
-
-      /** EIP-712 types */
-      types: Record<string, Array<{ name: string; type: string }>>;
-
-      /** EIP-712 values */
-      values: {
-        permitted: {
-          token: string;
-          amount: string;
-        };
-        spender: string;
-        nonce: string;
-        deadline: string;
-      };
+  /** Permit2 data for gasless approval (if available) */
+  permit2?: {
+    /** EIP-712 domain */
+    domain: {
+      name: string;
+      chainId: number;
+      verifyingContract: string;
     };
 
-    /** Traditional approval transaction (fallback) */
-    approvalTransaction?: {
-      to: string;
-      data: string;
-      value: string;
-      chainId: number;
+    /** EIP-712 types */
+    types: Record<string, Array<{ name: string; type: string }>>;
+
+    /** EIP-712 values to sign */
+    values: {
+      permitted: {
+        token: string;
+        amount: string;
+      };
+      spender: string;
+      nonce: string;
+      deadline: string;
     };
   };
 }
@@ -163,52 +208,62 @@ export interface CheckApprovalResponse {
  *
  * POST /swap
  * https://api-docs.uniswap.org/api-reference/swapping/create_swap
+ *
+ * IMPORTANT: Must include the entire quote object from /quote response
  */
 export interface SwapParams {
-  /** Input token */
-  tokenIn: string;
+  /** Complete quote object from /quote endpoint (REQUIRED) */
+  quote: {
+    requestId: string;
+    tokenInChainId: number;
+    tokenOutChainId: number;
+    tokenIn: string;
+    tokenOut: string;
+    amountIn: string;
+    amountOut: string;
+    amountOutDecimals: string;
+    swapper: string;
+    slippageTolerance: string;
+    priceImpact?: string;
+    tradeType: 'EXACT_INPUT' | 'EXACT_OUTPUT';
+  };
 
-  /** Output token */
-  tokenOut: string;
-
-  /** Amount (wei) */
-  amount: string;
-
-  /** Trade type */
-  type: 'EXACT_INPUT' | 'EXACT_OUTPUT';
-
-  /** Recipient */
-  recipient: string;
-
-  /** Slippage tolerance */
-  slippage: string;
-
-  /** Chain ID */
-  chainId: number;
-
-  /** Permit2 signature data (if approval was via signature) */
-  permitData?: {
-    /** Signature hex string */
+  /** Permit2 signature data (if approval was via signature) (OPTIONAL) */
+  permit2?: {
+    /** EIP-712 signature hex string */
     signature: string;
 
-    /** Permit single data */
-    permitSingle: {
-      details: {
-        token: string;
-        amount: string;
-        expiration: string;
-        nonce: string;
+    /** Permit2 data */
+    permitData: {
+      domain: {
+        name: string;
+        chainId: number;
+        verifyingContract: string;
       };
-      spender: string;
-      sigDeadline: string;
+      types: Record<string, Array<{ name: string; type: string }>>;
+      values: {
+        permitted: {
+          token: string;
+          amount: string;
+        };
+        spender: string;
+        nonce: string;
+        deadline: string;
+      };
     };
   };
+
+  /** Simulation flag (OPTIONAL) */
+  simulate?: boolean;
 }
 
 /**
  * Swap Response (CLASSIC routing)
  */
 export interface SwapResponse {
+  /** Request ID for tracking */
+  requestId: string;
+
   /** Transaction to sign and send */
   transactionRequest: {
     /** Contract address to call */
@@ -242,34 +297,59 @@ export interface SwapResponse {
  * Order Request Parameters (for UniswapX routing)
  *
  * POST /order
+ *
+ * IMPORTANT: Must include the entire quote object from /quote response
  */
 export interface OrderParams {
-  /** Input token */
-  tokenIn: string;
+  /** Complete quote object from /quote endpoint (REQUIRED) */
+  quote: {
+    requestId: string;
+    tokenInChainId: number;
+    tokenOutChainId: number;
+    tokenIn: string;
+    tokenOut: string;
+    amountIn: string;
+    amountOut: string;
+    amountOutDecimals: string;
+    swapper: string;
+    slippageTolerance: string;
+    priceImpact?: string;
+    tradeType: 'EXACT_INPUT' | 'EXACT_OUTPUT';
+  };
 
-  /** Output token */
-  tokenOut: string;
+  /** Permit2 signature data (if approval was via signature) (OPTIONAL) */
+  permit2?: {
+    /** EIP-712 signature hex string */
+    signature: string;
 
-  /** Amount (wei) */
-  amount: string;
-
-  /** Trade type */
-  type: 'EXACT_INPUT' | 'EXACT_OUTPUT';
-
-  /** Swapper address */
-  swapper: string;
-
-  /** Slippage tolerance */
-  slippage: string;
-
-  /** Chain ID */
-  chainId: number;
+    /** Permit2 data */
+    permitData: {
+      domain: {
+        name: string;
+        chainId: number;
+        verifyingContract: string;
+      };
+      types: Record<string, Array<{ name: string; type: string }>>;
+      values: {
+        permitted: {
+          token: string;
+          amount: string;
+        };
+        spender: string;
+        nonce: string;
+        deadline: string;
+      };
+    };
+  };
 }
 
 /**
  * Order Response (UniswapX)
  */
 export interface OrderResponse {
+  /** Request ID for tracking */
+  requestId: string;
+
   /** Unique order ID */
   orderId: string;
 
