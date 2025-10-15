@@ -65,67 +65,89 @@ export interface QuoteResponse {
 
   /** Complete quote object - MUST be passed to /swap or /order */
   quote: {
-    /** Request ID */
-    requestId: string;
+    /** Chain ID */
+    chainId: number;
 
-    /** Input token chain ID */
-    tokenInChainId: number;
+    /** Input token and amount */
+    input: {
+      amount: string;
+      token: string;
+    };
 
-    /** Output token chain ID */
-    tokenOutChainId: number;
-
-    /** Input token address */
-    tokenIn: string;
-
-    /** Output token address */
-    tokenOut: string;
-
-    /** Input amount (wei) */
-    amountIn: string;
-
-    /** Output amount (wei) */
-    amountOut: string;
-
-    /** Output amount in human-readable decimals */
-    amountOutDecimals: string;
+    /** Output token and amount */
+    output: {
+      amount: string;
+      token: string;
+      recipient: string;
+    };
 
     /** Swapper address */
     swapper: string;
 
     /** Slippage tolerance */
-    slippageTolerance: number;
-
-    /** Price impact percentage */
-    priceImpact?: string;
+    slippage: number;
 
     /** Trade type */
     tradeType: 'EXACT_INPUT' | 'EXACT_OUTPUT';
+
+    /** Quote ID */
+    quoteId: string;
+
+    /** Price impact percentage */
+    priceImpact?: number;
+
+    /** Gas fee estimate (wei as string) */
+    gasFee?: string;
+
+    /** Gas fee in quote token (wei) */
+    gasFeeQuote?: string;
+
+    /** Gas fee in USD */
+    gasFeeUSD?: string;
+
+    /** Gas usage estimate (units) */
+    gasUseEstimate?: string;
+
+    /** Max fee per gas (EIP-1559) */
+    maxFeePerGas?: string;
+
+    /** Max priority fee (EIP-1559) */
+    maxPriorityFeePerGas?: string;
+
+    /** Route path - array of arrays (for split routes) */
+    route?: any[];
+
+    /** Aggregated outputs (for multi-recipient swaps) */
+    aggregatedOutputs?: Array<{
+      amount: string;
+      token: string;
+      recipient: string;
+      bps: number;
+      minAmount: string;
+    }>;
+
+    /** Transaction failure reasons */
+    txFailureReasons?: string[];
   };
 
-  /** Gas fee estimate (wei as string) - for CLASSIC routing */
-  gasFee?: string;
-
-  /** Gas usage estimate (units) */
-  gasUseEstimate?: string;
-
-  /** Route path - for CLASSIC routing */
-  route?: Array<{
-    pool: string;
-    tokenIn: string;
-    tokenOut: string;
-    protocol: 'V2' | 'V3' | 'V4';
-  }>;
-
-  /** Order info - for UniswapX routing */
-  orderInfo?: {
-    /** Order ID */
-    orderId: string;
-
-    /** Filler address */
-    filler: string;
-
-    /** Reactor contract address */
-    reactor: string;
+  /** Permit2 signature data (if available for gasless approval) */
+  permitData?: {
+    domain: {
+      name: string;
+      chainId: number;
+      verifyingContract: string;
+    };
+    types: Record<string, Array<{ name: string; type: string }>>;
+    values: {
+      details: {
+        token: string;
+        amount: string;
+        expiration: string;
+        nonce: string;
+      };
+      spender: string;
+      sigDeadline: string;
+    };
   };
 }
 
@@ -212,46 +234,11 @@ export interface CheckApprovalResponse {
  * IMPORTANT: Must include the entire quote object from /quote response
  */
 export interface SwapParams {
-  /** Complete quote object from /quote endpoint (REQUIRED) */
-  quote: {
-    requestId: string;
-    tokenInChainId: number;
-    tokenOutChainId: number;
-    tokenIn: string;
-    tokenOut: string;
-    amountIn: string;
-    amountOut: string;
-    amountOutDecimals: string;
-    swapper: string;
-    slippageTolerance: number;
-    priceImpact?: string;
-    tradeType: 'EXACT_INPUT' | 'EXACT_OUTPUT';
-  };
+  /** Complete quote object from /quote endpoint (REQUIRED) - pass entire quote as-is */
+  quote: QuoteResponse['quote'];
 
-  /** Permit2 signature data (if approval was via signature) (OPTIONAL) */
-  permit2?: {
-    /** EIP-712 signature hex string */
-    signature: string;
-
-    /** Permit2 data */
-    permitData: {
-      domain: {
-        name: string;
-        chainId: number;
-        verifyingContract: string;
-      };
-      types: Record<string, Array<{ name: string; type: string }>>;
-      values: {
-        permitted: {
-          token: string;
-          amount: string;
-        };
-        spender: string;
-        nonce: string;
-        deadline: string;
-      };
-    };
-  };
+  /** Permit2 signature (if using gasless approval) (OPTIONAL) */
+  permitSignature?: string;
 
   /** Simulation flag (OPTIONAL) */
   simulate?: boolean;
@@ -301,46 +288,11 @@ export interface SwapResponse {
  * IMPORTANT: Must include the entire quote object from /quote response
  */
 export interface OrderParams {
-  /** Complete quote object from /quote endpoint (REQUIRED) */
-  quote: {
-    requestId: string;
-    tokenInChainId: number;
-    tokenOutChainId: number;
-    tokenIn: string;
-    tokenOut: string;
-    amountIn: string;
-    amountOut: string;
-    amountOutDecimals: string;
-    swapper: string;
-    slippageTolerance: number;
-    priceImpact?: string;
-    tradeType: 'EXACT_INPUT' | 'EXACT_OUTPUT';
-  };
+  /** Complete quote object from /quote endpoint (REQUIRED) - pass entire quote as-is */
+  quote: QuoteResponse['quote'];
 
-  /** Permit2 signature data (if approval was via signature) (OPTIONAL) */
-  permit2?: {
-    /** EIP-712 signature hex string */
-    signature: string;
-
-    /** Permit2 data */
-    permitData: {
-      domain: {
-        name: string;
-        chainId: number;
-        verifyingContract: string;
-      };
-      types: Record<string, Array<{ name: string; type: string }>>;
-      values: {
-        permitted: {
-          token: string;
-          amount: string;
-        };
-        spender: string;
-        nonce: string;
-        deadline: string;
-      };
-    };
-  };
+  /** Permit2 signature (if using gasless approval) (OPTIONAL) */
+  permitSignature?: string;
 }
 
 /**

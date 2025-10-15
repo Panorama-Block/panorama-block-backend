@@ -100,11 +100,14 @@ export class UniswapAPIClient {
       tokenOutChainId: params.tokenOutChainId,
     });
 
-    return this.requestWithRetry<QuoteResponse>({
+    const response = await this.requestWithRetry<QuoteResponse>({
       method: 'POST',
       url: UNISWAP_API_ENDPOINTS.QUOTE,
       data: params,
     });
+
+    console.log('[UniswapAPI] Full response:', JSON.stringify(response, null, 2));
+    return response;
   }
 
   /**
@@ -135,9 +138,9 @@ export class UniswapAPIClient {
    */
   async createSwap(params: SwapParams): Promise<SwapResponse> {
     console.log('[UniswapAPI] Creating swap transaction:', {
-      tokenIn: params.quote.tokenIn,
-      tokenOut: params.quote.tokenOut,
-      chainId: params.quote.tokenInChainId,
+      tokenIn: params.quote.input.token,
+      tokenOut: params.quote.output.token,
+      chainId: params.quote.chainId,
     });
 
     return this.requestWithRetry<SwapResponse>({
@@ -155,9 +158,9 @@ export class UniswapAPIClient {
    */
   async createOrder(params: OrderParams): Promise<OrderResponse> {
     console.log('[UniswapAPI] Creating UniswapX order:', {
-      tokenIn: params.quote.tokenIn,
-      tokenOut: params.quote.tokenOut,
-      chainId: params.quote.tokenInChainId,
+      tokenIn: params.quote.input.token,
+      tokenOut: params.quote.output.token,
+      chainId: params.quote.chainId,
     });
 
     return this.requestWithRetry<OrderResponse>({

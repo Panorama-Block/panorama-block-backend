@@ -116,11 +116,12 @@ export class UniswapProviderAdapter implements ISwapProvider {
 
       console.log("[UniswapProvider] Quote received:", {
         routing: quoteResponse.routing,
-        fullQuote: JSON.stringify(quoteResponse.quote, null, 2),
+        outputAmount: quoteResponse.quote.output.amount,
+        priceImpact: quoteResponse.quote.priceImpact,
       });
 
       // Parse to domain entity
-      const estimatedReceiveAmount = BigInt(quoteResponse.quote.amountOut);
+      const estimatedReceiveAmount = BigInt(quoteResponse.quote.output.amount);
       const bridgeFee = BigInt(0); // N/A for same-chain
       const gasFee = await this.parseGasFee(quoteResponse, request.fromChainId);
       const exchangeRate = await this.calculateExchangeRate(
@@ -363,16 +364,16 @@ export class UniswapProviderAdapter implements ISwapProvider {
    */
   private async parseGasFee(quoteResponse: QuoteResponse, chainId: number): Promise<bigint> {
     // 1. Use gasFee if provided by API
-    if (quoteResponse.gasFee) {
-      console.log("[UniswapProvider] Using gasFee from API:", quoteResponse.gasFee);
-      return BigInt(quoteResponse.gasFee);
+    if (quoteResponse.quote.gasFee) {
+      console.log("[UniswapProvider] Using gasFee from API:", quoteResponse.quote.gasFee);
+      return BigInt(quoteResponse.quote.gasFee);
     }
 
     // 2. Calculate from gasUseEstimate
-    if (quoteResponse.gasUseEstimate) {
-      console.log("[UniswapProvider] Calculating gas from estimate:", quoteResponse.gasUseEstimate);
+    if (quoteResponse.quote.gasUseEstimate) {
+      console.log("[UniswapProvider] Calculating gas from estimate:", quoteResponse.quote.gasUseEstimate);
 
-      const gasLimit = BigInt(quoteResponse.gasUseEstimate);
+      const gasLimit = BigInt(quoteResponse.quote.gasUseEstimate);
 
       // Get real gas price from chain
       try {
