@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  userId        String   @id
+  walletAddress String?  @unique
+  displayName   String?
+  attributes    Json?
+  tenantId      String
+  createdAt     DateTime @default(now())
+  lastSeenAt    DateTime?
+  Conversations Conversation[]
+}
+
+model Conversation {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String
+  title          String?
+  status         String   @default("active")
+  currentAgent   String?
+  lastMessageId  String?
+  contextState   Json     @default("{}")
+  memoryState    Json     @default("{}")
+  messageCount   Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+  closedAt       DateTime?
+  tenantId       String
+
+  user User @relation(fields: [userId], references: [userId])
+  messages Message[]
+
+  @@unique([userId, conversationId])
+}
+
+model Message {
+  messageId        String   @id @default(uuid())
+  userId           String
+  conversationId   String
+  role             String
+  content          String
+  agentName        String?
+  agentType        String?
+  requiresAction   Boolean  @default(false)
+  actionType       String?
+  metadata         Json     @default("{}")
+  status           String   @default("completed")
+  errorMessage     String?
+  toolCalls        Json?
+  toolResults      Json?
+  nextAgent        String?
+  requiresFollowup Boolean  @default(false)
+  timestamp        DateTime @default(now())
+  tenantId         String
+
+  conversation Conversation @relation(fields: [userId, conversationId], references: [userId, conversationId])
+  toolCallsRel  MessageToolCall[]
+
+  @@index([userId, conversationId, timestamp])
+}
+
+model MessageToolCall {
+  toolCallId   String   @id @default(uuid())
+  messageId    String
+  toolName     String
+  args         Json
+  result       Json?
+  errorMessage String?
+  latencyMs    Int?
+  createdAt    DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [messageId])
+}
+
+model AgentTurn {
+  turnId        String   @id @default(uuid())
+  userId        String
+  conversationId String
+  agentName     String
+  agentType     String?
+  startedAt     DateTime @default(now())
+  endedAt       DateTime?
+  success       Boolean  @default(true)
+  errorMessage  String?
+  metadata      Json     @default("{}")
+  tenantId      String
+}
+
+model AgentSharedState {
+  agentName      String
+  userId         String
+  conversationId String
+  state          Json     @default("{}")
+  updatedAt      DateTime @default(now())
+  tenantId       String
+
+  @@id([agentName, userId, conversationId])
+}
+
+model ConversationMemory {
+  memoryId         String   @id @default(uuid())
+  userId           String
+  conversationId   String?
+  scope            String
+  memoryType       String
+  label            String?
+  payload          Json
+  embedding        Bytes?
+  importanceScore  Float?
+  expiresAt        DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+  tenantId         String
+}
+
+model SwapSession {
+  userId          String
+  conversationId  String
+  status          String
+  event           String
+  intent          Json
+  missingFields   String[]
+  nextField       String?
+  pendingQuestion String?
+  choices         Json?
+  errorMessage    String?
+  historyCursor   Int       @default(0)
+  updatedAt       DateTime  @default(now())
+  tenantId        String
+
+  @@id([userId, conversationId])
+}
+
+model SwapHistory {
+  historyId       String   @id @default(uuid())
+  userId          String
+  conversationId  String
+  status          String
+  fromNetwork     String?
+  fromToken       String?
+  toNetwork       String?
+  toToken         String?
+  amount          Float?
+  errorMessage    String?
+  recordedAt      DateTime @default(now())
+  tenantId        String
+}
+
+model AgentMetric {
+  metricId        String   @id @default(uuid())
+  agentName       String
+  agentType       String?
+  userId          String?
+  conversationId  String?
+  responseTimeMs  Int?
+  success         Boolean
+  errorMessage    String?
+  tokensInput     Int?
+  tokensOutput    Int?
+  createdAt       DateTime @default(now())
+  tenantId        String
+}
+
+model Outbox {
+  id          String   @id @default(uuid())
+  entity      String
+  op          String
+  payload     Json
+  occurredAt  DateTime @default(now())
+  processedAt DateTime?
+  attempts    Int       @default(0)
+}
+
+model IdempotencyKey {
+  key         String   @id
+  requestHash String
+  response    Json
+  createdAt   DateTime @default(now())
+}
