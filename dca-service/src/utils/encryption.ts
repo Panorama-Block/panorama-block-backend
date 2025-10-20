@@ -1,4 +1,5 @@
 import CryptoJS from 'crypto-js';
+import { privateKeyToAccount as viemPrivateKeyToAccount } from 'viem/accounts';
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_PASSWORD || 'default-key-change-in-production';
 
@@ -31,11 +32,6 @@ export function generatePrivateKey(): string {
  * Uses keccak256 hash and ECDSA public key derivation
  */
 export function privateKeyToAddress(privateKey: string): string {
-  // Remove 0x prefix if present
-  const key = privateKey.startsWith('0x') ? privateKey.slice(2) : privateKey;
-
-  // For now, generate a deterministic address from the private key hash
-  // In production, you would use proper ECDSA public key derivation
-  const hash = CryptoJS.SHA256(key).toString(CryptoJS.enc.Hex);
-  return '0x' + hash.slice(0, 40);
+  const account = viemPrivateKeyToAccount(privateKey as `0x${string}`);
+  return account.address;
 }

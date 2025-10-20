@@ -7,11 +7,11 @@ export class SmartAccountService {
 
   /**
    * Create a new smart account with session keys
+   * SECURITY: Private key is NEVER returned to frontend
    */
   async createSmartAccount(request: CreateSmartAccountRequest): Promise<{
     smartAccountAddress: string;
     sessionKeyAddress: string;
-    sessionKeyPrivateKey: string;
     expiresAt: Date;
   }> {
     console.log('[SmartAccountService] Creating smart account for user:', request.userId);
@@ -77,11 +77,12 @@ export class SmartAccountService {
     await multi.exec();
 
     console.log('[SmartAccountService] ✅ Smart account created successfully');
+    console.log('[SmartAccountService] 🔒 Session key stored securely (encrypted)');
 
+    // SECURITY: NEVER return private key to frontend!
     return {
       smartAccountAddress,
-      sessionKeyAddress,
-      sessionKeyPrivateKey: sessionKeyPrivate, // Return private key for frontend to use
+      sessionKeyAddress, // Only public address
       expiresAt: new Date(endTimestamp * 1000)
     };
   }
@@ -113,6 +114,7 @@ export class SmartAccountService {
       }
 
       accounts.push({
+        address: address, // ← IMPORTANTE: Adicionar o address aqui!
         userId: data.userId,
         name: data.name,
         createdAt: parseInt(data.createdAt),

@@ -6,6 +6,7 @@ export interface SmartAccountPermissions {
 }
 
 export interface SmartAccountData {
+  address: string;
   userId: string;
   name: string;
   createdAt: number;

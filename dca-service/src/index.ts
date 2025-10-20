@@ -1,8 +1,9 @@
-import express from 'express';
+import express, { Router } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient, RedisClientType } from 'redis';
 import { dcaRoutes } from './routes/dca.routes';
+import { createTransactionRoutes } from './routes/transaction.routes';
 import { startDCAExecutor } from './jobs/dca.executor';
 
 // Load environment variables
@@ -33,26 +34,7 @@ const redisClient: RedisClientType = createClient({
   password: process.env.REDIS_PASS || '',
 });
 
-redisClient.connect().then(() => {
-  console.log('[DCA Service] ✅ Connected to Redis successfully');
-
-  // Start DCA executor cron job
-  startDCAExecutor(redisClient);
-
-}).catch(err => {
-  console.error('[DCA Service] ❌ Redis connection error:', err);
-  process.exit(1);
-});
-
-// Handle Redis errors
-redisClient.on('error', (err) => {
-  console.error('[DCA Service] Redis client error:', err);
-});
-
-// Routes
-app.use('/dca', dcaRoutes(redisClient));
-
-// Health check endpoint
+// Health check endpoint (before Redis connection)
 app.get('/health', (req, res) => {
   console.log('🏥 [HEALTH CHECK] DCA Service health check requested');
   res.status(200).json({
@@ -63,7 +45,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Root endpoint
+// Root endpoint (before Redis connection)
 app.get('/', (req, res) => {
   console.log('🏠 [ROOT] Service info requested');
   res.json({
@@ -77,28 +59,53 @@ app.get('/', (req, res) => {
       '/dca/account/:address': 'Get smart account details',
       '/dca/create-strategy': 'Create DCA strategy',
       '/dca/strategies/:smartAccountId': 'Get account strategies',
-      '/dca/history/:smartAccountId': 'Get execution history'
+      '/dca/history/:smartAccountId': 'Get execution history',
+      '/transaction/sign-and-execute': '🔐 SECURE: Sign & execute transaction (private key never leaves backend!)',
+      '/transaction/validate': 'Validate transaction permissions'
     }
   });
 });
 
-// 404 handler
-app.use((req, res) => {
-  console.warn(`[404] Route not found: ${req.method} ${req.originalUrl}`);
-  res.status(404).json({
-    error: 'Endpoint not found',
-    path: req.originalUrl,
-    method: req.method
+// Register DCA routes
+app.use('/dca', dcaRoutes(redisClient));
+
+redisClient.connect().then(() => {
+  console.log('[DCA Service] ✅ Connected to Redis successfully');
+
+  // Register transaction routes (after env vars are loaded!)
+  app.use('/transaction', createTransactionRoutes(redisClient));
+  console.log('[DCA Service] ✅ Transaction routes registered');
+
+  // 404 handler - MUST be after all routes
+  app.use((req, res) => {
+    console.warn(`[404] Route not found: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({
+      error: 'Endpoint not found',
+      path: req.originalUrl,
+      method: req.method
+    });
   });
+
+  // Global error handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error('[Error] Unhandled error:', err);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: err.message || 'An unknown error occurred'
+    });
+  });
+
+  // Start DCA executor cron job
+  startDCAExecutor(redisClient);
+
+}).catch(err => {
+  console.error('[DCA Service] ❌ Redis connection error:', err);
+  process.exit(1);
 });
 
-// Global error handler
-app.use((err: any, req: any, res: any, next: any) => {
-  console.error('[Error] Unhandled error:', err);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: err.message || 'An unknown error occurred'
-  });
+// Handle Redis errors
+redisClient.on('error', (err) => {
+  console.error('[DCA Service] Redis client error:', err);
 });
 
 // Start server

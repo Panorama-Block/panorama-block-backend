@@ -45,6 +45,9 @@ export function dcaRoutes(redisClient: RedisClientType) {
 
       const accounts = await smartAccountService.getUserAccounts(req.params.userId);
 
+      // Log para debug
+      console.log('[GET /accounts/:userId] Returning accounts:', JSON.stringify(accounts, null, 2));
+
       res.json({ accounts });
     } catch (error: any) {
       console.error('[GET /accounts/:userId] Error:', error);
