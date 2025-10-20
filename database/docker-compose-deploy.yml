@@ -35,6 +35,11 @@ services:
       PORT: ${PORT:-8080}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       JWT_SECRET: ${JWT_SECRET:-changeme}
+      FULLCHAIN: ${FULLCHAIN}
+      PRIVKEY: ${PRIVKEY}
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+
     ports:
       - "8082:8082"
     command: sh -c "npm run migrate:deploy && npm run start"

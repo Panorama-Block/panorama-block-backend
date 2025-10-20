@@ -32,46 +32,47 @@ const ensureTenant = (config: EntityConfig, ctx: RequestCtx): string | undefined
   return tenantId;
 };
 
-const buildUniqueWhere = (
-  config: EntityConfig,
-  id: unknown
-): Record<string, string | number | boolean> => {
+const buildUniqueWhere = (config: EntityConfig, id: unknown): Record<string, unknown> => {
   if (config.primaryKeys.length === 0) {
     throw new Error(`Entity ${config.collection} missing primary key metadata`);
   }
 
+  const [primaryKey] = config.primaryKeys;
   if (config.primaryKeys.length === 1) {
-    const key = config.primaryKeys[0];
     if (typeof id === 'object' && id !== null) {
-      const value = (id as Record<string, unknown>)[key];
+      const value = (id as Record<string, unknown>)[primaryKey];
       if (value === undefined) {
-        throw new ValidationError(`Missing identifier: ${key}`);
+        throw new ValidationError(`Missing identifier: ${primaryKey}`);
       }
-      return { [key]: value as any };
+      return { [primaryKey]: value as any };
     }
-    return { [key]: id as any };
+    return { [primaryKey]: id as any };
   }
 
+  let components: Record<string, string | number | boolean>;
   if (typeof id === 'string') {
     const parts = id.split(':');
     if (parts.length !== config.primaryKeys.length) {
       throw new ValidationError('Invalid composite identifier');
     }
-    return Object.fromEntries(config.primaryKeys.map((key, idx) => [key, parts[idx]!]));
-  }
-
-  if (typeof id === 'object' && id !== null) {
+    components = Object.fromEntries(
+      config.primaryKeys.map((key, idx) => [key, parts[idx] as string | number | boolean])
+    );
+  } else if (typeof id === 'object' && id !== null) {
     const payload = id as Record<string, unknown>;
     const missing = config.primaryKeys.filter((key) => payload[key] === undefined);
     if (missing.length > 0) {
       throw new ValidationError(`Missing identifier fields: ${missing.join(', ')}`);
     }
-    return Object.fromEntries(
+    components = Object.fromEntries(
       config.primaryKeys.map((key) => [key, payload[key] as string | number | boolean])
     );
+  } else {
+    throw new ValidationError('Unsupported identifier shape');
   }
 
-  throw new ValidationError('Unsupported identifier shape');
+  const compositeKey = config.primaryKeys.join('_');
+  return { [compositeKey]: components };
 };
 
 const mergeTenantWhere = (
