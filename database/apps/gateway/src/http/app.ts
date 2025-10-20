@@ -32,27 +32,23 @@ export const buildApp = ({
   idempotencyStore,
   sslOptions
 }: AppDependencies): FastifyInstance => {
-  let app: FastifyInstance;
+  const baseOptions = {
+    logger: {
+      level: config.logLevel
+    }
+  };
 
-  if (sslOptions) {
-    app = Fastify({
-      logger: {
-        level: config.logLevel
-      },
-      // Fastify typing does not expose the https option on the base ServerOptions.
-      // We cast to keep the runtime configuration while maintaining type safety elsewhere.
-      https: {
-        key: sslOptions.key,
-        cert: sslOptions.cert
-      }
-    } as any);
-  } else {
-    app = Fastify({
-      logger: {
-        level: config.logLevel
-      }
-    });
-  }
+  const fastifyOptions = sslOptions
+    ? ({
+        ...baseOptions,
+        https: {
+          key: sslOptions.key,
+          cert: sslOptions.cert
+        }
+      } as any)
+    : baseOptions;
+
+  const app = Fastify(fastifyOptions);
 
   const crudHandlers = createCrudHandlers(repository, idempotencyStore);
   const transactHandler = createTransactHandler(repository, idempotencyStore);
