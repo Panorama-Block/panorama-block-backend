@@ -48,7 +48,7 @@ export const buildApp = ({
       } as any)
     : baseOptions;
 
-  const app = Fastify(fastifyOptions) as FastifyInstance;
+  const app = Fastify(fastifyOptions as any) as unknown as FastifyInstance;
 
   const crudHandlers = createCrudHandlers(repository, idempotencyStore);
   const transactHandler = createTransactHandler(repository, idempotencyStore);
