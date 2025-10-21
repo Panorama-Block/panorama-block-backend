@@ -1,6 +1,6 @@
 /**
  * Transaction Service
- * Handles secure transaction signing with session keys
+ * Handles secure transaction signing with session keys using Account Abstraction
  * SECURITY: Private keys never leave the backend
  */
 
@@ -8,7 +8,7 @@ import { RedisClientType } from 'redis';
 import { SmartAccountService } from './smartAccount.service';
 import { createThirdwebClient, prepareTransaction, type Address } from 'thirdweb';
 import { defineChain } from 'thirdweb/chains';
-import { privateKeyToAccount } from 'thirdweb/wallets';
+import { privateKeyToAccount, smartWallet } from 'thirdweb/wallets';
 import { sendTransaction, toWei } from 'thirdweb';
 
 export interface PrepareTransactionRequest {
@@ -46,13 +46,14 @@ export class TransactionService {
   }
 
   /**
-   * Sign and execute a transaction using session key
+   * Sign and execute a transaction using session key via Smart Account
    * SECURITY: This is the ONLY way to use session keys - they never leave backend
+   * The transaction is sent FROM the smart account, signed BY the session key
    */
   async signAndExecuteTransaction(
     request: PrepareTransactionRequest
   ): Promise<SignedTransactionResponse> {
-    console.log('[TransactionService] 🔐 Signing transaction securely...');
+    console.log('[TransactionService] 🔐 Signing transaction via Smart Account...');
     console.log('[TransactionService] Smart Account:', request.smartAccountAddress);
     console.log('[TransactionService] To:', request.to);
     console.log('[TransactionService] Value:', request.value, 'ETH');
@@ -93,17 +94,31 @@ export class TransactionService {
 
       console.log('[TransactionService] 🔑 Session key retrieved (encrypted in storage)');
 
-      // 5. Create account from private key (IN BACKEND ONLY!)
-      const sessionAccount = privateKeyToAccount({
+      // 5. Create personal account from session key (IN BACKEND ONLY!)
+      const personalAccount = privateKeyToAccount({
         client: this.client,
         privateKey: sessionKeyPrivate,
       });
 
-      console.log('[TransactionService] ✅ Session account created');
-      console.log('[TransactionService] Session account address:', sessionAccount.address);
+      console.log('[TransactionService] ✅ Personal account created from session key');
+      console.log('[TransactionService] Personal account address:', personalAccount.address);
 
-      // 6. Prepare transaction
+      // 6. Connect to the smart wallet using the session key as signer
       const chain = defineChain(request.chainId);
+      const wallet = smartWallet({
+        chain,
+        gasless: false, // Set to true if using sponsored transactions
+      });
+
+      // Connect with the session key - this gives us control of the smart account
+      const smartAccount = await wallet.connect({
+        client: this.client,
+        personalAccount,
+      });
+
+      console.log('[TransactionService] ✅ Connected to Smart Account:', smartAccount.address);
+
+      // 7. Prepare transaction FROM the smart account
       const transaction = prepareTransaction({
         to: request.to as Address,
         value: toWei(request.value),
@@ -114,13 +129,14 @@ export class TransactionService {
 
       console.log('[TransactionService] 📝 Transaction prepared');
 
-      // 7. Sign and send transaction (ALL IN BACKEND!)
+      // 8. Send transaction - this will be a User Operation from the smart account
+      // The session key signs it, but the transaction comes FROM the smart account
       const result = await sendTransaction({
         transaction,
-        account: sessionAccount,
+        account: smartAccount, // ← IMPORTANT: Use smart account, not personal account!
       });
 
-      console.log('[TransactionService] ✅ Transaction sent!');
+      console.log('[TransactionService] ✅ User Operation sent!');
       console.log('[TransactionService] TX Hash:', result.transactionHash);
 
       return {

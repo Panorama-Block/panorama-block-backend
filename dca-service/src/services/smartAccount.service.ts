@@ -1,9 +1,24 @@
 import { RedisClientType } from 'redis';
 import { SmartAccountData, SmartAccountPermissions, CreateSmartAccountRequest } from '../types';
 import { encryptPrivateKey, generatePrivateKey, privateKeyToAddress } from '../utils/encryption';
+import { createThirdwebClient, getContract, defineChain } from 'thirdweb';
+import { smartWallet, getAddress } from 'thirdweb/wallets';
+import { privateKeyToAccount } from 'thirdweb/wallets';
 
 export class SmartAccountService {
-  constructor(private redisClient: RedisClientType) {}
+  private client: any;
+
+  constructor(private redisClient: RedisClientType) {
+    // Initialize Thirdweb client
+    const secretKey = process.env.THIRDWEB_SECRET_KEY;
+    if (!secretKey) {
+      throw new Error('THIRDWEB_SECRET_KEY is required in .env file!');
+    }
+
+    this.client = createThirdwebClient({
+      secretKey: secretKey,
+    });
+  }
 
   /**
    * Create a new smart account with session keys
@@ -16,7 +31,7 @@ export class SmartAccountService {
   }> {
     console.log('[SmartAccountService] Creating smart account for user:', request.userId);
 
-    // 1. Generate session key pair
+    // 1. Generate session key pair (this will be an authorized signer)
     const sessionKeyPrivate = generatePrivateKey();
     const sessionKeyAddress = privateKeyToAddress(sessionKeyPrivate);
 
@@ -26,13 +41,28 @@ export class SmartAccountService {
     const startTimestamp = Math.floor(Date.now() / 1000);
     const endTimestamp = startTimestamp + (request.permissions.durationDays * 86400);
 
-    // 3. Create deterministic smart account address
-    // In production, this would call Thirdweb Engine to deploy smart account
-    // For now, we generate a deterministic address based on user + timestamp
-    const smartAccountIdentifier = `${request.userId}-${Date.now()}`;
-    const smartAccountAddress = await this.generateSmartAccountAddress(smartAccountIdentifier);
+    // 3. Create REAL smart account using Thirdweb
+    // The session key will be the personal account that controls the smart wallet
+    const personalAccount = privateKeyToAccount({
+      client: this.client,
+      privateKey: sessionKeyPrivate,
+    });
 
-    console.log('[SmartAccountService] Smart account address:', smartAccountAddress);
+    // Create smart wallet with the session key as admin
+    const wallet = smartWallet({
+      chain: defineChain(1), // Ethereum mainnet (can be configurable)
+      gasless: false, // Set to true if using sponsored transactions
+    });
+
+    // Connect the wallet with the personal account (session key)
+    const smartAccount = await wallet.connect({
+      client: this.client,
+      personalAccount,
+    });
+
+    const smartAccountAddress = smartAccount.address;
+
+    console.log('[SmartAccountService] ✅ Smart account deployed:', smartAccountAddress);
 
     // 4. Prepare data
     const permissions: SmartAccountPermissions = {
@@ -173,16 +203,6 @@ export class SmartAccountService {
     console.log('[SmartAccountService] ✅ Smart account deleted');
   }
 
-  /**
-   * Generate smart account address (deterministic)
-   * In production, this would call Thirdweb Engine API
-   */
-  private async generateSmartAccountAddress(identifier: string): Promise<string> {
-    // For demo: create deterministic address from identifier
-    const CryptoJS = await import('crypto-js');
-    const hash = CryptoJS.SHA256(identifier).toString(CryptoJS.enc.Hex);
-    return '0x' + hash.substring(0, 40);
-  }
 
   /**
    * Get decrypted session key (for internal use by executor)
