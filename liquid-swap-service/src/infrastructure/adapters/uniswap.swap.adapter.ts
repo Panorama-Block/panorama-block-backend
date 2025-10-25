@@ -3,37 +3,21 @@
 import axios, { AxiosInstance } from 'axios';
 import { ISwapProvider, RouteParams, PreparedSwap, Transaction } from "../../domain/ports/swap.provider.port";
 import { SwapRequest, SwapQuote, TransactionStatus } from "../../domain/entities/swap";
-import { isNativeLike } from "../../utils/native.utils";
-import { getTokenDecimals } from "../../utils/token.utils";
+import { resolveToken, listSupportedChainsForProvider } from "../../config/tokens/registry";
 import { ChainProviderAdapter } from "./chain.provider.adapter";
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const UNISWAP_NATIVE_TOKEN_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const DEFAULT_SLIPPAGE_TOLERANCE = 0.5; // 0.5%
 const API_REQUEST_TIMEOUT = 30000; // 30 seconds
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY = 1000; // 1 second
 
-const UNISWAP_SUPPORTED_CHAINS = new Set([
-  1,       // Ethereum
-  10,      // Optimism
-  137,     // Polygon
-  8453,    // Base
-  42161,   // Arbitrum
-  43114,   // Avalanche
-  56,      // BSC
-  324,     // zkSync
-  81457,   // Blast
-  7777777, // Zora
-  130,     // Unichain
-  480,     // World Chain
-  57073,   // Ink
-  1868,    // Soneium
-  42220,   // Celo
-]);
+const UNISWAP_SUPPORTED_CHAINS = new Set<number>(
+  listSupportedChainsForProvider('uniswap')
+);
 
 enum UniswapRouting {
   CLASSIC = 'CLASSIC',
@@ -109,15 +93,18 @@ interface SwapParams {
 
 interface SwapResponse {
   requestId: string;
-  transactionRequest: {
+  swap: {
     to: string;
     data: string;
     value: string;
-    chainId: number;
+    chainId: number | string;
+    from?: string;
     gasLimit?: string;
+    gasPrice?: string;
     maxFeePerGas?: string;
     maxPriorityFeePerGas?: string;
   };
+  gasFee?: string;
 }
 
 interface OrderParams {
@@ -211,6 +198,17 @@ export class UniswapSwapAdapter implements ISwapProvider {
       return false;
     }
 
+    try {
+      resolveToken('uniswap', params.fromChainId, params.fromToken);
+      resolveToken('uniswap', params.toChainId, params.toToken);
+    } catch (error) {
+      console.log(
+        `[UniswapSwapAdapter] Tokens not supported for chain ${params.fromChainId}:`,
+        (error as Error).message
+      );
+      return false;
+    }
+
     console.log(`[UniswapSwapAdapter] ✅ Route supported (chain ${params.fromChainId})`);
     return true;
   }
@@ -222,8 +220,11 @@ export class UniswapSwapAdapter implements ISwapProvider {
     console.log("[UniswapSwapAdapter] Getting quote:", request.toLogString());
 
     try {
-      const tokenIn = this.normalizeTokenAddress(request.fromToken);
-      const tokenOut = this.normalizeTokenAddress(request.toToken);
+      const inputToken = resolveToken('uniswap', request.fromChainId, request.fromToken);
+      const outputToken = resolveToken('uniswap', request.toChainId, request.toToken);
+
+      const tokenIn = inputToken.identifier;
+      const tokenOut = outputToken.identifier;
 
       const quoteResponse = await this.requestWithRetry<QuoteResponse>({
         method: 'POST',
@@ -249,12 +250,11 @@ export class UniswapSwapAdapter implements ISwapProvider {
       const estimatedReceiveAmount = BigInt(quoteResponse.quote.output.amount);
       const bridgeFee = BigInt(0); // N/A for same-chain
       const gasFee = await this.parseGasFee(quoteResponse, request.fromChainId);
-      const exchangeRate = await this.calculateExchangeRate(
+      const exchangeRate = this.calculateExchangeRate(
         request.amount,
+        inputToken.metadata.decimals,
         estimatedReceiveAmount,
-        request.fromToken,
-        request.toToken,
-        request.fromChainId
+        outputToken.metadata.decimals
       );
       const estimatedDuration = this.getEstimatedDuration(quoteResponse.routing);
 
@@ -287,9 +287,12 @@ export class UniswapSwapAdapter implements ISwapProvider {
     console.log("[UniswapSwapAdapter] Preparing swap:", request.toLogString());
 
     try {
-      // Step 1: Get fresh quote
-      const tokenIn = this.normalizeTokenAddress(request.fromToken);
-      const tokenOut = this.normalizeTokenAddress(request.toToken);
+      // Step 1: Resolve tokens and get fresh quote
+      const inputToken = resolveToken('uniswap', request.fromChainId, request.fromToken);
+      const outputToken = resolveToken('uniswap', request.toChainId, request.toToken);
+
+      const tokenIn = inputToken.identifier;
+      const tokenOut = outputToken.identifier;
 
       const quoteResponse = await this.requestWithRetry<QuoteResponse>({
         method: 'POST',
@@ -309,8 +312,15 @@ export class UniswapSwapAdapter implements ISwapProvider {
       const routing = quoteResponse.routing;
       console.log("[UniswapSwapAdapter] Quote routing:", routing);
 
-      // Step 2: Check approval (skip for native tokens)
-      if (!isNativeLike(request.fromToken)) {
+      // Step 2: Build pending transactions list (approval + swap)
+      const transactions: Transaction[] = [];
+
+      if (!inputToken.isNative) {
+        console.log("[UniswapSwapAdapter] 🔍 Checking approval for ERC-20 token...");
+        console.log("[UniswapSwapAdapter] Wallet:", request.sender);
+        console.log("[UniswapSwapAdapter] Token:", tokenIn);
+        console.log("[UniswapSwapAdapter] Amount:", request.amount.toString());
+
         const approvalCheck = await this.requestWithRetry<CheckApprovalResponse>({
           method: 'POST',
           url: '/check_approval',
@@ -322,20 +332,33 @@ export class UniswapSwapAdapter implements ISwapProvider {
           } as CheckApprovalParams,
         });
 
-        if (approvalCheck.approval !== null) {
-          console.log("[UniswapSwapAdapter] ⚠️ Approval required");
+        console.log("[UniswapSwapAdapter] ✅ Approval check response:", JSON.stringify(approvalCheck, null, 2));
 
-          if (approvalCheck.permit2) {
-            throw new Error(`PERMIT2_SIGNATURE_REQUIRED: ${JSON.stringify(approvalCheck.permit2)}`);
-          }
+        if (approvalCheck.permit2) {
+          throw new Error(
+            `PERMIT2_SIGNATURE_REQUIRED: ${JSON.stringify(approvalCheck.permit2)}`
+          );
+        }
 
-          throw new Error("APPROVAL_REQUIRED: Token approval needed");
+        if (approvalCheck.approval) {
+          console.log("[UniswapSwapAdapter] ⚠️ Approval required - adding approval transaction");
+
+          transactions.push({
+            chainId: request.fromChainId,
+            to: approvalCheck.approval.to,
+            data: approvalCheck.approval.data,
+            value: this.normalizeHexValue(approvalCheck.approval.value),
+            action: "approval",
+          });
+        } else {
+          console.log("[UniswapSwapAdapter] ✅ No approval needed (already approved or permit2)");
         }
       }
 
-      // Step 3: Build transactions based on routing
-      const transactions: Transaction[] = [];
+      // Step 3: Build swap/order transaction based on routing
       let expiresAt: Date | undefined;
+      let swapResponsePayload: SwapResponse | null = null;
+      let orderResponsePayload: OrderResponse | null = null;
 
       if (routing === UniswapRouting.CLASSIC) {
         console.log("[UniswapSwapAdapter] Creating CLASSIC swap transaction");
@@ -345,15 +368,30 @@ export class UniswapSwapAdapter implements ISwapProvider {
           url: '/swap',
           data: { quote: quoteResponse.quote } as SwapParams,
         });
+        swapResponsePayload = swapResponse;
 
-        transactions.push({
-          chainId: swapResponse.transactionRequest.chainId,
-          to: swapResponse.transactionRequest.to,
-          data: swapResponse.transactionRequest.data,
-          value: swapResponse.transactionRequest.value,
-          gasLimit: swapResponse.transactionRequest.gasLimit,
-          maxFeePerGas: swapResponse.transactionRequest.maxFeePerGas,
-          maxPriorityFeePerGas: swapResponse.transactionRequest.maxPriorityFeePerGas,
+        const txRequest = swapResponse.swap;
+        if (!txRequest) {
+          console.error("[UniswapSwapAdapter] Swap response missing transaction payload", swapResponse);
+          throw new Error("Uniswap swap response missing transaction payload");
+        }
+
+        const chainId =
+          typeof txRequest.chainId === "string"
+            ? Number(txRequest.chainId)
+            : txRequest.chainId;
+        if (!chainId || Number.isNaN(chainId)) {
+          throw new Error("Uniswap swap response returned invalid chainId");
+        }
+
+       transactions.push({
+          chainId,
+          to: txRequest.to,
+          data: txRequest.data,
+          value: this.normalizeHexValue(txRequest.value),
+          gasLimit: txRequest.gasLimit,
+          maxFeePerGas: txRequest.maxFeePerGas || txRequest.gasPrice,
+          maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas,
         });
 
         expiresAt = new Date(Date.now() + 60000); // 1 minute
@@ -365,6 +403,7 @@ export class UniswapSwapAdapter implements ISwapProvider {
           url: '/order',
           data: { quote: quoteResponse.quote } as OrderParams,
         });
+        orderResponsePayload = orderResponse;
 
         console.log("[UniswapSwapAdapter] UniswapX order created:", orderResponse.orderId);
 
@@ -386,6 +425,8 @@ export class UniswapSwapAdapter implements ISwapProvider {
         metadata: {
           routing,
           quote: quoteResponse,
+          swapResponse: swapResponsePayload || undefined,
+          orderResponse: orderResponsePayload || undefined,
         },
       };
 
@@ -460,11 +501,24 @@ export class UniswapSwapAdapter implements ISwapProvider {
   // PRIVATE HELPER METHODS
   // ============================================================================
 
-  private normalizeTokenAddress(token: string): string {
-    if (isNativeLike(token)) {
-      return UNISWAP_NATIVE_TOKEN_ADDRESS;
+  private normalizeHexValue(value?: string | number | bigint): string {
+    if (value === undefined || value === null) {
+      return "0";
     }
-    return token;
+    if (typeof value === "bigint") {
+      return value.toString();
+    }
+    if (typeof value === "number") {
+      return BigInt(Math.trunc(value)).toString();
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return "0";
+      }
+      return trimmed.startsWith("0x") ? BigInt(trimmed).toString() : trimmed;
+    }
+    return "0";
   }
 
   private async parseGasFee(quoteResponse: QuoteResponse, chainId: number): Promise<bigint> {
@@ -502,30 +556,22 @@ export class UniswapSwapAdapter implements ISwapProvider {
     return fallbackGasLimit * fallbackGasPrice;
   }
 
-  private async calculateExchangeRate(
+  private calculateExchangeRate(
     amountIn: bigint,
+    decimalsIn: number,
     amountOut: bigint,
-    tokenIn: string,
-    tokenOut: string,
-    chainId: number
-  ): Promise<number> {
-    try {
-      const decimalsIn = await getTokenDecimals(chainId, tokenIn);
-      const decimalsOut = await getTokenDecimals(chainId, tokenOut);
+    decimalsOut: number
+  ): number {
+    const inNumber = Number(amountIn) / Math.pow(10, decimalsIn);
+    const outNumber = Number(amountOut) / Math.pow(10, decimalsOut);
 
-      const inNumber = Number(amountIn) / Math.pow(10, decimalsIn);
-      const outNumber = Number(amountOut) / Math.pow(10, decimalsOut);
-
-      if (inNumber === 0) return 0;
-
-      const rate = outNumber / inNumber;
-      console.log("[UniswapSwapAdapter] Exchange rate:", rate);
-
-      return rate;
-    } catch (error) {
-      console.warn("[UniswapSwapAdapter] Failed to calculate exchange rate:", (error as Error).message);
-      return 1;
+    if (inNumber === 0) {
+      return 0;
     }
+
+    const rate = outNumber / inNumber;
+    console.log("[UniswapSwapAdapter] Exchange rate:", rate);
+    return rate;
   }
 
   private getEstimatedDuration(routing: UniswapRouting): number {

@@ -3,6 +3,7 @@
 import { ISwapProvider, RouteParams, PreparedSwap, Transaction } from "../../domain/ports/swap.provider.port";
 import { SwapRequest, SwapQuote, TransactionStatus } from "../../domain/entities/swap";
 import { ThirdwebSwapAdapter } from "./thirdweb.swap.adapter";
+import { isTokenSupported, resolveToken } from "../../config/tokens/registry";
 
 /**
  * ThirdwebProviderAdapter
@@ -29,7 +30,26 @@ export class ThirdwebProviderAdapter implements ISwapProvider {
    * It's our fallback provider
    */
   async supportsRoute(params: RouteParams): Promise<boolean> {
-    // Thirdweb supports everything
+    const fromSupported = isTokenSupported("thirdweb", params.fromChainId, params.fromToken);
+    if (!fromSupported) {
+      console.log(
+        `[ThirdwebProvider] Token ${params.fromToken} not supported on chain ${params.fromChainId}`
+      );
+      return false;
+    }
+
+    const toSupported = isTokenSupported("thirdweb", params.toChainId, params.toToken);
+    if (!toSupported) {
+      console.log(
+        `[ThirdwebProvider] Token ${params.toToken} not supported on chain ${params.toChainId}`
+      );
+      return false;
+    }
+
+    if (params.fromChainId === params.toChainId) {
+      console.log("[ThirdwebProvider] Same-chain route supported via Thirdweb fallback");
+    }
+
     return true;
   }
 
@@ -38,6 +58,8 @@ export class ThirdwebProviderAdapter implements ISwapProvider {
    */
   async getQuote(request: SwapRequest): Promise<SwapQuote> {
     console.log("[ThirdwebProvider] Getting quote:", request.toLogString());
+    resolveToken("thirdweb", request.fromChainId, request.fromToken);
+    resolveToken("thirdweb", request.toChainId, request.toToken);
     return this.thirdwebAdapter.getQuote(request);
   }
 
@@ -47,31 +69,82 @@ export class ThirdwebProviderAdapter implements ISwapProvider {
   async prepareSwap(request: SwapRequest): Promise<PreparedSwap> {
     console.log("[ThirdwebProvider] Preparing swap:", request.toLogString());
 
+    resolveToken("thirdweb", request.fromChainId, request.fromToken);
+    resolveToken("thirdweb", request.toChainId, request.toToken);
+
     const prepared = await this.thirdwebAdapter.prepareSwap(request);
 
     // Convert ThirdwebSwapAdapter response to PreparedSwap format
     const transactions: Transaction[] = [];
 
-    // Origin chain transactions
-    if (prepared.originTxs && prepared.originTxs.length > 0) {
-      for (const tx of prepared.originTxs) {
-        transactions.push({
-          chainId: tx.chainId,
-          to: tx.to,
-          data: tx.data || "0x",
-          value: tx.value,
-          gasLimit: tx.gasLimit,
-        });
+    const pushTx = (tx: any) => {
+      if (!tx) {
+        return;
       }
+      transactions.push({
+        chainId: tx.chainId,
+        to: tx.to,
+        data: tx.data || "0x",
+        value:
+          typeof tx.value === "bigint"
+            ? tx.value.toString()
+            : tx.value ?? "0",
+        gasLimit:
+          typeof tx.gasLimit === "bigint"
+            ? tx.gasLimit.toString()
+            : tx.gasLimit,
+        maxFeePerGas:
+          typeof tx.maxFeePerGas === "bigint"
+            ? tx.maxFeePerGas.toString()
+            : tx.maxFeePerGas,
+        maxPriorityFeePerGas:
+          typeof tx.maxPriorityFeePerGas === "bigint"
+            ? tx.maxPriorityFeePerGas.toString()
+            : tx.maxPriorityFeePerGas,
+        action: tx.action,
+        description: tx.description,
+      });
+    };
+
+    if (Array.isArray(prepared.transactions)) {
+      for (const tx of prepared.transactions) {
+        pushTx(tx);
+      }
+    }
+
+    if (Array.isArray(prepared.steps)) {
+      for (const step of prepared.steps) {
+        if (Array.isArray(step?.transactions)) {
+          for (const tx of step.transactions) {
+            pushTx(tx);
+          }
+        }
+      }
+    }
+
+    if (transactions.length === 0) {
+      console.warn("[ThirdwebProvider] ⚠️ No transactions returned by thirdweb prepare", {
+        steps: prepared.steps?.length ?? 0,
+        hasTopLevelTransactions: Array.isArray(prepared.transactions),
+      });
     }
 
     return {
       provider: this.name,
       transactions,
-      estimatedDuration: 60, // 1 minute default (Thirdweb handles this internally)
+      estimatedDuration: Math.floor(
+        (prepared.estimatedExecutionTimeMs ?? 60_000) / 1000
+      ),
+      expiresAt: prepared.expiration
+        ? new Date(
+            typeof prepared.expiration === "string"
+              ? Number(prepared.expiration)
+              : prepared.expiration
+          )
+        : undefined,
       metadata: {
         bridgeQuoteId: prepared.bridgeQuoteId,
-        originTxs: prepared.originTxs,
+        raw: prepared,
       },
     };
   }
