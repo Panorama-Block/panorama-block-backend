@@ -31,11 +31,18 @@ export interface ProviderSelectionResult {
  * ```
  */
 export class RouterDomainService {
+  private readonly smartRouterQuoteTimeoutMs: number;
+
   constructor(private readonly providers: Map<string, ISwapProvider>) {
     console.log(
       `[RouterDomainService] Initialized with ${providers.size} providers:`,
       Array.from(providers.keys())
     );
+
+    const rawTimeout = process.env.SMART_ROUTER_QUOTE_TIMEOUT_MS;
+    const parsedTimeout = rawTimeout ? Number(rawTimeout) : undefined;
+    this.smartRouterQuoteTimeoutMs =
+      parsedTimeout && parsedTimeout > 0 ? parsedTimeout : 4000;
   }
 
   /**
@@ -123,7 +130,7 @@ export class RouterDomainService {
   /**
    * Select provider for same-chain swap
    *
-   * Priority: Uniswap > Thirdweb > others
+   * Priority: Uniswap Smart Router > Uniswap Trading API > Thirdweb
    */
   private async selectForSameChain(
     supportedProviders: ISwapProvider[],
@@ -131,30 +138,68 @@ export class RouterDomainService {
   ): Promise<ProviderSelectionResult> {
     console.log("[RouterDomainService] 🔄 Same-chain swap detected");
 
-    // Try Uniswap first (best for same-chain)
-    const uniswap = supportedProviders.find((p) => p.name === "uniswap");
-    if (uniswap) {
-      console.log("[RouterDomainService] ✅ Attempting Uniswap (preferred)");
+    const errors: string[] = [];
+
+    // Priority 1: Try Uniswap Smart Router first (most reliable)
+    const uniswapSmartRouter = supportedProviders.find((p) => p.name === "uniswap-smart-router");
+    if (uniswapSmartRouter) {
+      console.log("[RouterDomainService] ✅ Attempting Uniswap Smart Router (Priority 1)");
       try {
-        const quote = await uniswap.getQuote(request);
+        const quote = await this.getQuoteWithTimeout(
+          uniswapSmartRouter,
+          request,
+          this.smartRouterQuoteTimeoutMs
+        );
         console.log(
-          "[RouterDomainService] ✅ Uniswap quote successful:",
+          "[RouterDomainService] ✅ Uniswap Smart Router quote successful:",
           quote.estimatedReceiveAmount.toString()
         );
-        return { provider: uniswap, quote };
+        return { provider: uniswapSmartRouter, quote };
       } catch (error) {
         console.warn(
-          "[RouterDomainService] ⚠️ Uniswap failed, trying fallback:",
+          "[RouterDomainService] ⚠️ Uniswap Smart Router failed, trying fallback:",
           (error as Error).message
         );
+        errors.push(`smart-router: ${(error as Error).message}`);
         // Continue to fallback
       }
     }
 
-    // Fallback to other providers
-    return await this.tryFallbackProviders(supportedProviders, request, [
-      "uniswap",
-    ]);
+    // Priority 2: Try Uniswap Trading API as backup
+    const uniswapTradingApi = supportedProviders.find((p) => p.name === "uniswap");
+    if (uniswapTradingApi) {
+      console.log("[RouterDomainService] ✅ Attempting Uniswap Trading API (Priority 2 - Fallback)");
+      try {
+        const quote = await uniswapTradingApi.getQuote(request);
+        console.log(
+          "[RouterDomainService] ✅ Uniswap Trading API quote successful:",
+          quote.estimatedReceiveAmount.toString()
+        );
+        return { provider: uniswapTradingApi, quote };
+      } catch (error) {
+        console.warn(
+          "[RouterDomainService] ⚠️ Uniswap Trading API failed, trying remaining fallback:",
+          (error as Error).message
+        );
+        errors.push(`trading-api: ${(error as Error).message}`);
+        // Continue to fallback
+      }
+    }
+
+    try {
+      return await this.tryFallbackProviders(
+        supportedProviders,
+        request,
+        ["uniswap-smart-router", "uniswap"]
+      );
+    } catch (fallbackError) {
+      if (fallbackError instanceof Error) {
+        errors.push(`fallback: ${fallbackError.message}`);
+      }
+    }
+
+    const detail = errors.length ? `Reasons: ${errors.join("; ")}` : "Uniswap providers unavailable";
+    throw new Error(`Same-chain swap requires Uniswap but it is unavailable. ${detail}`);
   }
 
   /**
@@ -261,6 +306,35 @@ export class RouterDomainService {
    */
   private isSameChain(request: SwapRequest): boolean {
     return request.fromChainId === request.toChainId;
+  }
+
+  private async getQuoteWithTimeout(
+    provider: ISwapProvider,
+    request: SwapRequest,
+    timeoutMs: number
+  ): Promise<SwapQuote> {
+    if (!timeoutMs || timeoutMs <= 0) {
+      return provider.getQuote(request);
+    }
+
+    return new Promise<SwapQuote>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new Error(`${provider.name} quote timed out after ${timeoutMs}ms`)
+        );
+      }, timeoutMs);
+
+      provider
+        .getQuote(request)
+        .then((quote) => {
+          clearTimeout(timer);
+          resolve(quote);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
   }
 
   /**

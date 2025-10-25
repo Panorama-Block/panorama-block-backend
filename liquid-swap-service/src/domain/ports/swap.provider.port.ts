@@ -27,6 +27,8 @@ export interface Transaction {
   gasLimit?: string;
   maxFeePerGas?: string;
   maxPriorityFeePerGas?: string;
+  action?: string;
+  description?: string;
 }
 
 /**
