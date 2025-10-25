@@ -15,6 +15,16 @@ export interface QuoteWithProvider {
 }
 
 /**
+ * PreparedSwapWithProvider
+ *
+ * Prepared swap result including which provider was used
+ */
+export interface PreparedSwapWithProvider {
+  provider: string; // Provider name ('uniswap', 'thirdweb')
+  prepared: PreparedSwap;
+}
+
+/**
  * ProviderSelectorService
  *
  * Application service that orchestrates provider selection for swap operations.
@@ -108,7 +118,7 @@ export class ProviderSelectorService {
   public async prepareSwapWithProvider(
     request: SwapRequest,
     preferredProvider?: string
-  ): Promise<PreparedSwap> {
+  ): Promise<PreparedSwapWithProvider> {
     // Case 1: User specified a preferred provider
     if (preferredProvider) {
       console.log(
@@ -146,7 +156,10 @@ export class ProviderSelectorService {
         `[ProviderSelectorService] ✅ Prepared swap with ${preferredProvider}`
       );
 
-      return prepared;
+      return {
+        provider: provider.name,
+        prepared,
+      };
     }
 
     // Case 2: Auto-select best provider
@@ -162,7 +175,10 @@ export class ProviderSelectorService {
       `[ProviderSelectorService] ✅ Prepared swap with auto-selected ${provider.name}`
     );
 
-    return prepared;
+    return {
+      provider: provider.name,
+      prepared,
+    };
   }
 
   /**
