@@ -2,12 +2,12 @@ const { ethers } = require('ethers');
 const { SECURITY } = require('../config/constants');
 
 /**
- * Middleware para verificar assinatura de wallet (smart wallet)
- * Usa apenas assinatura do frontend, sem private key
+ * Middleware para verificar assinatura de wallet (smart wallet ou private key)
+ * Suporta tanto smart wallets quanto private keys
  */
 function verifySignature(req, res, next) {
   try {
-    const { address, signature, message, timestamp } = req.body;
+    const { address, signature, message, timestamp, privateKey, walletType, isSmartWallet } = req.body;
 
     // Verificação de assinatura obrigatória
     if (!address || !signature || !message) {
@@ -58,16 +58,26 @@ function verifySignature(req, res, next) {
       });
     }
 
+    // Determina o tipo de autenticação
+    const authMode = isSmartWallet || walletType === 'smart_wallet' ? 'smart_wallet' : 'private_key';
+    
     // Adiciona informações verificadas ao request
     req.verifiedAddress = address.toLowerCase();
-    req.authMode = 'signature';
+    req.authMode = authMode;
     req.signatureData = {
       address: address.toLowerCase(),
       message,
-      timestamp: timestamp || Date.now()
+      timestamp: timestamp || Date.now(),
+      walletType: authMode,
+      isSmartWallet: authMode === 'smart_wallet'
     };
 
-    console.log(`🔐 Autenticação via assinatura para endereço: ${address}`);
+    // Se for private key, adiciona ao request para uso posterior
+    if (privateKey && authMode === 'private_key') {
+      req.privateKey = privateKey;
+    }
+
+    console.log(`🔐 Autenticação via ${authMode} para endereço: ${address}`);
     next();
   } catch (error) {
     console.error('Erro na verificação de assinatura:', error);
@@ -287,6 +297,44 @@ function sanitizeInput(req, res, next) {
   next();
 }
 
+/**
+ * Função auxiliar para detectar se é smart wallet ou private key
+ */
+function detectWalletType(req) {
+  const { privateKey, isSmartWallet, walletType } = req.body;
+  
+  // Se explicitamente marcado como smart wallet
+  if (isSmartWallet === true || walletType === 'smart_wallet') {
+    return 'smart_wallet';
+  }
+  
+  // Se tem privateKey, assume que é private key
+  if (privateKey) {
+    return 'private_key';
+  }
+  
+  // Por padrão, assume smart wallet
+  return 'smart_wallet';
+}
+
+/**
+ * Middleware para preparar dados de transação baseado no tipo de wallet
+ */
+function prepareTransactionData(req, res, next) {
+  const walletType = detectWalletType(req);
+  
+  // Adiciona informações do tipo de wallet ao request
+  req.walletType = walletType;
+  req.isSmartWallet = walletType === 'smart_wallet';
+  
+  // Se for smart wallet, remove privateKey do body para evitar problemas
+  if (walletType === 'smart_wallet' && req.body.privateKey) {
+    delete req.body.privateKey;
+  }
+  
+  next();
+}
+
 module.exports = {
   verifySignature,
   checkBalance,
@@ -294,5 +342,7 @@ module.exports = {
   createRateLimiter,
   requestLogger,
   validateNetwork,
-  sanitizeInput
+  sanitizeInput,
+  detectWalletType,
+  prepareTransactionData
 };
