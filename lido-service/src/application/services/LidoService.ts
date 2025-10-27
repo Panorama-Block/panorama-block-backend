@@ -8,7 +8,7 @@ export class LidoService {
     private logger: Logger
   ) {}
 
-  async stake(userAddress: string, amount: string): Promise<StakingTransaction> {
+  async stake(userAddress: string, amount: string, privateKey?: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Staking ${amount} ETH for user ${userAddress}`);
       
@@ -21,7 +21,7 @@ export class LidoService {
         throw new Error('Amount must be greater than 0');
       }
 
-      const transaction = await this.lidoRepository.stake(userAddress, amount);
+      const transaction = await this.lidoRepository.stake(userAddress, amount, privateKey);
       
       this.logger.info(`Staking transaction created: ${transaction.id}`);
       return transaction;
@@ -31,7 +31,7 @@ export class LidoService {
     }
   }
 
-  async unstake(userAddress: string, amount: string): Promise<StakingTransaction> {
+  async unstake(userAddress: string, amount: string, privateKey?: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Unstaking ${amount} stETH for user ${userAddress}`);
       
@@ -50,7 +50,7 @@ export class LidoService {
         throw new Error('Insufficient stETH balance');
       }
 
-      const transaction = await this.lidoRepository.unstake(userAddress, amount);
+      const transaction = await this.lidoRepository.unstake(userAddress, amount, privateKey);
       
       this.logger.info(`Unstaking transaction created: ${transaction.id}`);
       return transaction;
@@ -60,7 +60,7 @@ export class LidoService {
     }
   }
 
-  async claimRewards(userAddress: string): Promise<StakingTransaction> {
+  async claimRewards(userAddress: string, privateKey?: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Claiming rewards for user ${userAddress}`);
       
@@ -68,7 +68,7 @@ export class LidoService {
         throw new Error('User address is required');
       }
 
-      const transaction = await this.lidoRepository.claimRewards(userAddress);
+      const transaction = await this.lidoRepository.claimRewards(userAddress, privateKey);
       
       this.logger.info(`Claim rewards transaction created: ${transaction.id}`);
       return transaction;

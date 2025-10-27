@@ -17,10 +17,18 @@ export interface StakingTransaction {
   amount: string;
   token: 'ETH' | 'stETH' | 'wstETH';
   transactionHash?: string;
+  blockNumber?: number;
   status: 'pending' | 'completed' | 'failed';
   timestamp: Date;
   gasUsed?: string;
   gasPrice?: string;
+  transactionData?: {
+    to: string;
+    data: string;
+    value: string;
+    gasLimit: string;
+    chainId: number;
+  };
 }
 
 export interface LidoProtocolInfo {

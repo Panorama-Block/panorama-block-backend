@@ -2,9 +2,9 @@ import { StakingPosition, StakingTransaction, LidoProtocolInfo } from '../entiti
 
 export interface ILidoRepository {
   // Staking operations
-  stake(userAddress: string, amount: string): Promise<StakingTransaction>;
-  unstake(userAddress: string, amount: string): Promise<StakingTransaction>;
-  claimRewards(userAddress: string): Promise<StakingTransaction>;
+  stake(userAddress: string, amount: string, privateKey?: string): Promise<StakingTransaction>;
+  unstake(userAddress: string, amount: string, privateKey?: string): Promise<StakingTransaction>;
+  claimRewards(userAddress: string, privateKey?: string): Promise<StakingTransaction>;
   
   // Position queries
   getStakingPosition(userAddress: string): Promise<StakingPosition | null>;

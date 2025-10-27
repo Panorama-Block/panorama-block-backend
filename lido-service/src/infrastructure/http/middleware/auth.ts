@@ -15,9 +15,19 @@ export class AuthMiddleware {
 
   static authenticate(req: AuthRequest, res: Response, next: NextFunction): void {
     try {
+      // Log detalhado da requisição
+      AuthMiddleware.logger.info('🔍 Debug Authentication Request:');
+      AuthMiddleware.logger.info(`   Method: ${req.method}`);
+      AuthMiddleware.logger.info(`   URL: ${req.url}`);
+      AuthMiddleware.logger.info(`   Headers: ${JSON.stringify(req.headers, null, 2)}`);
+      AuthMiddleware.logger.info(`   Body: ${JSON.stringify(req.body, null, 2)}`);
+      AuthMiddleware.logger.info(`   Query: ${JSON.stringify(req.query, null, 2)}`);
+      
       const authHeader = req.headers.authorization;
       
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        AuthMiddleware.logger.error('❌ No Authorization header or invalid format');
+        AuthMiddleware.logger.error(`   Auth Header: ${authHeader}`);
         res.status(401).json({
           success: false,
           error: 'Authorization header required'
@@ -25,16 +35,22 @@ export class AuthMiddleware {
         return;
       }
 
+      AuthMiddleware.logger.info(`✅ Authorization header found: ${authHeader.substring(0, 20)}...`);
+
       const jwtService = AuthMiddleware.getJWTService();
       const token = jwtService.extractTokenFromHeader(authHeader);
+      AuthMiddleware.logger.info(`🔑 Extracted token: ${token.substring(0, 20)}...`);
+      
       const decoded = jwtService.verifyAccessToken(token);
+      AuthMiddleware.logger.info(`✅ Token verified successfully: ${JSON.stringify(decoded, null, 2)}`);
       
       req.user = decoded;
-      AuthMiddleware.logger.debug(`User authenticated: ${decoded.address}`);
+      AuthMiddleware.logger.info(`👤 User authenticated: ${decoded.address}`);
       
       next();
     } catch (error) {
-      AuthMiddleware.logger.error(`Authentication error: ${error}`);
+      AuthMiddleware.logger.error(`❌ Authentication error: ${error}`);
+      AuthMiddleware.logger.error(`   Error details: ${JSON.stringify(error, null, 2)}`);
       res.status(401).json({
         success: false,
         error: 'Invalid or expired token'

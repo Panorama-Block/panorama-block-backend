@@ -47,25 +47,86 @@ export class LidoRepository implements ILidoRepository {
     }
   }
 
-  async stake(userAddress: string, amount: string): Promise<StakingTransaction> {
+  async stake(userAddress: string, amount: string, privateKey?: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Creating stake transaction for ${userAddress} with amount ${amount}`);
       
       const transactionId = this.generateTransactionId();
       const amountWei = ethers.utils.parseEther(amount);
       
-      // Create transaction object (in a real implementation, this would be signed and sent)
-      const transaction: StakingTransaction = {
-        id: transactionId,
-        userAddress,
-        type: 'stake',
-        amount,
-        token: 'ETH',
-        status: 'pending',
-        timestamp: new Date()
-      };
+      let transaction: StakingTransaction;
+      
+      if (privateKey) {
+        // Execute real transaction with private key
+        this.logger.info('Executing real stake transaction with private key');
+        
+        const signer = this.ethereumConfig.getSigner(privateKey);
+        const stETHContract = new ethers.Contract(
+          LIDO_CONTRACTS.STETH,
+          STETH_ABI,
+          signer
+        );
+        
+        // Submit ETH to Lido staking contract
+        const tx = await stETHContract.submit({
+          value: amountWei,
+          gasLimit: 200000 // Estimated gas limit for submit
+        });
+        
+        this.logger.info(`Stake transaction submitted: ${tx.hash}`);
+        
+        // Wait for transaction confirmation
+        const receipt = await tx.wait();
+        
+        transaction = {
+          id: transactionId,
+          userAddress,
+          type: 'stake',
+          amount,
+          token: 'ETH',
+          status: receipt.status === 1 ? 'completed' : 'failed',
+          transactionHash: tx.hash,
+          blockNumber: receipt.blockNumber,
+          gasUsed: receipt.gasUsed.toString(),
+          timestamp: new Date()
+        };
+        
+        this.logger.info(`Stake transaction completed: ${tx.hash}`);
+      } else {
+        // Return transaction data for frontend signing (smart wallet)
+        this.logger.info('Preparing stake transaction for frontend signing');
+        
+        const stETHContract = new ethers.Contract(
+          LIDO_CONTRACTS.STETH,
+          STETH_ABI,
+          this.ethereumConfig.getProvider()
+        );
+        
+        // Get transaction data for frontend to sign
+        const txData = await stETHContract.populateTransaction.submit({
+          value: amountWei
+        });
+        
+        transaction = {
+          id: transactionId,
+          userAddress,
+          type: 'stake',
+          amount,
+          token: 'ETH',
+          status: 'pending',
+          transactionData: {
+            to: txData.to,
+            data: txData.data,
+            value: txData.value?.toString() || '0',
+            gasLimit: '200000',
+            chainId: this.ethereumConfig.getChainId()
+          },
+          timestamp: new Date()
+        };
+        
+        this.logger.info(`Stake transaction prepared for signing: ${transactionId}`);
+      }
 
-      this.logger.info(`Stake transaction created: ${transactionId}`);
       return transaction;
     } catch (error) {
       this.logger.error(`Error creating stake transaction: ${error}`);
@@ -73,23 +134,90 @@ export class LidoRepository implements ILidoRepository {
     }
   }
 
-  async unstake(userAddress: string, amount: string): Promise<StakingTransaction> {
+  async unstake(userAddress: string, amount: string, privateKey?: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Creating unstake transaction for ${userAddress} with amount ${amount}`);
       
       const transactionId = this.generateTransactionId();
+      const amountWei = ethers.utils.parseEther(amount);
       
-      const transaction: StakingTransaction = {
-        id: transactionId,
-        userAddress,
-        type: 'unstake',
-        amount,
-        token: 'stETH',
-        status: 'pending',
-        timestamp: new Date()
-      };
+      let transaction: StakingTransaction;
+      
+      if (privateKey) {
+        // Execute real transaction with private key
+        this.logger.info('Executing real unstake transaction with private key');
+        
+        const signer = this.ethereumConfig.getSigner(privateKey);
+        const withdrawalQueueContract = new ethers.Contract(
+          LIDO_CONTRACTS.WITHDRAWAL_QUEUE,
+          WITHDRAWAL_QUEUE_ABI,
+          signer
+        );
+        
+        // Request withdrawal from Lido
+        const tx = await withdrawalQueueContract.requestWithdrawals(
+          [amountWei],
+          userAddress,
+          {
+            gasLimit: 300000 // Estimated gas limit for withdrawal request
+          }
+        );
+        
+        this.logger.info(`Unstake transaction submitted: ${tx.hash}`);
+        
+        // Wait for transaction confirmation
+        const receipt = await tx.wait();
+        
+        transaction = {
+          id: transactionId,
+          userAddress,
+          type: 'unstake',
+          amount,
+          token: 'stETH',
+          status: receipt.status === 1 ? 'completed' : 'failed',
+          transactionHash: tx.hash,
+          blockNumber: receipt.blockNumber,
+          gasUsed: receipt.gasUsed.toString(),
+          timestamp: new Date()
+        };
+        
+        this.logger.info(`Unstake transaction completed: ${tx.hash}`);
+      } else {
+        // Return transaction data for frontend signing (smart wallet)
+        this.logger.info('Preparing unstake transaction for frontend signing');
+        
+        const withdrawalQueueContract = new ethers.Contract(
+          LIDO_CONTRACTS.WITHDRAWAL_QUEUE,
+          WITHDRAWAL_QUEUE_ABI,
+          this.ethereumConfig.getProvider()
+        );
+        
+        // Get transaction data for frontend to sign
+        const txData = await withdrawalQueueContract.populateTransaction.requestWithdrawals(
+          [amountWei],
+          userAddress
+        );
+        
+        transaction = {
+          id: transactionId,
+          userAddress,
+          type: 'unstake',
+          amount,
+          token: 'stETH',
+          status: 'pending',
+          transactionData: {
+            to: txData.to,
+            data: txData.data,
+            value: '0',
+            gasLimit: '300000',
+            chainId: this.ethereumConfig.getChainId()
+          },
+          timestamp: new Date()
+        };
+        
+        this.logger.info(`Unstake transaction prepared for signing: ${transactionId}`);
+      }
 
-      this.logger.info(`Unstake transaction created: ${transactionId}`);
       return transaction;
     } catch (error) {
       this.logger.error(`Error creating unstake transaction: ${error}`);
@@ -97,23 +225,83 @@ export class LidoRepository implements ILidoRepository {
     }
   }
 
-  async claimRewards(userAddress: string): Promise<StakingTransaction> {
+  async claimRewards(userAddress: string, privateKey?: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Creating claim rewards transaction for ${userAddress}`);
       
       const transactionId = this.generateTransactionId();
       
-      const transaction: StakingTransaction = {
-        id: transactionId,
-        userAddress,
-        type: 'claim_rewards',
-        amount: '0',
-        token: 'stETH',
-        status: 'pending',
-        timestamp: new Date()
-      };
+      let transaction: StakingTransaction;
+      
+      if (privateKey) {
+        // Execute real transaction with private key
+        this.logger.info('Executing real claim rewards transaction with private key');
+        
+        const signer = this.ethereumConfig.getSigner(privateKey);
+        const stETHContract = new ethers.Contract(
+          LIDO_CONTRACTS.STETH,
+          STETH_ABI,
+          signer
+        );
+        
+        // In Lido, rewards are automatically added to stETH balance
+        // We can trigger a transfer to self to update the balance
+        const tx = await stETHContract.transfer(userAddress, 0, {
+          gasLimit: 100000
+        });
+        
+        this.logger.info(`Claim rewards transaction submitted: ${tx.hash}`);
+        
+        // Wait for transaction confirmation
+        const receipt = await tx.wait();
+        
+        transaction = {
+          id: transactionId,
+          userAddress,
+          type: 'claim_rewards',
+          amount: '0',
+          token: 'stETH',
+          status: receipt.status === 1 ? 'completed' : 'failed',
+          transactionHash: tx.hash,
+          blockNumber: receipt.blockNumber,
+          gasUsed: receipt.gasUsed.toString(),
+          timestamp: new Date()
+        };
+        
+        this.logger.info(`Claim rewards transaction completed: ${tx.hash}`);
+      } else {
+        // Return transaction data for frontend signing (smart wallet)
+        this.logger.info('Preparing claim rewards transaction for frontend signing');
+        
+        const stETHContract = new ethers.Contract(
+          LIDO_CONTRACTS.STETH,
+          STETH_ABI,
+          this.ethereumConfig.getProvider()
+        );
+        
+        // Get transaction data for frontend to sign
+        const txData = await stETHContract.populateTransaction.transfer(userAddress, 0);
+        
+        transaction = {
+          id: transactionId,
+          userAddress,
+          type: 'claim_rewards',
+          amount: '0',
+          token: 'stETH',
+          status: 'pending',
+          transactionData: {
+            to: txData.to,
+            data: txData.data,
+            value: '0',
+            gasLimit: '100000',
+            chainId: this.ethereumConfig.getChainId()
+          },
+          timestamp: new Date()
+        };
+        
+        this.logger.info(`Claim rewards transaction prepared for signing: ${transactionId}`);
+      }
 
-      this.logger.info(`Claim rewards transaction created: ${transactionId}`);
       return transaction;
     } catch (error) {
       this.logger.error(`Error creating claim rewards transaction: ${error}`);

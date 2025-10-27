@@ -4,6 +4,7 @@ import { StakingTransaction } from '../../domain/entities/StakingPosition';
 export interface UnstakeRequest {
   userAddress: string;
   amount: string;
+  privateKey?: string;
 }
 
 export interface UnstakeResponse {
@@ -17,7 +18,7 @@ export class UnstakeUseCase {
 
   async execute(request: UnstakeRequest): Promise<UnstakeResponse> {
     try {
-      const transaction = await this.lidoService.unstake(request.userAddress, request.amount);
+      const transaction = await this.lidoService.unstake(request.userAddress, request.amount, request.privateKey);
       
       return {
         success: true,

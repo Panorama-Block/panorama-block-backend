@@ -31,9 +31,17 @@ export class LidoController {
 
   async stake(req: Request, res: Response): Promise<void> {
     try {
-      const { userAddress, amount } = req.body;
+      this.logger.info('🎯 Stake Controller - Request received:');
+      this.logger.info(`   Headers: ${JSON.stringify(req.headers, null, 2)}`);
+      this.logger.info(`   Body: ${JSON.stringify(req.body, null, 2)}`);
+      this.logger.info(`   User: ${JSON.stringify((req as any).user, null, 2)}`);
+      
+      const { userAddress, amount, privateKey } = req.body;
 
       if (!userAddress || !amount) {
+        this.logger.error('❌ Missing required parameters:');
+        this.logger.error(`   userAddress: ${userAddress}`);
+        this.logger.error(`   amount: ${amount}`);
         res.status(400).json({
           success: false,
           error: 'User address and amount are required'
@@ -41,21 +49,28 @@ export class LidoController {
         return;
       }
 
-      const result = await this.stakeUseCase.execute({ userAddress, amount });
+      this.logger.info(`✅ Parameters validated - userAddress: ${userAddress}, amount: ${amount}, privateKey: ${privateKey ? 'provided' : 'not provided'}`);
+
+      const result = await this.stakeUseCase.execute({ userAddress, amount, privateKey });
+
+      this.logger.info(`📊 Stake UseCase result: ${JSON.stringify(result, null, 2)}`);
 
       if (result.success) {
+        this.logger.info('✅ Stake successful, returning transaction data');
         res.status(200).json({
           success: true,
           data: result.transaction
         });
       } else {
+        this.logger.error(`❌ Stake failed: ${result.error}`);
         res.status(400).json({
           success: false,
           error: result.error
         });
       }
     } catch (error) {
-      this.logger.error(`Error in stake controller: ${error}`);
+      this.logger.error(`❌ Error in stake controller: ${error}`);
+      this.logger.error(`   Error stack: ${error instanceof Error ? error.stack : 'No stack trace'}`);
       res.status(500).json({
         success: false,
         error: 'Internal server error'
@@ -65,7 +80,7 @@ export class LidoController {
 
   async unstake(req: Request, res: Response): Promise<void> {
     try {
-      const { userAddress, amount } = req.body;
+      const { userAddress, amount, privateKey } = req.body;
 
       if (!userAddress || !amount) {
         res.status(400).json({
@@ -75,7 +90,7 @@ export class LidoController {
         return;
       }
 
-      const result = await this.unstakeUseCase.execute({ userAddress, amount });
+      const result = await this.unstakeUseCase.execute({ userAddress, amount, privateKey });
 
       if (result.success) {
         res.status(200).json({
@@ -99,7 +114,7 @@ export class LidoController {
 
   async claimRewards(req: Request, res: Response): Promise<void> {
     try {
-      const { userAddress } = req.body;
+      const { userAddress, privateKey } = req.body;
 
       if (!userAddress) {
         res.status(400).json({
@@ -109,7 +124,7 @@ export class LidoController {
         return;
       }
 
-      const transaction = await this.lidoService.claimRewards(userAddress);
+      const transaction = await this.lidoService.claimRewards(userAddress, privateKey);
 
       res.status(200).json({
         success: true,

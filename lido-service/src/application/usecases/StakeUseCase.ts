@@ -4,6 +4,7 @@ import { StakingTransaction } from '../../domain/entities/StakingPosition';
 export interface StakeRequest {
   userAddress: string;
   amount: string;
+  privateKey?: string;
 }
 
 export interface StakeResponse {
@@ -17,7 +18,7 @@ export class StakeUseCase {
 
   async execute(request: StakeRequest): Promise<StakeResponse> {
     try {
-      const transaction = await this.lidoService.stake(request.userAddress, request.amount);
+      const transaction = await this.lidoService.stake(request.userAddress, request.amount, request.privateKey);
       
       return {
         success: true,
