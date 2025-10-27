@@ -332,7 +332,78 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
       const paddedGasLimit = this.applyGasBuffer(route.estimatedGasUsed);
       const gasPriceWei = route.gasPriceWei ?? BigNumber.from(0);
 
-      const transaction = {
+      const transactions: PreparedSwap['transactions'] = [];
+
+      // For ERC20 inputs ensure allowance exists
+      if (!this.isNativeToken(fromTokenAddr)) {
+        const allowanceAbi = [
+          'function allowance(address owner, address spender) view returns (uint256)'
+        ];
+        const approveAbi = [
+          'function approve(address spender, uint256 amount) returns (bool)'
+        ];
+        const tokenContract = new ethers.Contract(tokenIn.address, allowanceAbi, provider);
+
+        try {
+          const currentAllowance: BigNumber = await tokenContract.allowance(
+            sender,
+            route.methodParameters.to
+          );
+          const requiredAmount = BigNumber.from(amount.toString());
+
+          if (currentAllowance.lt(requiredAmount)) {
+            const approveInterface = new ethers.utils.Interface(approveAbi);
+            const approveCalldata = approveInterface.encodeFunctionData('approve', [
+              route.methodParameters.to,
+              ethers.constants.MaxUint256
+            ]);
+
+            transactions.push({
+              to: tokenIn.address,
+              data: approveCalldata,
+              value: '0',
+              chainId,
+              gasLimit: BigNumber.from(60_000).toString()
+            });
+
+            console.log(
+              `[${this.name}] Added approval transaction for ${tokenIn.symbol} -> ${route.methodParameters.to}`
+            );
+          }
+        } catch (allowanceError) {
+          console.warn(
+            `[${this.name}] Failed to verify allowance for ${tokenIn.address}:`,
+            (allowanceError as Error).message
+          );
+          // Fallback: always push approval to avoid swap failure
+          try {
+            const approveInterface = new ethers.utils.Interface([
+              'function approve(address spender, uint256 amount) returns (bool)'
+            ]);
+            const approveCalldata = approveInterface.encodeFunctionData('approve', [
+              route.methodParameters.to,
+              ethers.constants.MaxUint256
+            ]);
+            transactions.push({
+              to: tokenIn.address,
+              data: approveCalldata,
+              value: '0',
+              chainId,
+              gasLimit: BigNumber.from(60_000).toString()
+            });
+            console.log(
+              `[${this.name}] Added optimistic approval transaction for ${tokenIn.symbol}`
+            );
+          } catch (encodeError) {
+            console.error(
+              `[${this.name}] Unable to encode approval transaction:`,
+              (encodeError as Error).message
+            );
+          }
+        }
+      }
+
+      const swapTx = {
         to: route.methodParameters.to,
         data: route.methodParameters.calldata,
         value: route.methodParameters.value,
@@ -342,9 +413,11 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
         maxPriorityFeePerGas: gasPriceWei.gt(0) ? gasPriceWei.toString() : undefined
       };
 
+      transactions.push(swapTx);
+
       return {
         provider: this.name,
-        transactions: [transaction],
+        transactions,
         estimatedDuration: 15, // Typical Uniswap swap time in seconds
         metadata: {
           quote: route.quote.toFixed(),
