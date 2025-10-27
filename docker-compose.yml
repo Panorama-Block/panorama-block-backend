@@ -123,7 +123,7 @@ services:
         condition: service_started
     restart: always
     volumes:
-      - ../shared/token-registry.json:/app/shared/token-registry.json:ro
+      - ./shared/token-registry.json:/app/shared/token-registry.json:ro
 
 volumes:
   redis_data:
