@@ -69,8 +69,6 @@ function loadTokenRegistry(): RegistryData {
   );
 }
 
-const tokenRegistry = loadTokenRegistry();
-
 type ChainRegistry = RegistryData["chains"][string];
 
 const chainMap = new Map<number, ChainRegistry>();
@@ -81,31 +79,47 @@ const providerTokenMaps: Record<LiquidityProvider, Map<number, Map<string, Token
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
-Object.entries(tokenRegistry.chains).forEach(([chainIdRaw, chainData]) => {
-  const chainId = Number(chainIdRaw);
-  chainMap.set(chainId, chainData);
+let registryInitialized = false;
 
-  const tokenEntries = chainData.tokens ?? [];
-  tokenEntries.forEach((token) => {
-    const addressLc = token.address.toLowerCase();
-    (token.providers as LiquidityProvider[]).forEach((provider) => {
-      const providerMap = providerTokenMaps[provider];
-      if (!providerMap.has(chainId)) {
-        providerMap.set(chainId, new Map());
-      }
-      providerMap.get(chainId)!.set(addressLc, {
-        address: token.address,
-        symbol: token.symbol,
-        name: token.name,
-        decimals: token.decimals,
-        icon: token.icon,
-        providers: token.providers,
+function ensureRegistryInitialized(): void {
+  if (registryInitialized) {
+    return;
+  }
+
+  const registry = loadTokenRegistry();
+
+  chainMap.clear();
+  Object.values(providerTokenMaps).forEach((providerMap) => providerMap.clear());
+
+  Object.entries(registry.chains).forEach(([chainIdRaw, chainData]) => {
+    const chainId = Number(chainIdRaw);
+    chainMap.set(chainId, chainData);
+
+    const tokenEntries = chainData.tokens ?? [];
+    tokenEntries.forEach((token) => {
+      const addressLc = token.address.toLowerCase();
+      (token.providers as LiquidityProvider[]).forEach((provider) => {
+        const providerMap = providerTokenMaps[provider];
+        if (!providerMap.has(chainId)) {
+          providerMap.set(chainId, new Map());
+        }
+        providerMap.get(chainId)!.set(addressLc, {
+          address: token.address,
+          symbol: token.symbol,
+          name: token.name,
+          decimals: token.decimals,
+          icon: token.icon,
+          providers: token.providers,
+        });
       });
     });
   });
-});
+
+  registryInitialized = true;
+}
 
 function getChainConfig(chainId: number): ChainRegistry {
+  ensureRegistryInitialized();
   const chain = chainMap.get(chainId);
   if (!chain) {
     throw new Error(`Unsupported chain ${chainId}`);
@@ -122,10 +136,12 @@ function formatSupportedTokens(provider: LiquidityProvider, chainId: number): st
 }
 
 export function listSupportedChainsForProvider(provider: LiquidityProvider): number[] {
+  ensureRegistryInitialized();
   return Array.from(providerTokenMaps[provider].keys());
 }
 
 export function listSupportedTokens(provider: LiquidityProvider, chainId: number): TokenMetadata[] {
+  ensureRegistryInitialized();
   const map = providerTokenMaps[provider].get(chainId);
   if (!map) return [];
   return Array.from(map.values());
@@ -248,5 +264,6 @@ export function getNativeWrappedToken(chainId: number): {
 }
 
 export function providerHasChain(provider: LiquidityProvider, chainId: number): boolean {
+  ensureRegistryInitialized();
   return providerTokenMaps[provider].has(chainId);
 }

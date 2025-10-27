@@ -4,6 +4,10 @@ import { RouterDomainService } from "../../domain/services/router.domain.service
 import { SwapRequest, SwapQuote } from "../../domain/entities/swap";
 import { PreparedSwap } from "../../domain/ports/swap.provider.port";
 
+const PROVIDER_ALIAS_PRIORITY: Record<string, string[]> = {
+  uniswap: ["uniswap-smart-router", "uniswap-trading-api"],
+};
+
 /**
  * QuoteWithProvider
  *
@@ -125,41 +129,54 @@ export class ProviderSelectorService {
         `[ProviderSelectorService] Using preferred provider: ${preferredProvider}`
       );
 
-      // Validate provider exists
-      if (!this.router.hasProvider(preferredProvider)) {
-        const available = this.router.getAvailableProviders();
-        throw new Error(
-          `Provider '${preferredProvider}' not available. Available providers: ${available.join(", ")}`
+      const providerCandidates = this.resolveProviderCandidates(preferredProvider);
+      const supportErrors: string[] = [];
+
+      for (const candidate of providerCandidates) {
+        const provider = this.router.getProviderByName(candidate)!;
+        if (candidate !== preferredProvider) {
+          console.log(
+            `[ProviderSelectorService] Resolved preferred provider '${preferredProvider}' → '${candidate}'`
+          );
+        }
+
+        let supports = false;
+        try {
+          supports = await provider.supportsRoute({
+            fromChainId: request.fromChainId,
+            toChainId: request.toChainId,
+            fromToken: request.fromToken,
+            toToken: request.toToken,
+          });
+        } catch (error) {
+          supportErrors.push(`${candidate}: ${(error as Error).message}`);
+          continue;
+        }
+
+        if (!supports) {
+          supportErrors.push(`${candidate}: route unsupported`);
+          continue;
+        }
+
+        const prepared = await provider.prepareSwap(request);
+
+        console.log(
+          `[ProviderSelectorService] ✅ Prepared swap with ${candidate}`
         );
+
+        return {
+          provider: provider.name,
+          prepared,
+        };
       }
 
-      const provider = this.router.getProviderByName(preferredProvider)!;
-
-      // Check if provider supports this route
-      const supports = await provider.supportsRoute({
-        fromChainId: request.fromChainId,
-        toChainId: request.toChainId,
-        fromToken: request.fromToken,
-        toToken: request.toToken,
-      });
-
-      if (!supports) {
-        throw new Error(
-          `Provider '${preferredProvider}' does not support this swap route (${request.fromChainId} → ${request.toChainId})`
-        );
-      }
-
-      // Prepare swap with preferred provider
-      const prepared = await provider.prepareSwap(request);
-
-      console.log(
-        `[ProviderSelectorService] ✅ Prepared swap with ${preferredProvider}`
+      const attempted = providerCandidates.join(", ");
+      const detail = supportErrors.length
+        ? ` Details: ${supportErrors.join(" | ")}`
+        : "";
+      throw new Error(
+        `Provider '${preferredProvider}' does not support this swap route (${request.fromChainId} → ${request.toChainId}). Tried: ${attempted}.${detail ? ` ${detail}` : ""}`
       );
-
-      return {
-        provider: provider.name,
-        prepared,
-      };
     }
 
     // Case 2: Auto-select best provider
@@ -194,6 +211,37 @@ export class ProviderSelectorService {
    * Check if a provider is available
    */
   public isProviderAvailable(name: string): boolean {
-    return this.router.hasProvider(name);
+    try {
+      this.resolveProviderCandidates(name);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private resolveProviderCandidates(preferredProvider: string): string[] {
+    const normalized = preferredProvider.trim().toLowerCase();
+    const available = this.router.getAvailableProviders();
+
+    const directMatch = available.find(
+      (name) => name.toLowerCase() === normalized
+    );
+    if (directMatch) {
+      return [directMatch];
+    }
+
+    const aliasTargets = PROVIDER_ALIAS_PRIORITY[normalized];
+    if (aliasTargets && aliasTargets.length) {
+      const resolved = aliasTargets.filter((target) =>
+        available.some((name) => name.toLowerCase() === target.toLowerCase())
+      );
+      if (resolved.length) {
+        return resolved;
+      }
+    }
+
+    throw new Error(
+      `Provider '${preferredProvider}' not available. Available providers: ${available.join(", ")}`
+    );
   }
 }
