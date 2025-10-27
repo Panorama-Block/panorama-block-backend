@@ -1,6 +1,21 @@
 # PanoramaBlock Liquid Swap Service
 
-🔄 Cross-chain token swaps service built with **Hexagonal Architecture** and **Domain-Driven Design** using ThirdWeb SDK.
+🔄 **Multi-Provider** swap aggregation service with intelligent routing, built using **Hexagonal Architecture** and **Domain-Driven Design**.
+
+## 🌟 Multi-Provider System
+
+The service now supports **multiple swap providers** with automatic intelligent routing:
+
+- **Uniswap Trading API v1** - Optimized for same-chain swaps (15 chains)
+- **Thirdweb Bridge API** - Cross-chain swaps and universal fallback
+
+**Key Features**:
+- ✨ Automatic provider selection (Uniswap for same-chain, Thirdweb for cross-chain)
+- 🔄 Graceful fallback when preferred provider fails
+- 📊 Provider information exposed to frontend
+- 🎯 20/20 comprehensive unit tests passing
+
+📖 **[Full Multi-Provider Documentation →](./MULTI_PROVIDER_SYSTEM.md)**
 
 ## 🏗️ Architecture
 
@@ -23,23 +38,42 @@ src/
 
 ## ✨ Features
 
-- 🌉 **Cross-chain swaps** between 6 major blockchains
+- 🌐 **Multi-Provider Routing** - Intelligent selection between Uniswap and Thirdweb
+- 🌉 **Cross-chain swaps** across 15+ major blockchains
+- ⚡ **Optimized same-chain swaps** via Uniswap Trading API
+- 🔄 **Automatic fallback** when providers fail
 - 📊 **Real-time monitoring** of transaction status
 - 📝 **Swap history** tracking
 - 🔒 **JWT authentication** integration
 - 🎯 **Clean Architecture** with dependency injection
 - 📈 **Comprehensive logging** and error handling
+- ✅ **20/20 unit tests** passing with full coverage
 
 ## 🌐 Supported Chains
+
+### Uniswap Trading API v1 (Same-Chain Swaps)
 
 | Chain ID | Network | Symbol |
 |----------|---------|--------|
 | 1 | Ethereum Mainnet | ETH |
-| 137 | Polygon | MATIC |
-| 56 | Binance Smart Chain | BNB |
-| 8453 | Base | ETH |
 | 10 | Optimism | ETH |
+| 137 | Polygon | MATIC |
+| 8453 | Base | ETH |
 | 42161 | Arbitrum One | ETH |
+| 43114 | Avalanche | AVAX |
+| 56 | BNB Chain | BNB |
+| 324 | zkSync Era | ETH |
+| 81457 | Blast | ETH |
+| 7777777 | Zora | ETH |
+| 130 | Ink | ETH |
+| 480 | World Chain | WLD |
+| 57073 | Abstract | ETH |
+| 1868 | Soneium | ETH |
+| 42220 | Celo | CELO |
+
+### Thirdweb Bridge (Cross-Chain + Fallback)
+
+All major EVM chains supported by Thirdweb Bridge API.
 
 ## 🚀 Quick Start
 

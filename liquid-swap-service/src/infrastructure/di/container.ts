@@ -1,31 +1,42 @@
 // Dependency Injection Container
 import { SwapDomainService } from "../../domain/services/swap.domain.service";
+import { RouterDomainService } from "../../domain/services/router.domain.service";
 import {
   ExecuteSwapUseCase,
   GetSwapHistoryUseCase,
 } from "../../application/usecases/execute.swap.usecase";
 import { GetQuoteUseCase } from "../../application/usecases/get.quote.usecase";
 import { PrepareSwapUseCase } from "../../application/usecases/prepare.swap.usecase";
+import { ProviderSelectorService } from "../../application/services/provider-selector.service";
 import { ThirdwebSwapAdapter } from "../adapters/thirdweb.swap.adapter";
+import { ThirdwebProviderAdapter } from "../adapters/thirdweb.provider.adapter";
+import { UniswapTradingApiAdapter } from "../adapters/uniswap.tradingapi.adapter";
+import { UniswapSmartRouterAdapter } from "../adapters/uniswap.smartrouter.adapter";
 import { ChainProviderAdapter } from "../adapters/chain.provider.adapter";
 import { SwapRepositoryAdapter } from "../adapters/swap.repository.adapter";
 import { SwapController } from "../http/controllers/swap.controller";
 import { GetSwapStatusUseCase } from "../../application/usecases/get.status.usecase";
 import { EngineExecutionAdapter } from "../adapters/engine.execution.adapter";
 import { IExecutionPort } from "../../domain/ports/execution.port";
+import { ISwapProvider } from "../../domain/ports/swap.provider.port";
 
 export class DIContainer {
   private static instance: DIContainer;
 
-  // Infrastructure
-  private readonly _thirdwebSwapAdapter: ThirdwebSwapAdapter;
+  // Infrastructure - Swap Providers
+  private readonly _uniswapTradingApi: UniswapTradingApiAdapter; // Trading API REST (Priority 1)
+  private readonly _uniswapSmartRouter: UniswapSmartRouterAdapter; // Smart Order Router SDK (Priority 2 - Fallback)
+  private readonly _thirdwebProvider: ThirdwebProviderAdapter;
+  private readonly _thirdwebSwapAdapter: ThirdwebSwapAdapter; // Legacy adapter for backwards compatibility
   private readonly _chainProviderAdapter: ChainProviderAdapter;
   private readonly _swapRepositoryAdapter: SwapRepositoryAdapter;
 
   // Domain
+  private readonly _routerDomainService: RouterDomainService;
   private readonly _swapDomainService: SwapDomainService;
 
   // Application
+  private readonly _providerSelectorService: ProviderSelectorService;
   private readonly _getQuoteUseCase: GetQuoteUseCase;
   private readonly _prepareSwapUseCase: PrepareSwapUseCase;
   private readonly _executeSwapUseCase: ExecuteSwapUseCase;
@@ -38,21 +49,35 @@ export class DIContainer {
   private constructor() {
     console.log("[DIContainer] Initializing dependency injection container");
 
-    // Initialize adapters
-    this._thirdwebSwapAdapter = new ThirdwebSwapAdapter();
+    // Initialize infrastructure adapters
+    this._uniswapTradingApi = new UniswapTradingApiAdapter(); // Priority 1: Trading API REST
+    this._uniswapSmartRouter = new UniswapSmartRouterAdapter(); // Priority 2: Smart Router SDK (Fallback)
+    this._thirdwebProvider = new ThirdwebProviderAdapter();
+    this._thirdwebSwapAdapter = new ThirdwebSwapAdapter(); // Legacy
     this._chainProviderAdapter = new ChainProviderAdapter();
     this._swapRepositoryAdapter = new SwapRepositoryAdapter();
 
+    // Build provider registry for new multi-provider system
+    // Priority order: Trading API REST > Smart Router SDK > Thirdweb
+    const providerMap = new Map<string, ISwapProvider>();
+    providerMap.set(this._uniswapTradingApi.name, this._uniswapTradingApi);   // Priority 1
+    providerMap.set(this._uniswapSmartRouter.name, this._uniswapSmartRouter); // Priority 2
+    providerMap.set(this._thirdwebProvider.name, this._thirdwebProvider);      // Priority 3
+
     // Initialize domain services
+    this._routerDomainService = new RouterDomainService(providerMap);
     this._swapDomainService = new SwapDomainService(
-      this._thirdwebSwapAdapter,
+      this._thirdwebSwapAdapter, // Keep for backwards compatibility
       this._chainProviderAdapter,
       this._swapRepositoryAdapter
     );
 
-    // Initialize use cases
-    this._getQuoteUseCase = new GetQuoteUseCase(this._swapDomainService);
-    this._prepareSwapUseCase = new PrepareSwapUseCase(this._swapDomainService);
+    // Initialize application services
+    this._providerSelectorService = new ProviderSelectorService(this._routerDomainService);
+
+    // Initialize use cases (now using ProviderSelectorService for multi-provider support)
+    this._getQuoteUseCase = new GetQuoteUseCase(this._providerSelectorService);
+    this._prepareSwapUseCase = new PrepareSwapUseCase(this._providerSelectorService);
     // Execution port (conditionally enabled)
     const engineEnabled = process.env.ENGINE_ENABLED === "true";
     let executionPort: IExecutionPort;
@@ -129,5 +154,13 @@ export class DIContainer {
 
   public get getSwapStatusUseCase(): GetSwapStatusUseCase {
     return this._getSwapStatusUseCase;
+  }
+
+  public get providerSelectorService(): ProviderSelectorService {
+    return this._providerSelectorService;
+  }
+
+  public get routerDomainService(): RouterDomainService {
+    return this._routerDomainService;
   }
 }

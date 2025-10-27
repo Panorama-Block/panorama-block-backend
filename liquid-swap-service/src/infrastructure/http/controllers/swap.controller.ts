@@ -69,6 +69,7 @@ export class SwapController {
         sender,
       });
 
+      console.log(`[SwapController] Quote obtained from provider: ${quote.provider}`);
       return res.json({ success: true, quote });
     } catch (error) {
       console.error("[SwapController] Error getting quote:", error);
@@ -116,7 +117,7 @@ export class SwapController {
 
       const receiver = sender
 
-      const { prepared } = await this.prepareSwapUseCase.execute({
+      const { prepared, provider } = await this.prepareSwapUseCase.execute({
         fromChainId,
         toChainId,
         fromToken,
@@ -128,7 +129,8 @@ export class SwapController {
 
       const serializedPrepared = this.serializeBigInt(prepared);
 
-      return res.json({ success: true, prepared: serializedPrepared });
+      console.log(`[SwapController] Swap prepared using provider: ${provider}`);
+      return res.json({ success: true, prepared: serializedPrepared, provider });
     } catch (error) {
       console.error("[SwapController] Error preparing swap:", error);
       return res.status(500).json({
