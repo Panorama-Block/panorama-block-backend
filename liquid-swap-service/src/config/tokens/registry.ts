@@ -52,9 +52,7 @@ type RegistryData = {
 function loadTokenRegistry(): RegistryData {
   const candidatePaths = [
     process.env.TOKEN_REGISTRY_PATH,
-    path.resolve(process.cwd(), "shared/token-registry.json"),
-    path.resolve(process.cwd(), "../shared/token-registry.json"),
-    path.resolve(process.cwd(), "panorama-block-backend/shared/token-registry.json"),
+    path.resolve(process.cwd(), "../../shared/token-registry.json"),
     path.resolve(__dirname, "../../../../shared/token-registry.json"),
     path.resolve(__dirname, "../../../../../shared/token-registry.json"),
   ].filter((p): p is string => Boolean(p));
