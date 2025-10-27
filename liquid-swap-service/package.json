@@ -7,23 +7,32 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "test": "echo \"Tests not implemented yet\" && exit 0"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@thirdweb-dev/engine": "^3.2.1",
-    "axios": "^1.6.0",
+    "@uniswap/sdk-core": "^5.9.0",
+    "@uniswap/smart-order-router": "^4.22.21",
+    "axios": "^1.12.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "ethers": "^5.7.2",
-    "express": "^4.18.2",
+    "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
-    "thirdweb": "^5.94.2"
+    "redis": "^5.9.0",
+    "thirdweb": "^5.94.2",
+    "zod": "^3.25.62"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.23",
+    "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.0",
     "@types/node": "^20.17.43",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.5",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.2.2"
   },

@@ -1,5 +1,5 @@
 // Infrastructure Adapters (non-custodial V1)
-import { createThirdwebClient, Bridge, NATIVE_TOKEN_ADDRESS } from "thirdweb";
+import { createThirdwebClient, Bridge } from "thirdweb";
 import {
   SwapRequest,
   SwapQuote,
@@ -8,8 +8,7 @@ import {
   TransactionStatus,
 } from "../../domain/entities/swap";
 import { ISwapService } from "../../domain/ports/swap.repository";
-import { isNativeLike } from "../../utils/native.utils";
-import { getTokenDecimals } from "../../utils/token.utils";
+import { resolveToken } from "../../config/tokens/registry";
 
 export class ThirdwebSwapAdapter implements ISwapService {
   private client: ReturnType<typeof createThirdwebClient>;
@@ -46,17 +45,16 @@ export class ThirdwebSwapAdapter implements ISwapService {
         swapRequest.toLogString()
       );
 
+      const originToken = resolveToken("thirdweb", swapRequest.fromChainId, swapRequest.fromToken);
+      const destinationToken = resolveToken("thirdweb", swapRequest.toChainId, swapRequest.toToken);
+
       const sellAmountWei = swapRequest.amount;
 
       const quote = await Bridge.Sell.quote({
         originChainId: swapRequest.fromChainId,
-        originTokenAddress: isNativeLike(swapRequest.fromToken)
-          ? NATIVE_TOKEN_ADDRESS
-          : swapRequest.fromToken,
+        originTokenAddress: originToken.identifier,
         destinationChainId: swapRequest.toChainId,
-        destinationTokenAddress: isNativeLike(swapRequest.toToken)
-          ? NATIVE_TOKEN_ADDRESS
-          : swapRequest.toToken,
+        destinationTokenAddress: destinationToken.identifier,
         amount: sellAmountWei,
         client: this.client,
       });
@@ -68,14 +66,8 @@ export class ThirdwebSwapAdapter implements ISwapService {
       const estMs = quote.estimatedExecutionTimeMs ?? 60_000;
 
       // Decimals-aware exchangeRate: (destHuman / originHuman)
-      const fromDecimals = await getTokenDecimals(
-        swapRequest.fromChainId,
-        isNativeLike(swapRequest.fromToken) ? "native" : swapRequest.fromToken
-      );
-      const toDecimals = await getTokenDecimals(
-        swapRequest.toChainId,
-        isNativeLike(swapRequest.toToken) ? "native" : swapRequest.toToken
-      );
+      const fromDecimals = originToken.metadata.decimals;
+      const toDecimals = destinationToken.metadata.decimals;
 
       // rate = destWei * 10^fromDecimals / (originWei * 10^toDecimals)
       const SCALE = 12n; // 12 decimal places of precision
@@ -129,15 +121,14 @@ export class ThirdwebSwapAdapter implements ISwapService {
 
   public async prepareSwap(swapRequest: SwapRequest): Promise<any> {
     try {
+      const originToken = resolveToken("thirdweb", swapRequest.fromChainId, swapRequest.fromToken);
+      const destinationToken = resolveToken("thirdweb", swapRequest.toChainId, swapRequest.toToken);
+
       const payload = {
         originChainId: swapRequest.fromChainId,
-        originTokenAddress: isNativeLike(swapRequest.fromToken)
-          ? NATIVE_TOKEN_ADDRESS
-          : swapRequest.fromToken,
+        originTokenAddress: originToken.identifier,
         destinationChainId: swapRequest.toChainId,
-        destinationTokenAddress: isNativeLike(swapRequest.toToken)
-          ? NATIVE_TOKEN_ADDRESS
-          : swapRequest.toToken,
+        destinationTokenAddress: destinationToken.identifier,
         amount: swapRequest.amount,
         sender: swapRequest.sender,
         receiver: swapRequest.receiver || swapRequest.sender,
@@ -167,8 +158,8 @@ export class ThirdwebSwapAdapter implements ISwapService {
           const qOrigin = BigInt(q.originAmount?.toString?.() ?? String(q.originAmount));
           const qDest = BigInt(q.destinationAmount?.toString?.() ?? String(q.destinationAmount));
           // compute normalized rate for diagnostics
-          const fDec = await getTokenDecimals(payload.originChainId, payload.originTokenAddress);
-          const tDec = await getTokenDecimals(payload.destinationChainId, payload.destinationTokenAddress);
+          const fDec = originToken.metadata.decimals;
+          const tDec = destinationToken.metadata.decimals;
           const SCALE = 12n;
           const num = qDest * (10n ** (BigInt(fDec) + SCALE));
           const den = qOrigin * (10n ** BigInt(tDec));

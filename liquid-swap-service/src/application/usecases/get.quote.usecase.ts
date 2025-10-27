@@ -1,6 +1,6 @@
 // Application Use Cases
 import { SwapRequest } from "../../domain/entities/swap";
-import { SwapDomainService } from "../../domain/services/swap.domain.service";
+import { ProviderSelectorService } from "../services/provider-selector.service";
 import { getTokenSpotUsdPrice } from "../services/price.service";
 import { getTokenDecimals, toWei } from "../../utils/token.utils";
 import { normalizeToNative } from "../../utils/native.utils";
@@ -33,10 +33,11 @@ export interface GetQuoteUseCaseResponse {
     totalFee: string;
     totalFeeUsd?: string;
   };
+  provider: string;                // Provider name (uniswap, thirdweb, etc)
 }
 
 export class GetQuoteUseCase {
-  constructor(private readonly swapDomainService: SwapDomainService) {}
+  constructor(private readonly providerSelectorService: ProviderSelectorService) {}
 
   public async execute(request: GetQuoteUseCaseRequest): Promise<GetQuoteUseCaseResponse> {
     try {
@@ -60,8 +61,10 @@ export class GetQuoteUseCase {
         request.sender // For quote, receiver is same as sender
       );
 
-      // Get quote through domain service (without executing)
-      const quote = await this.swapDomainService.getQuote(swapRequest);
+      // Get quote through provider selector (automatically selects best provider)
+      const { quote, provider } = await this.providerSelectorService.getQuoteWithBestProvider(swapRequest);
+
+      console.log(`[GetQuoteUseCase] Quote obtained from provider: ${provider}`);
 
       // Enriquecimento USD via thirdweb
       const fromUsd = await getTokenSpotUsdPrice(request.fromChainId, fromTok);
@@ -98,7 +101,8 @@ export class GetQuoteUseCase {
           gasFee: quote.gasFee.toString(),
           totalFee: quote.getTotalFees().toString(),
           totalFeeUsd
-        }
+        },
+        provider
       };
 
     } catch (error) {

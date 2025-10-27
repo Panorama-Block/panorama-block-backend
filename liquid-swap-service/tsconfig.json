@@ -11,7 +11,7 @@
     "resolveJsonModule": true,
     "typeRoots": ["./node_modules/@types", "./src/@types"],
     "lib": ["es2020"],
-    "types": ["node"]
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
