@@ -1,6 +1,7 @@
 "use client";
 import React, { useState } from 'react';
 import { ConnectButton, useActiveAccount } from 'thirdweb/react';
+import StakingComponent from '../components/StakingComponent';
 
 export default function Page() {
   const account = useActiveAccount();
@@ -24,6 +25,7 @@ export default function Page() {
 
   const [quote, setQuote] = useState<any>(null);
   const [log, setLog] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'swap' | 'staking'>('swap');
   const appendLog = (msg: string) => setLog((prev) => prev + msg + '\n');
 
   const authLogin = async () => {
@@ -85,13 +87,42 @@ export default function Page() {
       <header className="flex items-center justify-between px-6 py-4 border-b border-white/10">
         <div className="flex items-center gap-3">
           <div className="w-2.5 h-2.5 rounded-full bg-accent" />
-          <div className="font-bold">PanoramaBlock Swap</div>
+          <div className="font-bold">PanoramaBlock</div>
         </div>
         <ConnectButton />
       </header>
 
+      {/* Tabs */}
+      <div className="flex justify-center px-6 py-4">
+        <div className="bg-panel border border-white/10 rounded-lg p-1">
+          <button
+            onClick={() => setActiveTab('swap')}
+            className={`px-6 py-2 rounded-md font-medium transition-colors ${
+              activeTab === 'swap'
+                ? 'bg-accent text-white'
+                : 'text-white/70 hover:text-white'
+            }`}
+          >
+            Cross-Chain Swap
+          </button>
+          <button
+            onClick={() => setActiveTab('staking')}
+            className={`px-6 py-2 rounded-md font-medium transition-colors ${
+              activeTab === 'staking'
+                ? 'bg-accent text-white'
+                : 'text-white/70 hover:text-white'
+            }`}
+          >
+            Lido Staking
+          </button>
+        </div>
+      </div>
+
       <main className="flex justify-center p-6">
-        <div className="w-full max-w-xl bg-panel border border-white/10 rounded-2xl p-4 shadow-2xl">
+        {activeTab === 'staking' ? (
+          <StakingComponent />
+        ) : (
+          <div className="w-full max-w-xl bg-panel border border-white/10 rounded-2xl p-4 shadow-2xl">
           <div className="flex items-center justify-between">
             <div className="text-lg font-bold">Swap</div>
             <div className="text-xs opacity-70">Non-custodial • thirdweb</div>
@@ -161,6 +192,7 @@ export default function Page() {
             <pre className="whitespace-pre-wrap text-indigo-200 text-xs">{log}</pre>
           </div>
         </div>
+        )}
       </main>
     </div>
   );

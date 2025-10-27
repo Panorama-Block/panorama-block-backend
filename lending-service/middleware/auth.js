@@ -8,6 +8,16 @@ const { SECURITY } = require('../config/constants');
 function verifySignature(req, res, next) {
   try {
     const { address, signature, message, timestamp, privateKey, walletType, isSmartWallet } = req.body;
+    
+    // Debug logs para frontend
+    console.log('🔍 Debug verifySignature (Frontend):');
+    console.log('   Address:', address);
+    console.log('   Signature:', signature);
+    console.log('   Message:', message);
+    console.log('   Timestamp:', timestamp);
+    console.log('   isSmartWallet:', isSmartWallet);
+    console.log('   walletType:', walletType);
+    console.log('   User-Agent:', req.headers['user-agent']);
 
     // Verificação de assinatura obrigatória
     if (!address || !signature || !message) {

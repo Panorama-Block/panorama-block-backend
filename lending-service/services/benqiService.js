@@ -246,8 +246,7 @@ class BenqiService {
       });
 
       return {
-        chainId: '43114',
-        from: this.walletAddress,
+        chainId: 43114,
         to: qTokenAddress,
         value: '0',
         gas: '300000',
@@ -280,8 +279,7 @@ class BenqiService {
       }
 
       return {
-        chainId: '43114',
-        from: this.walletAddress,
+        chainId: 43114,
         to: qTokenAddress,
         value: '0',
         gas: '300000',
@@ -307,8 +305,7 @@ class BenqiService {
       });
 
       return {
-        chainId: '43114',
-        from: this.walletAddress,
+        chainId: 43114,
         to: qTokenAddress,
         value: '0',
         gas: '300000',
@@ -334,8 +331,7 @@ class BenqiService {
       });
 
       return {
-        chainId: '43114',
-        from: this.walletAddress,
+        chainId: 43114,
         to: qTokenAddress,
         value: '0',
         gas: '300000',
@@ -359,8 +355,7 @@ class BenqiService {
       });
 
       return {
-        chainId: '43114',
-        from: this.walletAddress,
+        chainId: 43114,
         to: BENQI.COMPTROLLER,
         value: '0',
         gas: '500000',
@@ -384,8 +379,7 @@ class BenqiService {
       });
 
       return {
-        chainId: '43114',
-        from: this.walletAddress,
+        chainId: 43114,
         to: BENQI.COMPTROLLER,
         value: '0',
         gas: '300000',

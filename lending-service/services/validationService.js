@@ -255,6 +255,147 @@ class ValidationService {
       throw new Error(`Erro ao preparar transação: ${error.message}`);
     }
   }
+
+  /**
+   * Prepara transação de payAndValidate para smart wallet
+   * @param {string} amount - Montante em wei
+   * @returns {Promise<Object>} Dados da transação
+   */
+  async preparePayAndValidate(amount) {
+    try {
+      // Valida o montante
+      const amountWei = BigInt(amount);
+      if (amountWei <= 0) {
+        throw new Error('Montante deve ser maior que zero');
+      }
+
+      // Calcula taxa e valor restante
+      const taxAmount = await this.calculateTax(amount);
+      const restAmount = (BigInt(amount) - BigInt(taxAmount)).toString();
+
+      // Prepara dados da transação
+      const data = this.contract.interface.encodeFunctionData('payAndValidate', []);
+      
+      // Estima gas
+      const gasEstimate = await this.provider.estimateGas({
+        to: this.contractAddress,
+        data: data,
+        value: amount
+      });
+
+      // Obtém gas price
+      const feeData = await this.provider.getFeeData();
+
+      return {
+        to: this.contractAddress,
+        data: data,
+        value: amount,
+        gas: (gasEstimate * 2n).toString(),
+        gasPrice: feeData.gasPrice?.toString() || '0',
+        chainId: NETWORKS.AVALANCHE.chainId,
+        taxAmount: taxAmount,
+        restAmount: restAmount,
+        referenceId: this.generateReferenceId(),
+        status: 'ready_for_signature',
+        note: 'Transação de validação preparada para assinatura no frontend'
+      };
+    } catch (error) {
+      throw new Error(`Erro ao preparar payAndValidate: ${error.message}`);
+    }
+  }
+
+  /**
+   * Prepara transação de setTaxRate para smart wallet
+   * @param {string} newTaxRate - Nova taxa (0-100)
+   * @returns {Promise<Object>} Dados da transação
+   */
+  async prepareSetTaxRate(newTaxRate) {
+    try {
+      // Valida a taxa
+      const taxRate = parseInt(newTaxRate);
+      if (taxRate < 0 || taxRate > VALIDATION.MAX_TAX_RATE) {
+        throw new Error(`Taxa deve estar entre 0 e ${VALIDATION.MAX_TAX_RATE}`);
+      }
+
+      // Prepara dados da transação
+      const data = this.contract.interface.encodeFunctionData('setTaxRate', [taxRate]);
+      
+      // Estima gas
+      const gasEstimate = await this.provider.estimateGas({
+        to: this.contractAddress,
+        data: data,
+        value: '0'
+      });
+
+      // Obtém gas price
+      const feeData = await this.provider.getFeeData();
+
+      return {
+        to: this.contractAddress,
+        data: data,
+        value: '0',
+        gas: (gasEstimate * 2n).toString(),
+        gasPrice: feeData.gasPrice?.toString() || '0',
+        chainId: NETWORKS.AVALANCHE.chainId,
+        newTaxRate: taxRate.toString(),
+        referenceId: this.generateReferenceId(),
+        status: 'ready_for_signature',
+        note: 'Transação de setTaxRate preparada para assinatura no frontend'
+      };
+    } catch (error) {
+      throw new Error(`Erro ao preparar setTaxRate: ${error.message}`);
+    }
+  }
+
+  /**
+   * Prepara transação de withdraw para smart wallet
+   * @returns {Promise<Object>} Dados da transação
+   */
+  async prepareWithdraw() {
+    try {
+      // Obtém saldo do contrato
+      const contractBalance = await this.provider.getBalance(this.contractAddress);
+
+      if (contractBalance === 0n) {
+        throw new Error('Contrato não possui fundos para retirar');
+      }
+
+      // Prepara dados da transação
+      const data = this.contract.interface.encodeFunctionData('withdraw', []);
+      
+      // Estima gas
+      const gasEstimate = await this.provider.estimateGas({
+        to: this.contractAddress,
+        data: data,
+        value: '0'
+      });
+
+      // Obtém gas price
+      const feeData = await this.provider.getFeeData();
+
+      return {
+        to: this.contractAddress,
+        data: data,
+        value: '0',
+        gas: (gasEstimate * 2n).toString(),
+        gasPrice: feeData.gasPrice?.toString() || '0',
+        chainId: NETWORKS.AVALANCHE.chainId,
+        amountWithdrawn: contractBalance.toString(),
+        referenceId: this.generateReferenceId(),
+        status: 'ready_for_signature',
+        note: 'Transação de withdraw preparada para assinatura no frontend'
+      };
+    } catch (error) {
+      throw new Error(`Erro ao preparar withdraw: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gera um ID de referência único
+   */
+  generateReferenceId() {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  }
 }
 
 module.exports = ValidationService;

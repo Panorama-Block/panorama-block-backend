@@ -3,7 +3,7 @@ const NETWORKS = {
   AVALANCHE: {
     chainId: 43114,
     name: 'Avalanche C-Chain',
-    rpcUrl: process.env.RPC_URL_AVALANCHE || 'https://api.avax.network/ext/bc/C/rpc',
+    rpcUrl: process.env.RPC_URL_AVALANCHE || 'https://avalanche-mainnet.infura.io/v3/9ff045cf374041eeabdf13a4664ceced',
     explorer: 'https://snowtrace.io',
     nativeCurrency: {
       name: 'AVAX',
