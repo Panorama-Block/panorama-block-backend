@@ -235,10 +235,14 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         () => this.client.post(endpoint, payload)
       );
 
+      const routeTypes = Array.isArray(response?.route)
+        ? response.route.map((h) => h?.type).filter(Boolean)
+        : [];
+
       console.log(`[${this.name}] ✅ Quote received:`, {
-        outputAmount: response.quote.amount,
-        priceImpact: response.quote.priceImpact,
-        route: response.route.map((h) => h.type),
+        outputAmount: response.quote?.amount,
+        priceImpact: response.quote?.priceImpact,
+        route: routeTypes,
       });
 
       // Map to domain entity
