@@ -115,12 +115,20 @@ interface UniswapCreateResponse {
   expiresAt?: number;
 }
 
+interface UniswapApprovalRequest {
+  walletAddress: string;
+  token: string;
+  amount: string;
+  chainId: number;
+  includeGasInfo?: boolean;
+}
+
 interface UniswapApprovalResponse {
-  needsApproval: boolean;
-  currentAllowance: string;
-  requiredAllowance: string;
-  approvalTransaction: UniswapPreparedTransaction | null;
-  spender: string; // Universal Router address
+  approval: UniswapPreparedTransaction | null;
+  cancel: UniswapPreparedTransaction | null;
+  gasFee?: string;
+  cancelGasFee?: string;
+  requestId?: string;
 }
 
 // ===== CONFIGURATION =====
@@ -286,6 +294,44 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
   }
 
   /**
+   * Check if token approval is needed
+   */
+  private async checkApproval(request: SwapRequest): Promise<UniswapApprovalResponse | null> {
+    // Native tokens (ETH, MATIC, etc.) don't need approval
+    if (this.isNativeToken(request.fromToken)) {
+      console.log(`[${this.name}] ⏭️ Skipping approval check for native token`);
+      return null;
+    }
+
+    try {
+      console.log(`[${this.name}] 🔍 Checking token approval...`);
+
+      const approvalRequest: UniswapApprovalRequest = {
+        walletAddress: request.sender,
+        token: this.normalizeTokenAddress(request.fromToken),
+        amount: request.amount.toString(),
+        chainId: request.fromChainId,
+        includeGasInfo: true,
+      };
+
+      const approvalResponse = await this.retryRequest<UniswapApprovalResponse>(
+        () => this.client.post('/check_approval', approvalRequest)
+      );
+
+      console.log(`[${this.name}] ✅ Approval check result:`, {
+        needsApproval: !!approvalResponse.approval,
+        needsCancel: !!approvalResponse.cancel,
+      });
+
+      return approvalResponse;
+    } catch (error) {
+      console.error(`[${this.name}] ⚠️ Approval check failed:`, (error as Error).message);
+      // Don't fail the whole swap - continue without approval check
+      return null;
+    }
+  }
+
+  /**
    * Prepare swap transactions (with approval if needed)
    */
   async prepareSwap(request: SwapRequest): Promise<PreparedSwap> {
@@ -293,6 +339,9 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
 
     try {
       console.log(`[${this.name}] 🔧 Preparing swap for ${request.toLogString()}`);
+
+      // Step 1: Check if approval is needed
+      const approvalCheck = await this.checkApproval(request);
 
       // Build request payload
       const payload = {
@@ -307,10 +356,9 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         slippageTolerance: 0.5, // 0.5% default - MUST BE NUMBER not string
         enableUniversalRouter: true,
         simulateTransaction: true, // Enable simulation to catch errors early
-        // Use traditional on-chain approval instead of Permit2 signature
-        generatePermitAsTransaction: true,
       };
 
+      // Step 2: Get quote
       const quoteResponse = await this.retryRequest<UniswapQuoteResponse>(
         () => this.client.post('/quote', payload)
       );
@@ -329,9 +377,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         quoteId: (quoteResponse.quote as any)?.quoteId,
       });
 
-      // Call API with retry
-      // IMPORTANT: Do NOT send permitData without signature
-      // Permit2 requires user signature which must be provided by frontend
+      // Step 3: Prepare swap transaction
       const swapPayload: any = { quote: quoteResponse.quote };
       // Remove permitData from quote if present - it needs user signature
       if (swapPayload.quote && swapPayload.quote.permitData) {
@@ -352,8 +398,6 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         responseKeys: response ? Object.keys(response) : [],
       });
 
-      // The Uniswap Trading API v1 returns the swap transaction in the "swap" field
-      // The "transactions" field is not used by this API version
       const swapTx = response?.swap;
 
       if (!swapTx) {
@@ -373,19 +417,23 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         chainId: swapTx.chainId,
       });
 
-      // Map to PreparedSwap
+      // Step 4: Build transactions array
       const transactions: Transaction[] = [];
 
-      // Check if approval is needed (generatePermitAsTransaction=true should provide this)
-      // For now, we'll just add the swap transaction
-      // The approval should be checked separately via /check_approval endpoint if needed
+      // Add cancel approval if needed (some tokens require reset)
+      if (approvalCheck?.cancel) {
+        console.log(`[${this.name}] 📝 Adding cancel approval transaction`);
+        transactions.push(this.mapTransaction(approvalCheck.cancel, 'Cancel previous approval'));
+      }
 
-      console.log(`[${this.name}] 📝 Adding swap transaction:`, {
-        to: swapTx.to,
-        value: swapTx.value,
-        hasData: !!swapTx.data,
-      });
+      // Add approval if needed
+      if (approvalCheck?.approval) {
+        console.log(`[${this.name}] 📝 Adding approval transaction`);
+        transactions.push(this.mapTransaction(approvalCheck.approval, 'Approve token'));
+      }
 
+      // Add swap transaction
+      console.log(`[${this.name}] 📝 Adding swap transaction`);
       transactions.push(this.mapTransaction(swapTx, 'Execute swap'));
 
       if (transactions.length === 0) {
@@ -607,13 +655,23 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
   }
 
   /**
+   * Check if token is native (ETH, MATIC, etc.)
+   */
+  private isNativeToken(address: string): boolean {
+    const lower = address.toLowerCase();
+    return (
+      lower === 'native' ||
+      lower === '0x0000000000000000000000000000000000000000' ||
+      lower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+    );
+  }
+
+  /**
    * Normalize token address for API
    */
   private normalizeTokenAddress(address: string): string {
-    const lower = address.toLowerCase();
-
     // Native token keywords → 0xeeee...eeee (42 e's)
-    if (lower === 'native' || lower === '0x0000000000000000000000000000000000000000') {
+    if (this.isNativeToken(address)) {
       return '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
     }
 
