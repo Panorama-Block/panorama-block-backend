@@ -121,6 +121,9 @@ interface UniswapApprovalRequest {
   amount: string;
   chainId: number;
   includeGasInfo?: boolean;
+  // Optional: Destination token for Permit2 validation context
+  tokenOut?: string;
+  tokenOutChainId?: number;
 }
 
 interface UniswapApprovalResponse {
@@ -261,9 +264,10 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         tokenInChainId: request.fromChainId,
         tokenOutChainId: request.toChainId,
         swapper: request.sender, // Required field
-        slippageTolerance: 0.5, // 0.5% default - MUST BE NUMBER not string
+        slippageTolerance: 2.0, // 2.0% - increased for better price movement tolerance
         enableUniversalRouter: true,
         simulateTransaction: true, // Enable simulation to catch errors early
+        urgency: 'urgent', // Use urgent for faster execution
         // Use traditional on-chain approval instead of Permit2 signature
         // This generates an approval transaction that can be sent on-chain
         // instead of requiring the user to sign a Permit2 message
@@ -295,6 +299,10 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
 
   /**
    * Check if token approval is needed
+   *
+   * CRITICAL: Must include tokenOut and tokenOutChainId for Permit2 context.
+   * The Universal Router uses Permit2 which needs to validate the approval
+   * against the specific swap route (tokenIn -> tokenOut).
    */
   private async checkApproval(request: SwapRequest): Promise<UniswapApprovalResponse | null> {
     // Native tokens (ETH, MATIC, etc.) don't need approval
@@ -304,15 +312,26 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
     }
 
     try {
-      console.log(`[${this.name}] 🔍 Checking token approval...`);
+      console.log(`[${this.name}] 🔍 Checking token approval with full swap context...`);
 
-      const approvalRequest: UniswapApprovalRequest = {
+      const approvalRequest: any = {
         walletAddress: request.sender,
         token: this.normalizeTokenAddress(request.fromToken),
         amount: request.amount.toString(),
         chainId: request.fromChainId,
         includeGasInfo: true,
+        urgency: 'urgent', // Use urgent for faster gas prices
+        // CRITICAL: Include destination token for Permit2 validation
+        tokenOut: this.normalizeTokenAddress(request.toToken),
+        tokenOutChainId: request.toChainId,
       };
+
+      console.log(`[${this.name}] 📤 Approval request:`, {
+        token: approvalRequest.token,
+        tokenOut: approvalRequest.tokenOut,
+        amount: approvalRequest.amount,
+        chainId: approvalRequest.chainId,
+      });
 
       const approvalResponse = await this.retryRequest<UniswapApprovalResponse>(
         () => this.client.post('/check_approval', approvalRequest)
@@ -321,12 +340,34 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       console.log(`[${this.name}] ✅ Approval check result:`, {
         needsApproval: !!approvalResponse.approval,
         needsCancel: !!approvalResponse.cancel,
+        hasRequestId: !!approvalResponse.requestId,
       });
+
+      // Log approval transaction details if present
+      if (approvalResponse.approval) {
+        console.log(`[${this.name}] 📝 Approval transaction required:`, {
+          to: approvalResponse.approval.to,
+          hasData: !!approvalResponse.approval.data,
+          value: approvalResponse.approval.value,
+          gasFee: approvalResponse.gasFee,
+        });
+      }
+
+      if (approvalResponse.cancel) {
+        console.log(`[${this.name}] ⚠️ Cancel transaction required (token needs reset):`, {
+          to: approvalResponse.cancel.to,
+          hasData: !!approvalResponse.cancel.data,
+          value: approvalResponse.cancel.value,
+          cancelGasFee: approvalResponse.cancelGasFee,
+        });
+      }
 
       return approvalResponse;
     } catch (error) {
-      console.error(`[${this.name}] ⚠️ Approval check failed:`, (error as Error).message);
-      // Don't fail the whole swap - continue without approval check
+      console.error(`[${this.name}] ❌ Approval check failed:`, (error as Error).message);
+      // Log full error for debugging
+      console.error(`[${this.name}] Full error:`, error);
+      // Continue without approval check - let the swap attempt and fail with better error message
       return null;
     }
   }
@@ -353,9 +394,10 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         tokenOutChainId: request.toChainId,
         swapper: request.sender,
         recipient: request.receiver !== request.sender ? request.receiver : undefined,
-        slippageTolerance: 0.5, // 0.5% default - MUST BE NUMBER not string
+        slippageTolerance: 2.0, // 2.0% - increased for better price movement tolerance
         enableUniversalRouter: true,
         simulateTransaction: true, // Enable simulation to catch errors early
+        urgency: 'urgent', // Use urgent for faster execution
       };
 
       // Step 2: Get quote
@@ -378,11 +420,9 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       });
 
       // Step 3: Prepare swap transaction
+      // CRITICAL: Send the entire quote object as-is to the /swap endpoint
+      // Do NOT delete permitData - the API needs it for validation
       const swapPayload: any = { quote: quoteResponse.quote };
-      // Remove permitData from quote if present - it needs user signature
-      if (swapPayload.quote && swapPayload.quote.permitData) {
-        delete swapPayload.quote.permitData;
-      }
 
       const response = await this.retryRequest<UniswapCreateResponse>(
         () => this.client.post(endpoint, swapPayload)
@@ -414,8 +454,21 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         to: swapTx.to,
         value: swapTx.value,
         hasData: !!swapTx.data,
+        dataLength: swapTx.data?.length,
         chainId: swapTx.chainId,
+        gasLimit: swapTx.gasLimit,
+        maxFeePerGas: swapTx.maxFeePerGas,
+        maxPriorityFeePerGas: swapTx.maxPriorityFeePerGas,
       });
+
+      // Log full transaction data for debugging
+      console.log(`[${this.name}] 🔍 FULL SWAP TX DATA:`, JSON.stringify({
+        to: swapTx.to,
+        data: swapTx.data?.substring(0, 200) + '...',
+        value: swapTx.value,
+        chainId: swapTx.chainId,
+        gasLimit: swapTx.gasLimit,
+      }, null, 2));
 
       // Step 4: Build transactions array
       const transactions: Transaction[] = [];
@@ -430,6 +483,40 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       if (approvalCheck?.approval) {
         console.log(`[${this.name}] 📝 Adding approval transaction`);
         transactions.push(this.mapTransaction(approvalCheck.approval, 'Approve token'));
+      } else if (!this.isNativeToken(request.fromToken)) {
+        // CRITICAL FIX: If API says no approval needed for ERC-20, but we suspect it's wrong,
+        // try to force approval creation by calling check_approval with unlimited amount
+        console.warn(`[${this.name}] ⚠️ API says no approval needed, but this is an ERC-20 token.`);
+        console.warn(`[${this.name}] ⚠️ Attempting to force approval creation...`);
+
+        try {
+          const UNLIMITED_APPROVAL = '115792089237316195423570985008687907853269984665640564039457584007913129639935'; // 2^256 - 1
+          const forceApprovalRequest: any = {
+            walletAddress: request.sender,
+            token: this.normalizeTokenAddress(request.fromToken),
+            amount: UNLIMITED_APPROVAL, // Max uint256
+            chainId: request.fromChainId,
+            includeGasInfo: true,
+            urgency: 'urgent',
+            tokenOut: this.normalizeTokenAddress(request.toToken),
+            tokenOutChainId: request.toChainId,
+          };
+
+          const forceApprovalResponse = await this.retryRequest<UniswapApprovalResponse>(
+            () => this.client.post('/check_approval', forceApprovalRequest)
+          );
+
+          if (forceApprovalResponse?.approval) {
+            console.log(`[${this.name}] ✅ Forced approval transaction created!`);
+            transactions.push(this.mapTransaction(forceApprovalResponse.approval, 'Approve token (forced)'));
+          } else {
+            console.log(`[${this.name}] ℹ️ Even with unlimited amount, API says no approval needed.`);
+            console.log(`[${this.name}] ℹ️ Wallet may already have sufficient approval.`);
+          }
+        } catch (forceError) {
+          console.error(`[${this.name}] ⚠️ Failed to force approval creation:`, forceError);
+          // Continue anyway - the swap might still work if approval truly exists
+        }
       }
 
       // Add swap transaction
