@@ -12,6 +12,8 @@ export enum SwapErrorCode {
   INVALID_CHAIN = 'INVALID_CHAIN',
   INVALID_SLIPPAGE = 'INVALID_SLIPPAGE',
   INVALID_DEADLINE = 'INVALID_DEADLINE',
+  MISSING_REQUIRED_PARAMS = 'MISSING_REQUIRED_PARAMS',
+  INVALID_REQUEST = 'INVALID_REQUEST',
 
   // ===== ROUTING ERRORS (404) =====
   NO_ROUTE_FOUND = 'NO_ROUTE_FOUND',
@@ -35,6 +37,14 @@ export enum SwapErrorCode {
   TIMEOUT = 'TIMEOUT',
   CACHE_ERROR = 'CACHE_ERROR',
   DATABASE_ERROR = 'DATABASE_ERROR',
+
+  // ===== ACCESS CONTROL (401/403) =====
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  FORBIDDEN = 'FORBIDDEN',
+
+  // ===== SERVICE STATE (503) =====
+  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
+  MAINTENANCE = 'MAINTENANCE',
 
   // ===== UNKNOWN (500) =====
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
@@ -99,6 +109,8 @@ export class SwapError extends Error {
       SwapErrorCode.INVALID_CHAIN,
       SwapErrorCode.INVALID_SLIPPAGE,
       SwapErrorCode.INVALID_DEADLINE,
+      SwapErrorCode.MISSING_REQUIRED_PARAMS,
+      SwapErrorCode.INVALID_REQUEST,
     ].includes(code)) {
       return 400;
     }
@@ -131,11 +143,23 @@ export class SwapError extends Error {
       return 429;
     }
 
+    // 401 - Unauthorized
+    if (code === SwapErrorCode.UNAUTHORIZED) {
+      return 401;
+    }
+
+    // 403 - Forbidden
+    if (code === SwapErrorCode.FORBIDDEN) {
+      return 403;
+    }
+
     // 503 - Service unavailable
     if ([
       SwapErrorCode.PROVIDER_ERROR,
       SwapErrorCode.RPC_ERROR,
       SwapErrorCode.TIMEOUT,
+      SwapErrorCode.SERVICE_UNAVAILABLE,
+      SwapErrorCode.MAINTENANCE,
     ].includes(code)) {
       return 503;
     }
@@ -241,5 +265,34 @@ export function createProviderError(provider: string, originalError: Error): Swa
         stack: originalError.stack,
       },
     }
+  );
+}
+
+export function createMissingParamsError(requiredParams: string[]): SwapError {
+  return new SwapError(
+    SwapErrorCode.MISSING_REQUIRED_PARAMS,
+    'Missing required parameters for this operation',
+    { requiredParams }
+  );
+}
+
+export function createUnauthorizedError(reason?: string): SwapError {
+  return new SwapError(
+    SwapErrorCode.UNAUTHORIZED,
+    reason || 'User authentication is required for this action'
+  );
+}
+
+export function createForbiddenError(reason?: string): SwapError {
+  return new SwapError(
+    SwapErrorCode.FORBIDDEN,
+    reason || 'You are not allowed to perform this action'
+  );
+}
+
+export function createServiceUnavailableError(detail?: string): SwapError {
+  return new SwapError(
+    SwapErrorCode.SERVICE_UNAVAILABLE,
+    detail || 'Service is temporarily unavailable'
   );
 }

@@ -7,6 +7,8 @@ declare global {
         address: string;
         [key: string]: any;
       };
+      traceId?: string;
+      requestStartTime?: number;
     }
   }
 } 
