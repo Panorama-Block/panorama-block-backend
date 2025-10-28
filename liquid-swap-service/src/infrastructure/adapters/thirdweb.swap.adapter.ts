@@ -48,6 +48,21 @@ export class ThirdwebSwapAdapter implements ISwapService {
       const originToken = resolveToken("thirdweb", swapRequest.fromChainId, swapRequest.fromToken);
       const destinationToken = resolveToken("thirdweb", swapRequest.toChainId, swapRequest.toToken);
 
+      console.log("[ThirdwebSwapAdapter] Resolved tokens:", {
+        origin: {
+          identifier: originToken.identifier,
+          isNative: originToken.isNative,
+          address: originToken.metadata.address,
+          symbol: originToken.metadata.symbol,
+        },
+        destination: {
+          identifier: destinationToken.identifier,
+          isNative: destinationToken.isNative,
+          address: destinationToken.metadata.address,
+          symbol: destinationToken.metadata.symbol,
+        },
+      });
+
       const sellAmountWei = swapRequest.amount;
 
       const quote = await Bridge.Sell.quote({
