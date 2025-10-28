@@ -42,7 +42,7 @@ export class RouterDomainService {
     const rawTimeout = process.env.SMART_ROUTER_QUOTE_TIMEOUT_MS;
     const parsedTimeout = rawTimeout ? Number(rawTimeout) : undefined;
     this.smartRouterQuoteTimeoutMs =
-      parsedTimeout && parsedTimeout > 0 ? parsedTimeout : 4000;
+      parsedTimeout && parsedTimeout > 0 ? parsedTimeout : 10000;
   }
 
   /**
@@ -166,7 +166,9 @@ export class RouterDomainService {
     }
 
     // Priority 2: Try Uniswap Trading API as backup
-    const uniswapTradingApi = supportedProviders.find((p) => p.name === "uniswap");
+    const uniswapTradingApi = supportedProviders.find(
+      (p) => p.name === "uniswap-trading-api" || p.name === "uniswap"
+    );
     if (uniswapTradingApi) {
       console.log("[RouterDomainService] ✅ Attempting Uniswap Trading API (Priority 2 - Fallback)");
       try {

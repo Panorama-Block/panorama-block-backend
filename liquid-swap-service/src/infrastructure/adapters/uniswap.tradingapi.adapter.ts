@@ -55,17 +55,36 @@ interface GasEstimate {
   estimatedCostWei: string;
 }
 
+interface QuoteOutput {
+  amount?: string;
+  token?: string;
+  recipient?: string;
+}
+
+interface AggregatedOutput {
+  amount?: string;
+  token?: string;
+  recipient?: string;
+  bps?: number;
+  minAmount?: string;
+}
+
 interface UniswapQuoteResponse {
   quote: {
-    amount: string; // Output amount in token units
-    priceImpact: string; // e.g., "0.15" = 0.15%
-    exchangeRate: string; // e.g., "3000.50"
+    amount?: string; // Output amount in token units
+    priceImpact?: string; // e.g., "0.15" = 0.15%
+    exchangeRate?: string; // e.g., "3000.50"
+    output?: QuoteOutput;
+    aggregatedOutputs?: AggregatedOutput[];
+    gasFee?: string;
+    gasFeeQuote?: string;
   };
-  route: RouteHop[];
-  gasEstimate: GasEstimate;
-  expiresAt: number; // Unix timestamp
-  slippage: string;
-  gasPriceWei: string;
+  route?: RouteHop[];
+  gasEstimate?: GasEstimate;
+  expiresAt?: number; // Unix timestamp
+  slippage?: string;
+  gasPriceWei?: string;
+  permitData?: Record<string, unknown>;
 }
 
 interface UniswapPreparedTransaction {
@@ -80,11 +99,20 @@ interface UniswapPreparedTransaction {
 }
 
 interface UniswapCreateResponse {
-  transactions: UniswapPreparedTransaction[];
-  approval: UniswapPreparedTransaction | null;
-  quote: UniswapQuoteResponse;
-  route: RouteHop[];
-  expiresAt: number;
+  swap: {
+    to: string;
+    data: string;
+    value: string;
+    chainId: number | string;
+    gasLimit?: string;
+    maxFeePerGas?: string;
+    maxPriorityFeePerGas?: string;
+  };
+  gasFee?: string;
+  requestId?: string;
+  quote?: UniswapQuoteResponse;
+  route?: RouteHop[];
+  expiresAt?: number;
 }
 
 interface UniswapApprovalResponse {
@@ -225,9 +253,13 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         tokenInChainId: request.fromChainId,
         tokenOutChainId: request.toChainId,
         swapper: request.sender, // Required field
-        slippage: '0.5', // 0.5% default
+        slippageTolerance: 0.5, // 0.5% default - MUST BE NUMBER not string
         enableUniversalRouter: true,
-        simulateTransaction: false,
+        simulateTransaction: true, // Enable simulation to catch errors early
+        // Use traditional on-chain approval instead of Permit2 signature
+        // This generates an approval transaction that can be sent on-chain
+        // instead of requiring the user to sign a Permit2 message
+        generatePermitAsTransaction: true,
       };
 
       // Call API with retry
@@ -270,44 +302,116 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         type: 'EXACT_INPUT',
         tokenInChainId: request.fromChainId,
         tokenOutChainId: request.toChainId,
-        sender: request.sender,
+        swapper: request.sender,
         recipient: request.receiver !== request.sender ? request.receiver : undefined,
-        slippage: '0.5',
+        slippageTolerance: 0.5, // 0.5% default - MUST BE NUMBER not string
         enableUniversalRouter: true,
+        simulateTransaction: true, // Enable simulation to catch errors early
+        // Use traditional on-chain approval instead of Permit2 signature
+        generatePermitAsTransaction: true,
       };
 
-      // Call API with retry
-      const response = await this.retryRequest<UniswapCreateResponse>(
-        () => this.client.post(endpoint, payload)
+      const quoteResponse = await this.retryRequest<UniswapQuoteResponse>(
+        () => this.client.post('/quote', payload)
       );
 
-      console.log(`[${this.name}] ✅ Swap prepared:`, {
-        needsApproval: !!response.approval,
-        transactionsCount: response.transactions.length,
+      if (!quoteResponse?.quote) {
+        throw new SwapError(
+          SwapErrorCode.PROVIDER_ERROR,
+          'Uniswap Trading API returned an empty quote',
+          { rawResponse: quoteResponse },
+          502
+        );
+      }
+
+      console.log(`[${this.name}] ✅ Quote for prepare received`, {
+        amount: quoteResponse.quote?.amount,
+        quoteId: (quoteResponse.quote as any)?.quoteId,
+      });
+
+      // Call API with retry
+      // IMPORTANT: Do NOT send permitData without signature
+      // Permit2 requires user signature which must be provided by frontend
+      const swapPayload: any = { quote: quoteResponse.quote };
+      // Remove permitData from quote if present - it needs user signature
+      if (swapPayload.quote && swapPayload.quote.permitData) {
+        delete swapPayload.quote.permitData;
+      }
+
+      const response = await this.retryRequest<UniswapCreateResponse>(
+        () => this.client.post(endpoint, swapPayload)
+      );
+
+      // DEBUG: Log full response structure
+      console.log(`[${this.name}] 🔍 Full swap response:`, {
+        hasSwap: !!response?.swap,
+        hasQuote: !!response?.quote,
+        hasRoute: !!response?.route,
+        hasGasFee: !!response?.gasFee,
+        hasRequestId: !!response?.requestId,
+        responseKeys: response ? Object.keys(response) : [],
+      });
+
+      // The Uniswap Trading API v1 returns the swap transaction in the "swap" field
+      // The "transactions" field is not used by this API version
+      const swapTx = response?.swap;
+
+      if (!swapTx) {
+        console.error(`[${this.name}] ❌ No swap transaction in response`);
+        throw new SwapError(
+          SwapErrorCode.NO_ROUTE_FOUND,
+          "Uniswap Trading API returned no swap transaction",
+          { swapResponse: response },
+          502
+        );
+      }
+
+      console.log(`[${this.name}] ✅ Swap transaction received:`, {
+        to: swapTx.to,
+        value: swapTx.value,
+        hasData: !!swapTx.data,
+        chainId: swapTx.chainId,
       });
 
       // Map to PreparedSwap
       const transactions: Transaction[] = [];
 
-      // Add approval transaction if needed
-      if (response.approval) {
-        transactions.push(this.mapTransaction(response.approval, 'Approve token'));
-      }
+      // Check if approval is needed (generatePermitAsTransaction=true should provide this)
+      // For now, we'll just add the swap transaction
+      // The approval should be checked separately via /check_approval endpoint if needed
 
-      // Add swap transactions
-      for (const tx of response.transactions) {
-        transactions.push(this.mapTransaction(tx, 'Execute swap'));
+      console.log(`[${this.name}] 📝 Adding swap transaction:`, {
+        to: swapTx.to,
+        value: swapTx.value,
+        hasData: !!swapTx.data,
+      });
+
+      transactions.push(this.mapTransaction(swapTx, 'Execute swap'));
+
+      if (transactions.length === 0) {
+        console.error(`[${this.name}] ❌ No transactions found in response:`,
+          JSON.stringify(response, null, 2)
+        );
+        throw new SwapError(
+          SwapErrorCode.NO_ROUTE_FOUND,
+          "Uniswap Trading API returned no executable transactions",
+          {
+            quote: quoteResponse.quote,
+            swapResponse: response,
+          },
+          502
+        );
       }
 
       return {
         provider: this.name,
         transactions,
         estimatedDuration: 30, // Typical swap time in seconds
-        expiresAt: new Date(response.expiresAt * 1000),
+        expiresAt: response?.expiresAt ? new Date(response.expiresAt * 1000) : undefined,
         metadata: {
           quote: response.quote,
           route: response.route,
-          needsApproval: !!response.approval,
+          gasFee: response.gasFee,
         },
       };
 
@@ -429,17 +533,39 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
    * Map Uniswap quote to domain SwapQuote entity
    */
   private mapToSwapQuote(response: UniswapQuoteResponse, request: SwapRequest): SwapQuote {
-    // Parse output amount (comes in token units, need to convert to wei)
-    const outputAmount = BigInt(response.quote.amount);
+    const quote = response.quote ?? ({} as UniswapQuoteResponse['quote']);
 
-    // Parse gas fee
-    const gasFee = BigInt(response.gasEstimate.estimatedCostWei);
+    const outputAmountRaw =
+      quote.amount ??
+      quote.output?.amount ??
+      quote.aggregatedOutputs?.[0]?.amount;
+
+    if (!outputAmountRaw) {
+      throw new SwapError(
+        SwapErrorCode.PROVIDER_ERROR,
+        'Uniswap Trading API returned an empty quote amount',
+        { rawResponse: response },
+        502
+      );
+    }
+
+    const outputAmount = BigInt(outputAmountRaw);
+
+    const gasFeeRaw =
+      response.gasEstimate?.estimatedCostWei ??
+      quote.gasFee ??
+      quote.gasFeeQuote;
+    const gasFee = gasFeeRaw ? BigInt(gasFeeRaw) : 0n;
 
     // Bridge fee (0 for same-chain swaps)
     const bridgeFee = 0n;
 
     // Exchange rate (already calculated by Uniswap)
-    const exchangeRate = parseFloat(response.quote.exchangeRate);
+    const exchangeRate =
+      quote.exchangeRate !== undefined
+        ? parseFloat(quote.exchangeRate)
+        : parseFloat(outputAmountRaw) /
+          parseFloat(request.amount.toString());
 
     // Estimated duration (typical same-chain swap)
     const estimatedDuration = 30; // seconds
@@ -456,12 +582,23 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
   /**
    * Map Uniswap transaction to our Transaction type
    */
-  private mapTransaction(tx: UniswapPreparedTransaction, description?: string): Transaction {
+  private mapTransaction(
+    tx: {
+      to: string;
+      data: string;
+      value: string | number;
+      chainId: number | string;
+      gasLimit?: string;
+      maxFeePerGas?: string;
+      maxPriorityFeePerGas?: string;
+    },
+    description?: string
+  ): Transaction {
     return {
-      chainId: tx.chainId,
+      chainId: typeof tx.chainId === 'string' ? Number(tx.chainId) : tx.chainId,
       to: tx.to,
       data: tx.data,
-      value: tx.value,
+      value: typeof tx.value === 'string' ? tx.value : tx.value.toString(),
       gasLimit: tx.gasLimit,
       maxFeePerGas: tx.maxFeePerGas,
       maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
