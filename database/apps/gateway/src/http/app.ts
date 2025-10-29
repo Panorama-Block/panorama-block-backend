@@ -1,4 +1,4 @@
-import Fastify, { FastifyInstance, FastifyServerOptions } from 'fastify';
+import Fastify, { FastifyInstance } from 'fastify';
 import sensible from '@fastify/sensible';
 import { PrismaClient } from '@prisma/client';
 import { AppConfig } from '../config.js';
@@ -32,20 +32,19 @@ export const buildApp = ({
   idempotencyStore,
   sslOptions
 }: AppDependencies): FastifyInstance => {
-  const fastifyOptions: FastifyServerOptions = {
+  const app = Fastify({
     logger: {
       level: config.logLevel
-    }
-  };
-
-  if (sslOptions) {
-    fastifyOptions.https = {
-      key: sslOptions.key,
-      cert: sslOptions.cert
-    };
-  }
-
-  const app = Fastify(fastifyOptions);
+    },
+    ...(sslOptions
+      ? {
+          https: {
+            key: sslOptions.key,
+            cert: sslOptions.cert
+          }
+        }
+      : {})
+  });
 
   const crudHandlers = createCrudHandlers(repository, idempotencyStore);
   const transactHandler = createTransactHandler(repository, idempotencyStore);
