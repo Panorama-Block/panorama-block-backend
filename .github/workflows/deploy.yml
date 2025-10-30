@@ -6,10 +6,13 @@ on:
     branches:
       - main
 
+permissions:
+  id-token: write
+  contents: read
+
 env:
   RG: Core-Deploy
   IMAGE_TAG: ${{ github.sha }}
-  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/auth-service
 
 jobs:
   deploy:
@@ -39,12 +42,23 @@ jobs:
           username: ${{ secrets.GHCR_USERNAME }}
           password: ${{ secrets.GHCR_PASSWORD }}
 
-      - name: Build and push auth-service image
+      - name: Compute image name
+        id: image
         run: |
-          docker build -t $GHCR_IMAGE:${IMAGE_TAG} ./auth-service
-          docker push $GHCR_IMAGE:${IMAGE_TAG}
+          OWNER_LOWER=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${OWNER_LOWER}/auth-service:${IMAGE_TAG}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push auth-service image
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          docker build -t "$IMAGE" ./auth-service
+          docker push "$IMAGE"
 
       - name: Authorize container app to pull from GHCR
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
         run: |
           az containerapp registry set \
             --name auth-service \
@@ -54,8 +68,10 @@ jobs:
             --password ${{ secrets.GHCR_PASSWORD }}
 
       - name: Deploy auth-service
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
         run: |
           az containerapp update \
             --name auth-service \
             --resource-group $RG \
-            --image $GHCR_IMAGE:${IMAGE_TAG}
+            --image "$IMAGE"
