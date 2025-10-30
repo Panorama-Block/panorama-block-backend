@@ -1,36 +1,61 @@
 name: Deploy Panorama Backend
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
 
+env:
+  RG: Core-Deploy
+  IMAGE_TAG: ${{ github.sha }}
+  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/auth-service
+
 jobs:
   deploy:
-    name: Deploy to Panorama VM via Azure CLI
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
 
     steps:
-      - name: Login to Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - uses: actions/checkout@v4
 
-      - name: Run deploy script on VM
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Enable Container Apps extension
+        run: az extension add --name containerapp --upgrade
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_PASSWORD }}
+
+      - name: Build and push auth-service image
         run: |
-          az vm run-command invoke \
-            --resource-group Core-Deploy \
-            --name core-deploy \
-            --command-id RunShellScript \
-            --scripts '
-              sudo git config --system --add safe.directory /home/panorama/panorama-block-backend &&
-              cd /home/panorama/panorama-block-backend &&
-              git pull origin main &&
-              if ! command -v docker-compose &> /dev/null; then
-                echo "Docker Compose not found. Installing...";
-                sudo curl -SL https://github.com/docker/compose/releases/download/v2.24.6/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose &&
-                sudo chmod +x /usr/local/bin/docker-compose &&
-                sudo ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
-              fi &&
-              sudo docker-compose -f docker-compose-deploy.yml up -d --build
-            '
+          docker build -t $GHCR_IMAGE:${IMAGE_TAG} ./auth-service
+          docker push $GHCR_IMAGE:${IMAGE_TAG}
+
+      - name: Authorize container app to pull from GHCR
+        run: |
+          az containerapp registry set \
+            --name auth-service \
+            --resource-group $RG \
+            --server ghcr.io \
+            --username ${{ secrets.GHCR_USERNAME }} \
+            --password ${{ secrets.GHCR_PASSWORD }}
+
+      - name: Deploy auth-service
+        run: |
+          az containerapp update \
+            --name auth-service \
+            --resource-group $RG \
+            --image $GHCR_IMAGE:${IMAGE_TAG}
