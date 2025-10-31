@@ -16,3 +16,4 @@ dist/
 .cursorignore/
 .cursor
 liquid-swap-service/package-lock.json
+*./package-lock.json

@@ -62,9 +62,15 @@ console.log('\n🌍 [ENVIRONMENT] Auth Service Environment Variables:');
 console.log('='.repeat(60));
 console.log('📊 PORT:', PORT);
 console.log('🌍 NODE_ENV:', process.env.NODE_ENV || 'development');
-console.log('🔗 REDIS_HOST:', process.env.REDIS_HOST || 'localhost');
-console.log('🔗 REDIS_PORT:', process.env.REDIS_PORT || '6379');
-console.log('🔗 REDIS_PASS:', process.env.REDIS_PASS ? '[SET]' : '[NOT SET]');
+const redisHost = process.env.REDIS_HOST || 'localhost';
+const redisPort = Number(process.env.REDIS_PORT || 6379);
+const redisPassword = process.env.REDIS_PASS || '';
+const redisUseTls = (process.env.REDIS_TLS || process.env.REDIS_USE_TLS || '').toLowerCase() === 'true';
+
+console.log('🔗 REDIS_HOST:', redisHost);
+console.log('🔗 REDIS_PORT:', redisPort);
+console.log('🔗 REDIS_PASS:', redisPassword ? '[SET]' : '[NOT SET]');
+console.log('🔐 REDIS_TLS:', redisUseTls);
 console.log('🌐 AUTH_DOMAIN:', process.env.AUTH_DOMAIN || '[NOT SET]');
 console.log('🔑 AUTH_PRIVATE_KEY:', process.env.AUTH_PRIVATE_KEY ? '[SET]' : '[NOT SET]');
 console.log('🐛 DEBUG:', process.env.DEBUG || 'false');
@@ -85,9 +91,18 @@ try {
 }
 
 // Set up Redis client for session management
+const redisSocketOptions: { host: string; port: number; tls?: boolean } = {
+  host: redisHost,
+  port: redisPort,
+};
+
+if (redisUseTls) {
+  redisSocketOptions.tls = true;
+}
+
 const redisClient: RedisClientType = createClient({
-  url: `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`,
-  password: process.env.REDIS_PASS || '',
+  socket: redisSocketOptions,
+  password: redisPassword || undefined,
 });
 
 redisClient.connect().then(() => {
