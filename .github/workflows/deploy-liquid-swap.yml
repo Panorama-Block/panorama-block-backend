@@ -1,10 +1,14 @@
-name: Deploy Panorama Backend
+name: Deploy Liquid Swap
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      - 'liquid-swap-service/**'
+      - 'shared/token-registry.json'
+      - '.github/workflows/deploy-liquid-swap.yml'
 
 permissions:
   id-token: write
@@ -42,36 +46,38 @@ jobs:
           username: ${{ secrets.GHCR_USERNAME }}
           password: ${{ secrets.GHCR_PASSWORD }}
 
-      - name: Compute image name
+      - name: Compute liquid swap image
         id: image
         run: |
           OWNER_LOWER=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
-          IMAGE="ghcr.io/${OWNER_LOWER}/auth-service:${IMAGE_TAG}"
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${OWNER_LOWER}/liquid-swap:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push auth-service image
+      - name: Prepare token registry
+        run: |
+          mkdir -p liquid-swap-service/shared
+          cp shared/token-registry.json liquid-swap-service/shared/token-registry.json
+
+      - name: Build and push liquid-swap image
         env:
           IMAGE: ${{ steps.image.outputs.image }}
         run: |
-          docker build -t "$IMAGE" ./auth-service
+          docker build -t "$IMAGE" ./liquid-swap-service
           docker push "$IMAGE"
 
-      - name: Authorize container app to pull from GHCR
-        env:
-          IMAGE: ${{ steps.image.outputs.image }}
+      - name: Authorize liquid-swap container app
         run: |
           az containerapp registry set \
-            --name auth-service \
+            --name liquid-swap \
             --resource-group $RG \
             --server ghcr.io \
             --username ${{ secrets.GHCR_USERNAME }} \
             --password ${{ secrets.GHCR_PASSWORD }}
 
-      - name: Deploy auth-service
+      - name: Deploy liquid-swap
         env:
           IMAGE: ${{ steps.image.outputs.image }}
         run: |
           az containerapp update \
-            --name auth-service \
+            --name liquid-swap \
             --resource-group $RG \
             --image "$IMAGE"
