@@ -1,0 +1,87 @@
+name: liquid-swap
+type: containerapp
+location: brazilsouth
+properties:
+  environmentId: ${ACA_ENV_ID}
+  configuration:
+    ingress:
+      external: false
+      targetPort: 3002
+    registries:
+      - server: ghcr.io
+        username: ${GHCR_USERNAME}
+        passwordSecretRef: ghcr-password
+    secrets:
+      - name: ghcr-password
+        value: ${GHCR_PASSWORD}
+      - name: thirdweb-client-id
+        value: ${THIRDWEB_CLIENT_ID}
+      - name: thirdweb-secret-key
+        value: ${THIRDWEB_SECRET_KEY}
+      - name: uniswap-api-key
+        value: ${UNISWAP_API_KEY}
+      - name: private-key
+        value: ${PRIVATE_KEY}
+      - name: swap-sender-address
+        value: ${SWAP_SENDER_ADDRESS}
+      - name: swap-receiver-address
+        value: ${SWAP_RECEIVER_ADDRESS}
+      - name: admin-wallet-address
+        value: ${ADMIN_WALLET_ADDRESS}
+      - name: engine-access-token
+        value: ${ENGINE_ACCESS_TOKEN}
+      - name: auth-private-key
+        value: ${AUTH_PRIVATE_KEY}
+      - name: redis-url
+        value: ${REDIS_URL}
+      - name: redis-password
+        value: ${REDIS_PASSWORD}
+  template:
+    containers:
+      - name: liquid-swap
+        image: ghcr.io/${GHCR_NAMESPACE}/liquid-swap:${IMAGE_TAG}
+        env:
+          - name: PORT
+            value: "3002"
+          - name: NODE_ENV
+            value: "production"
+          - name: DEBUG
+            value: "false"
+          - name: AUTH_SERVICE_URL
+            value: ${AUTH_SERVICE_URL}
+          - name: ENGINE_URL
+            value: ${ENGINE_URL}
+          - name: ENGINE_ENABLED
+            value: "true"
+          - name: TOKEN_REGISTRY_PATH
+            value: "/app/shared/token-registry.json"
+          - name: THIRDWEB_CLIENT_ID
+            secretRef: thirdweb-client-id
+          - name: THIRDWEB_SECRET_KEY
+            secretRef: thirdweb-secret-key
+          - name: UNISWAP_API_KEY
+            secretRef: uniswap-api-key
+          - name: PRIVATE_KEY
+            secretRef: private-key
+          - name: SWAP_SENDER_ADDRESS
+            secretRef: swap-sender-address
+          - name: SWAP_RECEIVER_ADDRESS
+            secretRef: swap-receiver-address
+          - name: ADMIN_WALLET_ADDRESS
+            secretRef: admin-wallet-address
+          - name: ENGINE_ACCESS_TOKEN
+            secretRef: engine-access-token
+          - name: ENGINE_API_TOKEN
+            secretRef: engine-access-token
+          - name: AUTH_PRIVATE_KEY
+            secretRef: auth-private-key
+          - name: REDIS_URL
+            secretRef: redis-url
+          - name: REDIS_PASSWORD
+            secretRef: redis-password
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+    scale:
+      minReplicas: 1
+      maxReplicas: 5
