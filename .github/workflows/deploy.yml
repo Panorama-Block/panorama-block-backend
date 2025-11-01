@@ -42,23 +42,28 @@ jobs:
           username: ${{ secrets.GHCR_USERNAME }}
           password: ${{ secrets.GHCR_PASSWORD }}
 
-      - name: Compute image name
-        id: image
+      - name: Compute image names
+        id: images
         run: |
           OWNER_LOWER=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
-          IMAGE="ghcr.io/${OWNER_LOWER}/auth-service:${IMAGE_TAG}"
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "auth_image=ghcr.io/${OWNER_LOWER}/auth-service:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "liquid_image=ghcr.io/${OWNER_LOWER}/liquid-swap:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare liquid-swap build context
+        run: |
+          mkdir -p liquid-swap-service/shared
+          cp shared/token-registry.json liquid-swap-service/shared/token-registry.json
 
       - name: Build and push auth-service image
         env:
-          IMAGE: ${{ steps.image.outputs.image }}
+          IMAGE: ${{ steps.images.outputs.auth_image }}
         run: |
           docker build -t "$IMAGE" ./auth-service
           docker push "$IMAGE"
 
       - name: Authorize container app to pull from GHCR
         env:
-          IMAGE: ${{ steps.image.outputs.image }}
+          IMAGE: ${{ steps.images.outputs.auth_image }}
         run: |
           az containerapp registry set \
             --name auth-service \
@@ -69,9 +74,34 @@ jobs:
 
       - name: Deploy auth-service
         env:
-          IMAGE: ${{ steps.image.outputs.image }}
+          IMAGE: ${{ steps.images.outputs.auth_image }}
         run: |
           az containerapp update \
             --name auth-service \
+            --resource-group $RG \
+            --image "$IMAGE"
+
+      - name: Build and push liquid-swap image
+        env:
+          IMAGE: ${{ steps.images.outputs.liquid_image }}
+        run: |
+          docker build -t "$IMAGE" ./liquid-swap-service
+          docker push "$IMAGE"
+
+      - name: Authorize liquid-swap container app
+        run: |
+          az containerapp registry set \
+            --name liquid-swap \
+            --resource-group $RG \
+            --server ghcr.io \
+            --username ${{ secrets.GHCR_USERNAME }} \
+            --password ${{ secrets.GHCR_PASSWORD }}
+
+      - name: Deploy liquid-swap
+        env:
+          IMAGE: ${{ steps.images.outputs.liquid_image }}
+        run: |
+          az containerapp update \
+            --name liquid-swap \
             --resource-group $RG \
             --image "$IMAGE"
