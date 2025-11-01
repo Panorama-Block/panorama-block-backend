@@ -15,6 +15,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || process.env.AUTH_PORT || 3001;
 
+app.set('trust proxy', 1);
+
 // SSL certificate options for HTTPS
 const getSSLOptions = () => {
   try {
@@ -42,9 +44,25 @@ const getSSLOptions = () => {
   }
 };
 
+// Configure CORS with credentials support
+const corsOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || corsOrigins.length === 0 || corsOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    console.warn(`[Auth Service] ⛔️ Blocked CORS origin: ${origin}`);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
+
 // Set up middleware
 app.use(express.json());
-app.use(cors());
 
 // Normalize duplicated slashes in request URL to avoid 404 on //auth/login
 app.use((req, _res, next) => {
@@ -68,6 +86,11 @@ console.log('🔗 REDIS_PASS:', process.env.REDIS_PASS ? '[SET]' : '[NOT SET]');
 console.log('🌐 AUTH_DOMAIN:', process.env.AUTH_DOMAIN || '[NOT SET]');
 console.log('🔑 AUTH_PRIVATE_KEY:', process.env.AUTH_PRIVATE_KEY ? '[SET]' : '[NOT SET]');
 console.log('🐛 DEBUG:', process.env.DEBUG || 'false');
+console.log('🍪 AUTH_REFRESH_COOKIE_NAME:', process.env.AUTH_REFRESH_COOKIE_NAME || 'panorama_refresh');
+console.log('🍪 AUTH_REFRESH_TTL_SECONDS:', process.env.AUTH_REFRESH_TTL_SECONDS || '1209600 (14 days)');
+console.log('🍪 AUTH_COOKIE_DOMAIN:', process.env.AUTH_COOKIE_DOMAIN || '[NOT SET]');
+console.log('🍪 AUTH_COOKIE_SECURE:', process.env.AUTH_COOKIE_SECURE || (process.env.NODE_ENV === 'production' ? 'true (default in production)' : 'false'));
+console.log('🍪 AUTH_COOKIE_SAMESITE:', process.env.AUTH_COOKIE_SAMESITE || (process.env.NODE_ENV === 'production' ? 'none (default in production)' : 'lax'));
 console.log('🔒 FULLCHAIN:', process.env.FULLCHAIN || '/etc/letsencrypt/live/api.panoramablock.com/fullchain.pem');
 console.log('🔒 PRIVKEY:', process.env.PRIVKEY || '/etc/letsencrypt/live/api.panoramablock.com/privkey.pem');
 console.log('='.repeat(60));

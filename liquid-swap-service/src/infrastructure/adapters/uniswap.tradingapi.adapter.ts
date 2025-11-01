@@ -484,39 +484,10 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         console.log(`[${this.name}] 📝 Adding approval transaction`);
         transactions.push(this.mapTransaction(approvalCheck.approval, 'Approve token'));
       } else if (!this.isNativeToken(request.fromToken)) {
-        // CRITICAL FIX: If API says no approval needed for ERC-20, but we suspect it's wrong,
-        // try to force approval creation by calling check_approval with unlimited amount
-        console.warn(`[${this.name}] ⚠️ API says no approval needed, but this is an ERC-20 token.`);
-        console.warn(`[${this.name}] ⚠️ Attempting to force approval creation...`);
-
-        try {
-          const UNLIMITED_APPROVAL = '115792089237316195423570985008687907853269984665640564039457584007913129639935'; // 2^256 - 1
-          const forceApprovalRequest: any = {
-            walletAddress: request.sender,
-            token: this.normalizeTokenAddress(request.fromToken),
-            amount: UNLIMITED_APPROVAL, // Max uint256
-            chainId: request.fromChainId,
-            includeGasInfo: true,
-            urgency: 'urgent',
-            tokenOut: this.normalizeTokenAddress(request.toToken),
-            tokenOutChainId: request.toChainId,
-          };
-
-          const forceApprovalResponse = await this.retryRequest<UniswapApprovalResponse>(
-            () => this.client.post('/check_approval', forceApprovalRequest)
-          );
-
-          if (forceApprovalResponse?.approval) {
-            console.log(`[${this.name}] ✅ Forced approval transaction created!`);
-            transactions.push(this.mapTransaction(forceApprovalResponse.approval, 'Approve token (forced)'));
-          } else {
-            console.log(`[${this.name}] ℹ️ Even with unlimited amount, API says no approval needed.`);
-            console.log(`[${this.name}] ℹ️ Wallet may already have sufficient approval.`);
-          }
-        } catch (forceError) {
-          console.error(`[${this.name}] ⚠️ Failed to force approval creation:`, forceError);
-          // Continue anyway - the swap might still work if approval truly exists
-        }
+        // API says no approval needed for ERC-20 token
+        // This means the wallet already has sufficient approval
+        console.log(`[${this.name}] ✅ Wallet already has sufficient approval for ${request.fromToken}`);
+        console.log(`[${this.name}] ℹ️ Skipping approval transaction - proceeding directly to swap`);
       }
 
       // Add swap transaction
