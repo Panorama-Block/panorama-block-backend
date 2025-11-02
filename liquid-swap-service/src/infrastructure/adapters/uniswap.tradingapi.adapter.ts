@@ -88,6 +88,8 @@ interface UniswapQuoteResponse {
   slippage?: string;
   gasPriceWei?: string;
   permitData?: Record<string, unknown>;
+  permitTransaction?: UniswapPreparedTransaction | null; // On-chain permit approval (when generatePermitAsTransaction=true)
+  permitGasFee?: string; // Gas fee for permit transaction
 }
 
 interface UniswapPreparedTransaction {
@@ -187,13 +189,11 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       ...config,
     };
 
-    // Configurable slippage tolerance - default to 20.0% for better MetaMask compatibility
+    // Configurable slippage tolerance - default to 10% for better success rate
     // This can be overridden via UNISWAP_TRADING_API_SLIPPAGE env variable
-    // Higher slippage prevents "Transaction canceled" errors due to price movement during simulation
-    // CRITICAL: MetaMask simulates with current block state, but quote is from previous block
     const rawSlippage = process.env.UNISWAP_TRADING_API_SLIPPAGE;
     const parsedSlippage = rawSlippage ? parseFloat(rawSlippage) : undefined;
-    this.slippagePercent = parsedSlippage && parsedSlippage > 0 ? parsedSlippage : 20.0;
+    this.slippagePercent = parsedSlippage && parsedSlippage > 0 ? parsedSlippage : 10.0;
 
     if (!this.config.apiKey) {
       console.warn('[UniswapTradingApiAdapter] ⚠️ No API key configured. Set UNISWAP_API_KEY env var.');
@@ -289,11 +289,9 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         swapper: request.sender, // Required field
         slippageTolerance: this.slippagePercent, // Configurable via UNISWAP_TRADING_API_SLIPPAGE
         enableUniversalRouter: true,
-        simulateTransaction: true, // Enable simulation to catch errors early
-        urgency: 'urgent', // Use urgent for faster execution
-        // Use traditional on-chain approval instead of Permit2 signature
-        // This generates an approval transaction that can be sent on-chain
-        // instead of requiring the user to sign a Permit2 message
+        simulateTransaction: false, // Disable simulation - let the wallet handle it
+        // CRITICAL: Force Permit2 to be returned as on-chain transaction
+        // instead of requiring off-chain signature (which we can't provide server-side)
         generatePermitAsTransaction: true,
       };
 
@@ -354,7 +352,6 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         amount: request.amount.toString(),
         chainId: request.fromChainId,
         includeGasInfo: true,
-        urgency: 'urgent', // Use urgent for faster gas prices
         // CRITICAL: Include destination token for Permit2 validation
         tokenOut: this.normalizeTokenAddress(request.toToken),
         tokenOutChainId: request.toChainId,
@@ -370,6 +367,9 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       const approvalResponse = await this.retryRequest<UniswapApprovalResponse>(
         () => this.client.post('/check_approval', approvalRequest)
       );
+
+      // Log FULL approval response for debugging
+      console.log(`[${this.name}] 🔍 FULL APPROVAL RESPONSE:`, JSON.stringify(approvalResponse, null, 2));
 
       console.log(`[${this.name}] ✅ Approval check result:`, {
         needsApproval: !!approvalResponse.approval,
@@ -421,6 +421,13 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       // Step 2: Try to get cached quote first (to reuse the same quoteId)
       let quoteResponse = this.getCachedQuote(request);
 
+      // CRITICAL: Invalidate cached quote if it doesn't have permitTransaction
+      // This happens when quote was cached before we added generatePermitAsTransaction=true
+      if (quoteResponse && !quoteResponse.permitTransaction && !this.isNativeToken(request.fromToken)) {
+        console.log(`[${this.name}] ⚠️ Cached quote missing permitTransaction, fetching fresh quote...`);
+        quoteResponse = null;
+      }
+
       // If no cached quote, get a fresh one
       if (!quoteResponse) {
         console.log(`[${this.name}] No cached quote, fetching fresh quote...`);
@@ -437,8 +444,9 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
           recipient: request.receiver !== request.sender ? request.receiver : undefined,
           slippageTolerance: this.slippagePercent, // Configurable via UNISWAP_TRADING_API_SLIPPAGE
           enableUniversalRouter: true,
-          simulateTransaction: true, // Enable simulation to catch errors early
-          urgency: 'urgent', // Use urgent for faster execution
+          simulateTransaction: false, // Disable simulation - let the wallet handle it
+          // CRITICAL: Force Permit2 to be returned as on-chain transaction
+          generatePermitAsTransaction: true,
         };
 
         console.log(`[${this.name}] Preparing swap with ${this.slippagePercent}% slippage`);
@@ -471,12 +479,55 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         minAmount: quoteMinAmount,
         quoteId: (quoteResponse.quote as any)?.quoteId,
         slippage: quoteResponse.quote?.slippage,
+        hasPermitTransaction: !!quoteResponse.permitTransaction,
+        hasPermitData: !!quoteResponse.permitData,
       });
 
       // Step 3: Prepare swap transaction
-      // CRITICAL: Send the entire quote object as-is to the /swap endpoint
-      // Do NOT delete permitData - the API needs it for validation
-      const swapPayload: any = { quote: quoteResponse.quote };
+      // CRITICAL: Send the complete quote object to the /swap endpoint
+      // The API requires the full quote for validation and execution
+      const quoteId = (quoteResponse.quote as any)?.quoteId;
+
+      if (!quoteId) {
+        throw new SwapError(
+          SwapErrorCode.PROVIDER_ERROR,
+          'Quote response missing quoteId',
+          { quote: quoteResponse.quote },
+          502
+        );
+      }
+
+      // Build swap payload with ONLY the required fields
+      // CRITICAL: Do NOT send permitData as it requires user signature
+      // Deep clone the quote to remove any permitData references
+      const cleanQuote = JSON.parse(JSON.stringify(quoteResponse.quote));
+
+      // Explicitly remove permitData if it exists
+      if (cleanQuote.permitData) {
+        delete cleanQuote.permitData;
+        console.log(`[${this.name}] 🗑️ Removed permitData from quote`);
+      }
+
+      const swapPayload = {
+        quote: cleanQuote,
+        simulateTransaction: false,
+      };
+
+      console.log(`[${this.name}] 📤 Sending swap request with quoteId: ${quoteId}`);
+
+      // DEBUG: Verify no permitData in final payload
+      const payloadStr = JSON.stringify(swapPayload);
+      if (payloadStr.includes('permitData')) {
+        console.error(`[${this.name}] ❌ CRITICAL: permitData still in payload!`);
+        throw new SwapError(
+          SwapErrorCode.PROVIDER_ERROR,
+          'Cannot prepare swap: permitData requires user signature which is not available server-side',
+          { hasPermitData: true },
+          400
+        );
+      }
+
+      console.log(`[${this.name}] ✅ Payload validated (no permitData)`);
 
       const response = await this.retryRequest<UniswapCreateResponse>(
         () => this.client.post(endpoint, swapPayload)
@@ -524,31 +575,19 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         gasLimit: swapTx.gasLimit,
       }, null, 2));
 
-      // CRITICAL FIX: Uniswap Trading API sometimes encodes wrong minAmountOut in calldata
-      // We need to patch the last 32 bytes with the correct minAmount from the quote
-      if (swapTx.data && quoteMinAmount) {
-        const originalData = swapTx.data;
-        const minAmountFromCalldata = '0x' + originalData.slice(-64);
-        const expectedMinAmount = BigInt(quoteMinAmount);
-        const actualMinAmount = BigInt(minAmountFromCalldata);
-
-        if (actualMinAmount !== expectedMinAmount) {
-          console.warn(`[${this.name}] ⚠️ MinAmount mismatch detected in calldata!`);
-          console.warn(`[${this.name}]    Expected: ${expectedMinAmount.toString()} (from quote)`);
-          console.warn(`[${this.name}]    Got:      ${actualMinAmount.toString()} (from API calldata)`);
-          console.warn(`[${this.name}]    Difference: ${(actualMinAmount - expectedMinAmount).toString()}`);
-          console.warn(`[${this.name}]    Patching calldata with correct minAmount...`);
-
-          // Replace last 32 bytes with correct minAmount
-          const minAmountHex = expectedMinAmount.toString(16).padStart(64, '0');
-          swapTx.data = originalData.slice(0, -64) + minAmountHex;
-
-          console.log(`[${this.name}] ✅ Calldata patched successfully`);
-          console.log(`[${this.name}]    New minAmount: ${minAmountHex} = ${expectedMinAmount.toString()}`);
-        } else {
-          console.log(`[${this.name}] ✅ MinAmount in calldata matches quote (${expectedMinAmount.toString()})`);
-        }
+      // Decode the function selector to understand what's being called
+      if (swapTx.data) {
+        const selector = swapTx.data.substring(0, 10);
+        const selectorNames: Record<string, string> = {
+          '0x3593564c': 'execute(bytes,bytes[],uint256)', // Universal Router
+          '0x24856bc3': 'execute(bytes,bytes[])',
+          '0xabb979b9': 'multicall(bytes[])',
+        };
+        console.log(`[${this.name}] 🔍 Function selector: ${selector} (${selectorNames[selector] || 'unknown'})`);
       }
+
+      // Use calldata EXACTLY as returned by Uniswap API - no modifications
+      console.log(`[${this.name}] ✅ Using calldata exactly as returned by Uniswap API`);
 
       // Step 4: Build transactions array
       const transactions: Transaction[] = [];
@@ -559,48 +598,26 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         transactions.push(this.mapTransaction(approvalCheck.cancel, 'Cancel previous approval'));
       }
 
-      // Add approval if needed
-      if (approvalCheck?.approval) {
-        console.log(`[${this.name}] 📝 Adding approval transaction`);
-        transactions.push(this.mapTransaction(approvalCheck.approval, 'Approve token'));
-      } else if (!this.isNativeToken(request.fromToken)) {
-        // CRITICAL FIX: If API says no approval needed for ERC-20, but we suspect it's wrong,
-        // try to force approval creation by calling check_approval with unlimited amount
-        console.warn(`[${this.name}] ⚠️ API says no approval needed, but this is an ERC-20 token.`);
-        console.warn(`[${this.name}] ⚠️ Attempting to force approval creation...`);
-
-        try {
-          const UNLIMITED_APPROVAL = '115792089237316195423570985008687907853269984665640564039457584007913129639935'; // 2^256 - 1
-          const forceApprovalRequest: any = {
-            walletAddress: request.sender,
-            token: this.normalizeTokenAddress(request.fromToken),
-            amount: UNLIMITED_APPROVAL, // Max uint256
-            chainId: request.fromChainId,
-            includeGasInfo: true,
-            urgency: 'urgent',
-            tokenOut: this.normalizeTokenAddress(request.toToken),
-            tokenOutChainId: request.toChainId,
-          };
-
-          const forceApprovalResponse = await this.retryRequest<UniswapApprovalResponse>(
-            () => this.client.post('/check_approval', forceApprovalRequest)
-          );
-
-          if (forceApprovalResponse?.approval) {
-            console.log(`[${this.name}] ✅ Forced approval transaction created!`);
-            transactions.push(this.mapTransaction(forceApprovalResponse.approval, 'Approve token (forced)'));
-          } else {
-            console.log(`[${this.name}] ℹ️ Even with unlimited amount, API says no approval needed.`);
-            console.log(`[${this.name}] ℹ️ Wallet may already have sufficient approval.`);
-          }
-        } catch (forceError) {
-          console.error(`[${this.name}] ⚠️ Failed to force approval creation:`, forceError);
-          // Continue anyway - the swap might still work if approval truly exists
-        }
+      // Add Permit2 approval transaction if returned by quote (when generatePermitAsTransaction=true)
+      if (quoteResponse.permitTransaction) {
+        console.log(`[${this.name}] 📝 Adding Permit2 approval transaction from quote`);
+        transactions.push(this.mapTransaction(quoteResponse.permitTransaction, 'Approve Permit2'));
       }
 
-      // Add swap transaction
+      // Add approval ONLY if API says it's needed - trust the API completely
+      if (approvalCheck?.approval) {
+        console.log(`[${this.name}] 📝 Adding approval transaction from check_approval`);
+        transactions.push(this.mapTransaction(approvalCheck.approval, 'Approve token'));
+      }
+
+      // Log if no approval was added
+      if (!approvalCheck?.approval && !quoteResponse.permitTransaction && !approvalCheck?.cancel) {
+        console.log(`[${this.name}] ℹ️ No approval transaction needed`);
+      }
+
+      // Add swap transaction - use EXACT gas limit from Uniswap API
       console.log(`[${this.name}] 📝 Adding swap transaction`);
+      console.log(`[${this.name}] 📝 Using exact gas limit from API: ${swapTx.gasLimit}`);
       transactions.push(this.mapTransaction(swapTx, 'Execute swap'));
 
       if (transactions.length === 0) {
@@ -627,10 +644,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
           quote: response.quote,
           route: response.route,
           gasFee: response.gasFee,
-          // CRITICAL: Skip MetaMask simulation since we patched the calldata
-          // MetaMask simulation uses current block state, but our quote is from a previous block
-          skipSimulation: true,
-          slippageTolerance: `${this.slippageBps / 100}%`,
+          slippageTolerance: `${this.slippagePercent}%`,
           minAmountOut: quoteMinAmount,
         },
       };

@@ -145,6 +145,10 @@ export class ThirdwebProviderAdapter implements ISwapProvider {
       metadata: {
         bridgeQuoteId: prepared.bridgeQuoteId,
         raw: prepared,
+        // CRITICAL: Skip MetaMask simulation to bypass 0x7939f424 errors
+        // MetaMask simulation uses current block state, but quotes can be from previous blocks
+        // This enables direct window.ethereum sending in the frontend
+        skipSimulation: true,
       },
     };
   }
