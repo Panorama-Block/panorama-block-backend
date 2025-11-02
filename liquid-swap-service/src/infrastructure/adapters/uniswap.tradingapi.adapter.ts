@@ -588,15 +588,11 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       if (approvalCheck?.approval) {
         console.log(`[${this.name}] 📝 Adding approval transaction from check_approval`);
         transactions.push(this.mapTransaction(approvalCheck.approval, 'Approve token'));
-      } else if (quoteResponse.permitTransaction) {
-        // Only use permitTransaction if check_approval didn't return one
-        console.log(`[${this.name}] 📝 Adding Permit2 approval transaction from quote`);
-        transactions.push(this.mapTransaction(quoteResponse.permitTransaction, 'Approve Permit2'));
-      }
-
-      // Log if no approval was added
-      if (!approvalCheck?.approval && !quoteResponse.permitTransaction && !approvalCheck?.cancel) {
-        console.log(`[${this.name}] ℹ️ No approval transaction needed`);
+      } else if (!this.isNativeToken(request.fromToken)) {
+        // API says no approval needed for ERC-20 token
+        // This means the wallet already has sufficient approval
+        console.log(`[${this.name}] ✅ Wallet already has sufficient approval for ${request.fromToken}`);
+        console.log(`[${this.name}] ℹ️ Skipping approval transaction - proceeding directly to swap`);
       }
 
       // Add swap transaction - use EXACT gas limit from Uniswap API
