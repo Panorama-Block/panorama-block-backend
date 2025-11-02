@@ -1,5 +1,5 @@
-import { Bridge, NATIVE_TOKEN_ADDRESS } from "thirdweb";
-import { thirdwebSdk } from "./thirdwebClient";
+import { NATIVE_TOKEN_ADDRESS } from "thirdweb";
+import { resolveToken, getNativeMetadata } from "../config/tokens/registry";
 
 const decimalsCache = new Map<string, number>(); // key: `${chainId}:${address}`
 
@@ -7,15 +7,46 @@ export async function getTokenDecimals(
   chainId: number,
   tokenAddressOrNative: string
 ): Promise<number> {
-  if (tokenAddressOrNative.toLowerCase() === "native") return 18;
-  const key = `${chainId}:${tokenAddressOrNative.toLowerCase()}`;
+  // Check if native token
+  const normalized = tokenAddressOrNative.toLowerCase();
+  if (normalized === "native" || normalized === NATIVE_TOKEN_ADDRESS.toLowerCase()) {
+    const nativeMeta = getNativeMetadata(chainId);
+    return nativeMeta.decimals;
+  }
+
+  // Check cache
+  const key = `${chainId}:${normalized}`;
   const cached = decimalsCache.get(key);
   if (cached !== undefined) return cached;
-  const tokenAddr = tokenAddressOrNative.toLowerCase() === 'native' ? NATIVE_TOKEN_ADDRESS : tokenAddressOrNative;
-  const tokens = await Bridge.tokens({ client: thirdwebSdk, chainId, tokenAddress: tokenAddr });
-  const dec = tokens?.[0]?.decimals ?? 18;
-  decimalsCache.set(key, dec);
-  return dec;
+
+  // Try to resolve from registry
+  try {
+    // Try 'uniswap' first (covers both Trading API and Smart Router tokens)
+    try {
+      const token = resolveToken('uniswap', chainId, tokenAddressOrNative);
+      const decimals = token.metadata.decimals;
+      decimalsCache.set(key, decimals);
+      return decimals;
+    } catch {
+      // Try thirdweb as fallback
+      try {
+        const token = resolveToken('thirdweb', chainId, tokenAddressOrNative);
+        const decimals = token.metadata.decimals;
+        decimalsCache.set(key, decimals);
+        return decimals;
+      } catch {
+        // If not found in registry, default to 18 (standard ERC20)
+        console.warn(`[token.utils] Token ${tokenAddressOrNative} not found in registry for chain ${chainId}, defaulting to 18 decimals`);
+        decimalsCache.set(key, 18);
+        return 18;
+      }
+    }
+  } catch (error) {
+    console.error(`[token.utils] Error getting token decimals:`, error);
+    // Default to 18 decimals for ERC20 tokens
+    decimalsCache.set(key, 18);
+    return 18;
+  }
 }
 
 export function toWei(amountHuman: string, decimals: number): bigint {

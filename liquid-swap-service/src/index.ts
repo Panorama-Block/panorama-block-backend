@@ -20,6 +20,7 @@ import { verifyJwtMiddleware } from "./middleware/authMiddleware";
 import { requestContextMiddleware } from "./infrastructure/http/middlewares/request-context.middleware";
 import { createErrorResponder } from "./infrastructure/http/middlewares/error.responder";
 import { SwapError, SwapErrorCode } from "./domain/entities/errors";
+import { DIContainer } from "./infrastructure/di/container";
 
 const PORT = process.env.PORT || process.env.LIQUID_SWAP_PORT || 3002;
 
@@ -92,7 +93,14 @@ try {
 
   // Rotas protegidas por JWT
   console.log("[Liquid Swap Service] 🔗 Registering routes...");
-  
+
+  // Debug route without authentication (for development only)
+  if (process.env.NODE_ENV === "development") {
+    const di = DIContainer.getInstance();
+    app.post("/debug/compare-providers", di.swapController.compareProviders);
+    console.log("[Liquid Swap Service] 🔍 Debug endpoint enabled: /debug/compare-providers");
+  }
+
   app.use("/swap", verifyJwtMiddleware, swapRouter);
 
   // Health check
