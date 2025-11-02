@@ -74,6 +74,7 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
   private tokenCache: Map<string, Token>;
   private readonly rpcTimeoutMs: number;
   private readonly gasBufferBps = 12000; // +20% buffer
+  private readonly slippageBps: number; // Default slippage in basis points (e.g., 300 = 3%)
 
   constructor() {
     this.supportedChains = Object.keys(CHAIN_CONFIGS).map(Number);
@@ -81,8 +82,16 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
     const rawTimeout = process.env.SMART_ROUTER_RPC_TIMEOUT_MS;
     const parsedTimeout = rawTimeout ? Number(rawTimeout) : undefined;
     this.rpcTimeoutMs = parsedTimeout && parsedTimeout > 0 ? parsedTimeout : 10000;
+
+    // Configurable slippage tolerance - default to 10% (1000 bps) to avoid V2_TOO_LITTLE_RECEIVED errors
+    // High default is needed because MetaMask simulation happens with different block state
+    const rawSlippage = process.env.UNISWAP_SLIPPAGE_BPS;
+    const parsedSlippage = rawSlippage ? Number(rawSlippage) : undefined;
+    this.slippageBps = parsedSlippage && parsedSlippage > 0 ? parsedSlippage : 1000; // 10% default for safety
+
     this.initializeRouters();
     console.log(`[${this.name}] Initialized for chains: ${this.supportedChains.join(', ')}`);
+    console.log(`[${this.name}] Slippage tolerance: ${this.slippageBps / 100}% (${this.slippageBps} bps)`);
   }
 
   /**
@@ -97,12 +106,13 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
           continue;
         }
 
-        // Create provider with explicit network configuration
+        // Use StaticJsonRpcProvider to avoid async network detection issues
+        // StaticJsonRpcProvider requires explicit network and skips detection
         const network = {
           name: `chain-${chainId}`,
           chainId: chainId
         };
-        const provider = new ethers.providers.JsonRpcProvider(
+        const provider = new ethers.providers.StaticJsonRpcProvider(
           { url: rpcUrl, timeout: this.rpcTimeoutMs },
           network
         );
@@ -230,16 +240,18 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
       const amountIn = CurrencyAmount.fromRawAmount(tokenIn, amount.toString());
 
       console.log(`[${this.name}] Routing ${amountIn.toFixed()} ${tokenIn.symbol} → ${tokenOut.symbol}...`);
+      console.log(`[${this.name}] Using slippage tolerance: ${this.slippageBps / 100}% (${this.slippageBps} bps)`);
 
       // Get route from AlphaRouter
+      // AlphaRouter automatically searches both V2 and V3 pools by default
       const route = await router.route(
         amountIn,
         tokenOut,
         TradeType.EXACT_INPUT,
         {
           recipient: sender,
-          slippageTolerance: new Percent(50, 10_000), // 0.5% default
-          deadline: Math.floor(Date.now() / 1000 + 1800), // 30 minutes
+          slippageTolerance: new Percent(this.slippageBps, 10_000), // Configurable slippage
+          deadline: Math.floor(Date.now() / 1000 + 3600), // 60 minutes - longer deadline for safety
           type: SwapType.SWAP_ROUTER_02
         }
       );
@@ -266,8 +278,18 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
         15 // estimatedDuration - typical Uniswap swap time in seconds
       );
     } catch (error) {
-      console.error(`[${this.name}] ❌ Quote failed:`, (error as Error).message);
-      throw new Error(`[${this.name}] Failed to get quote: ${(error as Error).message}`);
+      const errorMsg = (error as Error).message;
+      console.error(`[${this.name}] ❌ Quote failed:`, errorMsg);
+
+      // Check for V2_TOO_LITTLE_RECEIVED error (0x7939f424)
+      if (errorMsg.includes('0x7939f424') || errorMsg.includes('V2_TOO_LITTLE_RECEIVED')) {
+        throw new Error(
+          `[${this.name}] Slippage tolerance too low (current: ${this.slippageBps / 100}%). ` +
+          `Increase UNISWAP_SLIPPAGE_BPS env variable (e.g., 300 for 3%, 500 for 5%).`
+        );
+      }
+
+      throw new Error(`[${this.name}] Failed to get quote: ${errorMsg}`);
     }
   }
 
@@ -308,16 +330,18 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
       const amountIn = CurrencyAmount.fromRawAmount(tokenIn, amount.toString());
 
       console.log(`[${this.name}] Routing ${amountIn.toFixed()} ${tokenIn.symbol} → ${tokenOut.symbol}...`);
+      console.log(`[${this.name}] Using slippage tolerance: ${this.slippageBps / 100}% (${this.slippageBps} bps)`);
 
       // Get route from AlphaRouter
+      // AlphaRouter automatically searches both V2 and V3 pools by default
       const route = await router.route(
         amountIn,
         tokenOut,
         TradeType.EXACT_INPUT,
         {
           recipient: sender,
-          slippageTolerance: new Percent(50, 10_000), // 0.5% default
-          deadline: Math.floor(Date.now() / 1000 + 1800), // 30 minutes
+          slippageTolerance: new Percent(this.slippageBps, 10_000), // Configurable slippage
+          deadline: Math.floor(Date.now() / 1000 + 3600), // 60 minutes - longer deadline for safety
           type: SwapType.SWAP_ROUTER_02
         }
       );
@@ -332,74 +356,49 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
       const paddedGasLimit = this.applyGasBuffer(route.estimatedGasUsed);
       const gasPriceWei = route.gasPriceWei ?? BigNumber.from(0);
 
+      console.log(`[${this.name}] 📋 Swap details:`, {
+        slippage: `${this.slippageBps / 100}%`,
+        minAmountOut: route.quote.quotient.toString(),
+        gasLimit: paddedGasLimit.toString(),
+        to: route.methodParameters.to,
+        value: route.methodParameters.value,
+        hasRoute: !!route.route,
+        routeLength: route.route?.length
+      });
+
       const transactions: PreparedSwap['transactions'] = [];
 
-      // For ERC20 inputs ensure allowance exists
+      // For ERC20 inputs, ALWAYS include approval transaction
+      // This ensures the frontend can handle approval properly, even if allowance exists
       if (!this.isNativeToken(fromTokenAddr)) {
-        const allowanceAbi = [
-          'function allowance(address owner, address spender) view returns (uint256)'
-        ];
         const approveAbi = [
           'function approve(address spender, uint256 amount) returns (bool)'
         ];
-        const tokenContract = new ethers.Contract(tokenIn.address, allowanceAbi, provider);
 
         try {
-          const currentAllowance: BigNumber = await tokenContract.allowance(
-            sender,
-            route.methodParameters.to
+          const approveInterface = new ethers.utils.Interface(approveAbi);
+          const approveCalldata = approveInterface.encodeFunctionData('approve', [
+            route.methodParameters.to,
+            ethers.constants.MaxUint256
+          ]);
+
+          transactions.push({
+            to: tokenIn.address,
+            data: approveCalldata,
+            value: '0',
+            chainId,
+            gasLimit: BigNumber.from(60_000).toString()
+          });
+
+          console.log(
+            `[${this.name}] ✅ Added approval transaction for ${tokenIn.symbol} -> ${route.methodParameters.to}`
           );
-          const requiredAmount = BigNumber.from(amount.toString());
-
-          if (currentAllowance.lt(requiredAmount)) {
-            const approveInterface = new ethers.utils.Interface(approveAbi);
-            const approveCalldata = approveInterface.encodeFunctionData('approve', [
-              route.methodParameters.to,
-              ethers.constants.MaxUint256
-            ]);
-
-            transactions.push({
-              to: tokenIn.address,
-              data: approveCalldata,
-              value: '0',
-              chainId,
-              gasLimit: BigNumber.from(60_000).toString()
-            });
-
-            console.log(
-              `[${this.name}] Added approval transaction for ${tokenIn.symbol} -> ${route.methodParameters.to}`
-            );
-          }
-        } catch (allowanceError) {
-          console.warn(
-            `[${this.name}] Failed to verify allowance for ${tokenIn.address}:`,
-            (allowanceError as Error).message
+        } catch (encodeError) {
+          console.error(
+            `[${this.name}] ❌ Unable to encode approval transaction:`,
+            (encodeError as Error).message
           );
-          // Fallback: always push approval to avoid swap failure
-          try {
-            const approveInterface = new ethers.utils.Interface([
-              'function approve(address spender, uint256 amount) returns (bool)'
-            ]);
-            const approveCalldata = approveInterface.encodeFunctionData('approve', [
-              route.methodParameters.to,
-              ethers.constants.MaxUint256
-            ]);
-            transactions.push({
-              to: tokenIn.address,
-              data: approveCalldata,
-              value: '0',
-              chainId,
-              gasLimit: BigNumber.from(60_000).toString()
-            });
-            console.log(
-              `[${this.name}] Added optimistic approval transaction for ${tokenIn.symbol}`
-            );
-          } catch (encodeError) {
-            console.error(
-              `[${this.name}] Unable to encode approval transaction:`,
-              (encodeError as Error).message
-            );
-          }
+          throw new Error(`Failed to prepare approval transaction: ${(encodeError as Error).message}`);
         }
       }
 
@@ -422,12 +421,27 @@ export class UniswapSmartRouterAdapter implements ISwapProvider {
         metadata: {
           quote: route.quote.toFixed(),
           estimatedGasUsed: route.estimatedGasUsed.toString(),
-          gasPriceWei: gasPriceWei.toString()
+          gasPriceWei: gasPriceWei.toString(),
+          slippageTolerance: `${this.slippageBps / 100}%`,
+          slippageBps: this.slippageBps,
+          routerAddress: route.methodParameters.to,
+          // Hint for frontend: do not simulate, this transaction is pre-validated
+          skipSimulation: true
         }
       };
     } catch (error) {
-      console.error(`[${this.name}] ❌ Prepare swap failed:`, (error as Error).message);
-      throw new Error(`[${this.name}] Failed to prepare swap: ${(error as Error).message}`);
+      const errorMsg = (error as Error).message;
+      console.error(`[${this.name}] ❌ Prepare swap failed:`, errorMsg);
+
+      // Check for V2_TOO_LITTLE_RECEIVED error (0x7939f424)
+      if (errorMsg.includes('0x7939f424') || errorMsg.includes('V2_TOO_LITTLE_RECEIVED')) {
+        throw new Error(
+          `[${this.name}] Slippage tolerance too low (current: ${this.slippageBps / 100}%). ` +
+          `Increase UNISWAP_SLIPPAGE_BPS env variable (e.g., 300 for 3%, 500 for 5%).`
+        );
+      }
+
+      throw new Error(`[${this.name}] Failed to prepare swap: ${errorMsg}`);
     }
   }
 

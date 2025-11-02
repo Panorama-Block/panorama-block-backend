@@ -2,8 +2,10 @@
 // Wraps ThirdwebSwapAdapter to implement ISwapProvider interface
 import { ISwapProvider, RouteParams, PreparedSwap, Transaction } from "../../domain/ports/swap.provider.port";
 import { SwapRequest, SwapQuote, TransactionStatus } from "../../domain/entities/swap";
+import { SwapError, SwapErrorCode } from "../../domain/entities/errors";
 import { ThirdwebSwapAdapter } from "./thirdweb.swap.adapter";
 import { isTokenSupported, resolveToken } from "../../config/tokens/registry";
+import { sanitizePreparedTransactions } from "./transaction-filter";
 
 /**
  * ThirdwebProviderAdapter
@@ -122,6 +124,30 @@ export class ThirdwebProviderAdapter implements ISwapProvider {
       }
     }
 
+    const { executable, discarded } = sanitizePreparedTransactions(
+      transactions,
+      request.fromChainId
+    );
+
+    if (discarded.length > 0) {
+      console.log("[ThirdwebProvider] Skipping non-origin chain transactions", {
+        originChainId: request.fromChainId,
+        discardedChains: Array.from(new Set(discarded.map((tx) => tx.chainId))),
+      });
+    }
+
+    if (executable.length === 0) {
+      throw new SwapError(
+        SwapErrorCode.PROVIDER_ERROR,
+        "Thirdweb returned no executable transactions for the origin chain",
+        {
+          originChainId: request.fromChainId,
+          returnedChains: Array.from(new Set(transactions.map((tx) => tx.chainId))),
+        },
+        502
+      );
+    }
+
     if (transactions.length === 0) {
       console.warn("[ThirdwebProvider] ⚠️ No transactions returned by thirdweb prepare", {
         steps: prepared.steps?.length ?? 0,
@@ -131,7 +157,7 @@ export class ThirdwebProviderAdapter implements ISwapProvider {
 
     return {
       provider: this.name,
-      transactions,
+      transactions: executable,
       estimatedDuration: Math.floor(
         (prepared.estimatedExecutionTimeMs ?? 60_000) / 1000
       ),
@@ -142,10 +168,11 @@ export class ThirdwebProviderAdapter implements ISwapProvider {
               : prepared.expiration
           )
         : undefined,
-      metadata: {
-        bridgeQuoteId: prepared.bridgeQuoteId,
-        raw: prepared,
-      },
+        metadata: {
+          bridgeQuoteId: prepared.bridgeQuoteId,
+          raw: prepared,
+          discardedTransactions: discarded,
+        },
     };
   }
 

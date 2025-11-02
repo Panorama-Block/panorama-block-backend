@@ -173,7 +173,6 @@
       "decimals": 18,
       "icon": "https://assets.coingecko.com/coins/images/825/small/binance-coin-logo.png",
       "identifiers": {
-        "uniswap": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
         "thirdweb": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
       },
       "wrapped": {
@@ -189,7 +188,6 @@
         "name": "Wrapped BNB",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/825/small/binance-coin-logo.png"
@@ -200,7 +198,6 @@
         "name": "Binance USD",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/9576/small/BUSD.png"
@@ -211,7 +208,6 @@
         "name": "Tether USD",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/325/small/Tether.png"
@@ -222,7 +218,6 @@
         "name": "USD Coin",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/6319/small/usdc.png"
@@ -233,7 +228,6 @@
         "name": "Dai Stablecoin",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/9956/small/Badge_Dai.png"
@@ -244,7 +238,6 @@
         "name": "Bitcoin BEP2",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/1/small/bitcoin.png"
@@ -255,7 +248,6 @@
         "name": "Binance-Peg Ethereum",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
@@ -266,7 +258,6 @@
         "name": "PancakeSwap",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/12632/small/pancakeswap-cake-logo.png"
@@ -277,7 +268,6 @@
         "name": "Chainlink",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png"
@@ -288,7 +278,6 @@
         "name": "Polygon (Binance-Peg)",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png"
@@ -299,7 +288,6 @@
         "name": "Cardano (Binance-Peg)",
         "decimals": 18,
         "providers": [
-          "uniswap",
           "thirdweb"
         ],
         "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png"
