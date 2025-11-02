@@ -318,10 +318,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         quoteId: response.quote?.quoteId,
       });
 
-      // Cache the quote for reuse in prepareSwap()
-      this.cacheQuote(request, response);
 
-      // Map to domain entity
       return this.mapToSwapQuote(response, request);
 
     } catch (error) {
@@ -418,48 +415,33 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       // Step 1: Check if approval is needed
       const approvalCheck = await this.checkApproval(request);
 
-      // Step 2: Try to get cached quote first (to reuse the same quoteId)
-      let quoteResponse = this.getCachedQuote(request);
+      // Step 2: ALWAYS get a fresh quote (cache disabled due to inconsistencies)
+      // Previously: We tried to reuse cached quotes, but this caused permitTransaction
+      // mismatches between /quote (user-facing) and /swap (execution)
+      console.log(`[${this.name}] Fetching fresh quote for prepare...`);
 
-      // CRITICAL: Invalidate cached quote if it doesn't have permitTransaction
-      // This happens when quote was cached before we added generatePermitAsTransaction=true
-      if (quoteResponse && !quoteResponse.permitTransaction && !this.isNativeToken(request.fromToken)) {
-        console.log(`[${this.name}] ⚠️ Cached quote missing permitTransaction, fetching fresh quote...`);
-        quoteResponse = null;
-      }
+      // Build request payload
+      const payload = {
+        tokenIn: this.normalizeTokenAddress(request.fromToken),
+        tokenOut: this.normalizeTokenAddress(request.toToken),
+        amount: request.amount.toString(),
+        type: 'EXACT_INPUT',
+        tokenInChainId: request.fromChainId,
+        tokenOutChainId: request.toChainId,
+        swapper: request.sender,
+        recipient: request.receiver !== request.sender ? request.receiver : undefined,
+        slippageTolerance: this.slippagePercent, // Configurable via UNISWAP_TRADING_API_SLIPPAGE
+        enableUniversalRouter: true,
+        simulateTransaction: false, // Disable simulation - let the wallet handle it
+        // CRITICAL: Force Permit2 to be returned as on-chain transaction
+        generatePermitAsTransaction: true,
+      };
 
-      // If no cached quote, get a fresh one
-      if (!quoteResponse) {
-        console.log(`[${this.name}] No cached quote, fetching fresh quote...`);
+      console.log(`[${this.name}] Preparing swap with ${this.slippagePercent}% slippage`);
 
-        // Build request payload
-        const payload = {
-          tokenIn: this.normalizeTokenAddress(request.fromToken),
-          tokenOut: this.normalizeTokenAddress(request.toToken),
-          amount: request.amount.toString(),
-          type: 'EXACT_INPUT',
-          tokenInChainId: request.fromChainId,
-          tokenOutChainId: request.toChainId,
-          swapper: request.sender,
-          recipient: request.receiver !== request.sender ? request.receiver : undefined,
-          slippageTolerance: this.slippagePercent, // Configurable via UNISWAP_TRADING_API_SLIPPAGE
-          enableUniversalRouter: true,
-          simulateTransaction: false, // Disable simulation - let the wallet handle it
-          // CRITICAL: Force Permit2 to be returned as on-chain transaction
-          generatePermitAsTransaction: true,
-        };
-
-        console.log(`[${this.name}] Preparing swap with ${this.slippagePercent}% slippage`);
-
-        quoteResponse = await this.retryRequest<UniswapQuoteResponse>(
-          () => this.client.post('/quote', payload)
-        );
-
-        // Cache this new quote
-        this.cacheQuote(request, quoteResponse);
-      } else {
-        console.log(`[${this.name}] ♻️ Reusing cached quote with slippage: ${this.slippagePercent}%`);
-      }
+      const quoteResponse = await this.retryRequest<UniswapQuoteResponse>(
+        () => this.client.post('/quote', payload)
+      );
 
       if (!quoteResponse?.quote) {
         throw new SwapError(
@@ -558,12 +540,14 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       console.log(`[${this.name}] ✅ Swap transaction received:`, {
         to: swapTx.to,
         value: swapTx.value,
+        valueInETH: swapTx.value !== '0x00' ? `${BigInt(swapTx.value) / BigInt(1e18)} ETH` : '0',
         hasData: !!swapTx.data,
         dataLength: swapTx.data?.length,
         chainId: swapTx.chainId,
         gasLimit: swapTx.gasLimit,
         maxFeePerGas: swapTx.maxFeePerGas,
         maxPriorityFeePerGas: swapTx.maxPriorityFeePerGas,
+        isNativeSwap: this.isNativeToken(request.fromToken),
       });
 
       // Log full transaction data for debugging
@@ -598,16 +582,16 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         transactions.push(this.mapTransaction(approvalCheck.cancel, 'Cancel previous approval'));
       }
 
-      // Add Permit2 approval transaction if returned by quote (when generatePermitAsTransaction=true)
-      if (quoteResponse.permitTransaction) {
-        console.log(`[${this.name}] 📝 Adding Permit2 approval transaction from quote`);
-        transactions.push(this.mapTransaction(quoteResponse.permitTransaction, 'Approve Permit2'));
-      }
-
-      // Add approval ONLY if API says it's needed - trust the API completely
+      // CRITICAL: Prefer check_approval over permitTransaction
+      // They both return Permit2 approval, but check_approval is more accurate
+      // as it checks the actual on-chain state
       if (approvalCheck?.approval) {
         console.log(`[${this.name}] 📝 Adding approval transaction from check_approval`);
         transactions.push(this.mapTransaction(approvalCheck.approval, 'Approve token'));
+      } else if (quoteResponse.permitTransaction) {
+        // Only use permitTransaction if check_approval didn't return one
+        console.log(`[${this.name}] 📝 Adding Permit2 approval transaction from quote`);
+        transactions.push(this.mapTransaction(quoteResponse.permitTransaction, 'Approve Permit2'));
       }
 
       // Log if no approval was added
