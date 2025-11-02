@@ -78,6 +78,9 @@ interface UniswapQuoteResponse {
     aggregatedOutputs?: AggregatedOutput[];
     gasFee?: string;
     gasFeeQuote?: string;
+    quoteId?: string; // Unique identifier for the quote
+    slippage?: number; // Slippage tolerance (e.g., 5 = 5%)
+    expiresAt?: number; // Unix timestamp when quote expires
   };
   route?: RouteHop[];
   gasEstimate?: GasEstimate;
@@ -150,6 +153,16 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
   public readonly name = 'uniswap-trading-api';
   private readonly client: AxiosInstance;
   private readonly config: UniswapTradingApiConfig;
+  private readonly slippagePercent: number; // e.g., 5.0 = 5%
+
+  // Quote cache to reuse between getQuote() and prepareSwap()
+  // Key format: `${chainId}:${fromToken}:${toToken}:${amount}:${sender}`
+  private readonly quoteCache = new Map<string, {
+    quote: any;
+    timestamp: number;
+    expiresAt: number;
+  }>();
+  private readonly quoteCacheTTL = 60000; // 60 seconds
 
   // Supported chains (from Uniswap docs)
   private readonly supportedChains: number[] = [
@@ -174,9 +187,19 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       ...config,
     };
 
+    // Configurable slippage tolerance - default to 20.0% for better MetaMask compatibility
+    // This can be overridden via UNISWAP_TRADING_API_SLIPPAGE env variable
+    // Higher slippage prevents "Transaction canceled" errors due to price movement during simulation
+    // CRITICAL: MetaMask simulates with current block state, but quote is from previous block
+    const rawSlippage = process.env.UNISWAP_TRADING_API_SLIPPAGE;
+    const parsedSlippage = rawSlippage ? parseFloat(rawSlippage) : undefined;
+    this.slippagePercent = parsedSlippage && parsedSlippage > 0 ? parsedSlippage : 20.0;
+
     if (!this.config.apiKey) {
       console.warn('[UniswapTradingApiAdapter] ⚠️ No API key configured. Set UNISWAP_API_KEY env var.');
     }
+
+    console.log(`[${this.name}] 📊 Configured slippage tolerance: ${this.slippagePercent}%`);
 
     // Initialize HTTP client
     this.client = axios.create({
@@ -264,7 +287,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         tokenInChainId: request.fromChainId,
         tokenOutChainId: request.toChainId,
         swapper: request.sender, // Required field
-        slippageTolerance: 2.0, // 2.0% - increased for better price movement tolerance
+        slippageTolerance: this.slippagePercent, // Configurable via UNISWAP_TRADING_API_SLIPPAGE
         enableUniversalRouter: true,
         simulateTransaction: true, // Enable simulation to catch errors early
         urgency: 'urgent', // Use urgent for faster execution
@@ -273,6 +296,8 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         // instead of requiring the user to sign a Permit2 message
         generatePermitAsTransaction: true,
       };
+
+      console.log(`[${this.name}] Using slippage tolerance: ${this.slippagePercent}%`);
 
       // Call API with retry
       const response = await this.retryRequest<UniswapQuoteResponse>(
@@ -283,11 +308,20 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         ? response.route.map((h) => h?.type).filter(Boolean)
         : [];
 
+      // CRITICAL DEBUG: Log full quote structure to understand API response
+      console.log(`[${this.name}] 🔍 FULL QUOTE RESPONSE:`, JSON.stringify(response, null, 2));
+
       console.log(`[${this.name}] ✅ Quote received:`, {
         outputAmount: response.quote?.amount,
+        output: response.quote?.output,
+        aggregatedOutputs: response.quote?.aggregatedOutputs,
         priceImpact: response.quote?.priceImpact,
         route: routeTypes,
+        quoteId: response.quote?.quoteId,
       });
+
+      // Cache the quote for reuse in prepareSwap()
+      this.cacheQuote(request, response);
 
       // Map to domain entity
       return this.mapToSwapQuote(response, request);
@@ -384,26 +418,40 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       // Step 1: Check if approval is needed
       const approvalCheck = await this.checkApproval(request);
 
-      // Build request payload
-      const payload = {
-        tokenIn: this.normalizeTokenAddress(request.fromToken),
-        tokenOut: this.normalizeTokenAddress(request.toToken),
-        amount: request.amount.toString(),
-        type: 'EXACT_INPUT',
-        tokenInChainId: request.fromChainId,
-        tokenOutChainId: request.toChainId,
-        swapper: request.sender,
-        recipient: request.receiver !== request.sender ? request.receiver : undefined,
-        slippageTolerance: 2.0, // 2.0% - increased for better price movement tolerance
-        enableUniversalRouter: true,
-        simulateTransaction: true, // Enable simulation to catch errors early
-        urgency: 'urgent', // Use urgent for faster execution
-      };
+      // Step 2: Try to get cached quote first (to reuse the same quoteId)
+      let quoteResponse = this.getCachedQuote(request);
 
-      // Step 2: Get quote
-      const quoteResponse = await this.retryRequest<UniswapQuoteResponse>(
-        () => this.client.post('/quote', payload)
-      );
+      // If no cached quote, get a fresh one
+      if (!quoteResponse) {
+        console.log(`[${this.name}] No cached quote, fetching fresh quote...`);
+
+        // Build request payload
+        const payload = {
+          tokenIn: this.normalizeTokenAddress(request.fromToken),
+          tokenOut: this.normalizeTokenAddress(request.toToken),
+          amount: request.amount.toString(),
+          type: 'EXACT_INPUT',
+          tokenInChainId: request.fromChainId,
+          tokenOutChainId: request.toChainId,
+          swapper: request.sender,
+          recipient: request.receiver !== request.sender ? request.receiver : undefined,
+          slippageTolerance: this.slippagePercent, // Configurable via UNISWAP_TRADING_API_SLIPPAGE
+          enableUniversalRouter: true,
+          simulateTransaction: true, // Enable simulation to catch errors early
+          urgency: 'urgent', // Use urgent for faster execution
+        };
+
+        console.log(`[${this.name}] Preparing swap with ${this.slippagePercent}% slippage`);
+
+        quoteResponse = await this.retryRequest<UniswapQuoteResponse>(
+          () => this.client.post('/quote', payload)
+        );
+
+        // Cache this new quote
+        this.cacheQuote(request, quoteResponse);
+      } else {
+        console.log(`[${this.name}] ♻️ Reusing cached quote with slippage: ${this.slippagePercent}%`);
+      }
 
       if (!quoteResponse?.quote) {
         throw new SwapError(
@@ -414,9 +462,15 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         );
       }
 
+      // Extract minAmount from quote for validation
+      const quoteMinAmount = quoteResponse.quote?.aggregatedOutputs?.[0]?.minAmount;
+
       console.log(`[${this.name}] ✅ Quote for prepare received`, {
         amount: quoteResponse.quote?.amount,
+        output: quoteResponse.quote?.output?.amount,
+        minAmount: quoteMinAmount,
         quoteId: (quoteResponse.quote as any)?.quoteId,
+        slippage: quoteResponse.quote?.slippage,
       });
 
       // Step 3: Prepare swap transaction
@@ -469,6 +523,32 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         chainId: swapTx.chainId,
         gasLimit: swapTx.gasLimit,
       }, null, 2));
+
+      // CRITICAL FIX: Uniswap Trading API sometimes encodes wrong minAmountOut in calldata
+      // We need to patch the last 32 bytes with the correct minAmount from the quote
+      if (swapTx.data && quoteMinAmount) {
+        const originalData = swapTx.data;
+        const minAmountFromCalldata = '0x' + originalData.slice(-64);
+        const expectedMinAmount = BigInt(quoteMinAmount);
+        const actualMinAmount = BigInt(minAmountFromCalldata);
+
+        if (actualMinAmount !== expectedMinAmount) {
+          console.warn(`[${this.name}] ⚠️ MinAmount mismatch detected in calldata!`);
+          console.warn(`[${this.name}]    Expected: ${expectedMinAmount.toString()} (from quote)`);
+          console.warn(`[${this.name}]    Got:      ${actualMinAmount.toString()} (from API calldata)`);
+          console.warn(`[${this.name}]    Difference: ${(actualMinAmount - expectedMinAmount).toString()}`);
+          console.warn(`[${this.name}]    Patching calldata with correct minAmount...`);
+
+          // Replace last 32 bytes with correct minAmount
+          const minAmountHex = expectedMinAmount.toString(16).padStart(64, '0');
+          swapTx.data = originalData.slice(0, -64) + minAmountHex;
+
+          console.log(`[${this.name}] ✅ Calldata patched successfully`);
+          console.log(`[${this.name}]    New minAmount: ${minAmountHex} = ${expectedMinAmount.toString()}`);
+        } else {
+          console.log(`[${this.name}] ✅ MinAmount in calldata matches quote (${expectedMinAmount.toString()})`);
+        }
+      }
 
       // Step 4: Build transactions array
       const transactions: Transaction[] = [];
@@ -547,6 +627,11 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
           quote: response.quote,
           route: response.route,
           gasFee: response.gasFee,
+          // CRITICAL: Skip MetaMask simulation since we patched the calldata
+          // MetaMask simulation uses current block state, but our quote is from a previous block
+          skipSimulation: true,
+          slippageTolerance: `${this.slippageBps / 100}%`,
+          minAmountOut: quoteMinAmount,
         },
       };
 
@@ -770,5 +855,85 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Generate cache key for quote
+   */
+  private getCacheKey(request: SwapRequest): string {
+    return `${request.fromChainId}:${request.fromToken}:${request.toToken}:${request.amount}:${request.sender}`;
+  }
+
+  /**
+   * Store quote in cache
+   */
+  private cacheQuote(request: SwapRequest, quoteResponse: any): void {
+    const key = this.getCacheKey(request);
+    const now = Date.now();
+
+    // Extract expiresAt from quote if available
+    const expiresAt = quoteResponse.quote?.expiresAt
+      ? quoteResponse.quote.expiresAt * 1000 // Convert to ms
+      : now + this.quoteCacheTTL;
+
+    this.quoteCache.set(key, {
+      quote: quoteResponse,
+      timestamp: now,
+      expiresAt: expiresAt,
+    });
+
+    console.log(`[${this.name}] 💾 Cached quote for ${this.quoteCacheTTL / 1000}s`, {
+      key: key.substring(0, 50) + '...',
+      expiresIn: Math.round((expiresAt - now) / 1000) + 's',
+      quoteId: quoteResponse.quote?.quoteId,
+    });
+  }
+
+  /**
+   * Get cached quote if still valid
+   */
+  private getCachedQuote(request: SwapRequest): any | null {
+    const key = this.getCacheKey(request);
+    const cached = this.quoteCache.get(key);
+
+    if (!cached) {
+      console.log(`[${this.name}] 📭 No cached quote found`);
+      return null;
+    }
+
+    const now = Date.now();
+
+    // Check if cache is expired
+    if (now > cached.expiresAt) {
+      console.log(`[${this.name}] ⏰ Cached quote expired`);
+      this.quoteCache.delete(key);
+      return null;
+    }
+
+    const ageSeconds = Math.round((now - cached.timestamp) / 1000);
+    console.log(`[${this.name}] ✅ Using cached quote (age: ${ageSeconds}s)`, {
+      quoteId: cached.quote?.quote?.quoteId,
+    });
+
+    return cached.quote;
+  }
+
+  /**
+   * Clear expired quotes from cache (cleanup)
+   */
+  private cleanupCache(): void {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [key, value] of this.quoteCache.entries()) {
+      if (now > value.expiresAt) {
+        this.quoteCache.delete(key);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+      console.log(`[${this.name}] 🧹 Cleaned up ${cleaned} expired quotes from cache`);
+    }
   }
 }

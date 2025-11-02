@@ -90,10 +90,13 @@ Configure your environment variables:
 THIRDWEB_CLIENT_ID=your_client_id
 AUTH_PRIVATE_KEY=your_secret_key
 
-# Wallet Configuration  
+# Wallet Configuration
 PRIVATE_KEY=your_wallet_private_key
 SWAP_SENDER_ADDRESS=0x...
 SWAP_RECEIVER_ADDRESS=0x...
+
+# Uniswap Smart Router Configuration (Optional)
+UNISWAP_SLIPPAGE_BPS=500  # Default: 500 (5%). Increase if getting V2_TOO_LITTLE_RECEIVED errors
 
 # Optional: Custom RPC URLs
 ETHEREUM_RPC_URL=https://your-ethereum-rpc.com

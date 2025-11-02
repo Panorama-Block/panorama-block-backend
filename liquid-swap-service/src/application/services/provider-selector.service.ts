@@ -179,23 +179,79 @@ export class ProviderSelectorService {
       );
     }
 
-    // Case 2: Auto-select best provider
+    // Case 2: Auto-select best provider with automatic fallback
     console.log(
       "[ProviderSelectorService] Auto-selecting provider for prepare"
     );
 
-    const { provider } = await this.router.selectBestProvider(request);
+    // Try providers in priority order with automatic fallback
+    // Priority: Uniswap first (partnership), then fallback to Thirdweb
+    // NOTE: Smart Router temporarily disabled due to V4 subgraph issues
+    const isSameChain = request.fromChainId === request.toChainId;
+    const providerPriority = isSameChain
+      ? ["uniswap-trading-api", "uniswap", "thirdweb"]
+      : ["thirdweb", "uniswap-trading-api", "uniswap"];
 
-    const prepared = await provider.prepareSwap(request);
+    const errors: string[] = [];
 
-    console.log(
-      `[ProviderSelectorService] ✅ Prepared swap with auto-selected ${provider.name}`
-    );
+    for (const providerName of providerPriority) {
+      const provider = this.router.getProviderByName(providerName);
+      if (!provider) {
+        continue; // Skip if provider not available
+      }
 
-    return {
-      provider: provider.name,
-      prepared,
-    };
+      // Check if provider supports the route
+      try {
+        const supports = await provider.supportsRoute({
+          fromChainId: request.fromChainId,
+          toChainId: request.toChainId,
+          fromToken: request.fromToken,
+          toToken: request.toToken,
+        });
+
+        if (!supports) {
+          console.log(
+            `[ProviderSelectorService] ${providerName} does not support route, skipping`
+          );
+          continue;
+        }
+      } catch (error) {
+        console.warn(
+          `[ProviderSelectorService] Error checking ${providerName} support:`,
+          (error as Error).message
+        );
+        errors.push(`${providerName}: ${(error as Error).message}`);
+        continue;
+      }
+
+      // Try to prepare swap with this provider
+      try {
+        console.log(
+          `[ProviderSelectorService] ✅ Attempting to prepare with ${providerName}`
+        );
+        const prepared = await provider.prepareSwap(request);
+
+        console.log(
+          `[ProviderSelectorService] ✅ Prepared swap with ${providerName}`
+        );
+
+        return {
+          provider: provider.name,
+          prepared,
+        };
+      } catch (error) {
+        console.warn(
+          `[ProviderSelectorService] ⚠️ ${providerName} failed to prepare, trying next provider:`,
+          (error as Error).message
+        );
+        errors.push(`${providerName}: ${(error as Error).message}`);
+        // Continue to next provider
+      }
+    }
+
+    // All providers failed
+    const detail = errors.length ? `Reasons: ${errors.join("; ")}` : "No providers available";
+    throw new Error(`Failed to prepare swap with all providers. ${detail}`);
   }
 
   /**

@@ -84,6 +84,8 @@ export class SwapController {
       });
 
       console.log(`[SwapController] Quote obtained from provider: ${quote.provider}`);
+
+      // The quote already includes the provider field
       return res.json({ success: true, quote });
     } catch (error) {
       console.error("[SwapController] Error getting quote:", error);
@@ -102,7 +104,7 @@ export class SwapController {
     try {
       console.log("[SwapController] Preparing swap (bundle)");
 
-      const { fromChainId, toChainId, fromToken, toToken, amount, sender } =
+      const { fromChainId, toChainId, fromToken, toToken, amount, sender, provider: preferredProvider } =
         (req.body ?? {}) as {
           fromChainId?: number;
           toChainId?: number;
@@ -110,6 +112,7 @@ export class SwapController {
           toToken?: string;
           amount?: string;
           sender?: string;
+          provider?: string;
         };
 
       if (!fromChainId || !toChainId || !fromToken || !toToken || !amount || !sender) {
@@ -125,7 +128,9 @@ export class SwapController {
         );
       }
 
-      const receiver = sender
+      const receiver = sender;
+
+      console.log(`[SwapController] Preparing with${preferredProvider ? ` preferred provider: ${preferredProvider}` : ' auto-select'}`);
 
       const { prepared, provider } = await this.prepareSwapUseCase.execute({
         fromChainId,
@@ -135,6 +140,7 @@ export class SwapController {
         amount,
         sender,
         receiver,
+        provider: preferredProvider, // Pass preferred provider from quote
       });
 
       const serializedPrepared = this.serializeBigInt(prepared);
@@ -349,6 +355,143 @@ export class SwapController {
       return res.json({ success: true, data: { ...out, userAddress: aReq.user.address } });
     } catch (error) {
       console.error("[SwapController] Error getting swap status:", error);
+      return next(error);
+    }
+  };
+
+  /**
+   * DEBUG ENDPOINT: Compare transaction payloads from Thirdweb vs Uniswap
+   *
+   * This endpoint prepares the same swap with both providers and returns
+   * the detailed transaction data for comparison.
+   */
+  public compareProviders = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<Response | void> => {
+    try {
+      console.log("[SwapController] 🔍 Comparing provider payloads");
+
+      const { fromChainId, toChainId, fromToken, toToken, amount, sender } =
+        (req.body ?? {}) as {
+          fromChainId?: number;
+          toChainId?: number;
+          fromToken?: string;
+          toToken?: string;
+          amount?: string;
+          sender?: string;
+        };
+
+      if (!fromChainId || !toChainId || !fromToken || !toToken || !amount || !sender) {
+        return next(
+          createMissingParamsError([
+            "fromChainId",
+            "toChainId",
+            "fromToken",
+            "toToken",
+            "amount",
+            "sender",
+          ])
+        );
+      }
+
+      const receiver = sender;
+
+      const results: any = {
+        request: {
+          fromChainId,
+          toChainId,
+          fromToken,
+          toToken,
+          amount,
+          sender,
+        },
+        providers: {},
+      };
+
+      // Try Thirdweb
+      try {
+        console.log("[SwapController] 🔍 Preparing with Thirdweb...");
+        const thirdwebResult = await this.prepareSwapUseCase.execute({
+          fromChainId,
+          toChainId,
+          fromToken,
+          toToken,
+          amount,
+          sender,
+          receiver,
+          provider: "thirdweb",
+        });
+
+        results.providers.thirdweb = {
+          success: true,
+          provider: thirdwebResult.provider,
+          prepared: this.serializeBigInt(thirdwebResult.prepared),
+        };
+      } catch (error) {
+        results.providers.thirdweb = {
+          success: false,
+          error: (error as Error).message,
+        };
+      }
+
+      // Try Uniswap Smart Router
+      try {
+        console.log("[SwapController] 🔍 Preparing with Uniswap Smart Router...");
+        const uniswapResult = await this.prepareSwapUseCase.execute({
+          fromChainId,
+          toChainId,
+          fromToken,
+          toToken,
+          amount,
+          sender,
+          receiver,
+          provider: "uniswap-smart-router",
+        });
+
+        results.providers["uniswap-smart-router"] = {
+          success: true,
+          provider: uniswapResult.provider,
+          prepared: this.serializeBigInt(uniswapResult.prepared),
+        };
+      } catch (error) {
+        results.providers["uniswap-smart-router"] = {
+          success: false,
+          error: (error as Error).message,
+        };
+      }
+
+      // Try Uniswap Trading API
+      try {
+        console.log("[SwapController] 🔍 Preparing with Uniswap Trading API...");
+        const tradingApiResult = await this.prepareSwapUseCase.execute({
+          fromChainId,
+          toChainId,
+          fromToken,
+          toToken,
+          amount,
+          sender,
+          receiver,
+          provider: "uniswap-trading-api",
+        });
+
+        results.providers["uniswap-trading-api"] = {
+          success: true,
+          provider: tradingApiResult.provider,
+          prepared: this.serializeBigInt(tradingApiResult.prepared),
+        };
+      } catch (error) {
+        results.providers["uniswap-trading-api"] = {
+          success: false,
+          error: (error as Error).message,
+        };
+      }
+
+      console.log("[SwapController] ✅ Provider comparison complete");
+      return res.json({ success: true, comparison: results });
+    } catch (error) {
+      console.error("[SwapController] Error comparing providers:", error);
       return next(error);
     }
   };
