@@ -1,0 +1,43 @@
+name: gateway-database
+type: containerapp
+location: brazilsouth
+properties:
+  environmentId: ${ACA_ENV_ID}
+  configuration:
+    ingress:
+      external: false
+      targetPort: 8080
+    registries:
+      - server: ghcr.io
+        username: ${GHCR_USERNAME}
+        passwordSecretRef: ghcr-password
+    secrets:
+      - name: ghcr-password
+        value: ${GHCR_PASSWORD}
+      - name: database-url
+        value: ${DATABASE_URL}
+      - name: jwt-secret
+        value: ${JWT_SECRET}
+  template:
+    containers:
+      - name: gateway-database
+        image: ghcr.io/${GHCR_NAMESPACE}/database-gateway:${IMAGE_TAG}
+        env:
+          - name: PORT
+            value: "8080"
+          - name: HOST
+            value: "0.0.0.0"
+          - name: NODE_ENV
+            value: "production"
+          - name: LOG_LEVEL
+            value: "info"
+          - name: DATABASE_URL
+            secretRef: database-url
+          - name: JWT_SECRET
+            secretRef: jwt-secret
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+    scale:
+      minReplicas: 1
+      maxReplicas: 3
