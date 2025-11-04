@@ -16,6 +16,9 @@ model User {
   createdAt     DateTime @default(now())
   lastSeenAt    DateTime?
   Conversations Conversation[]
+  DcaSessions   DcaSession[]
+  DcaWorkflows  DcaWorkflow[]
+  DcaHistories  DcaHistory[]
 }
 
 model Conversation {
@@ -151,6 +154,98 @@ model SwapHistory {
   errorMessage    String?
   recordedAt      DateTime @default(now())
   tenantId        String
+}
+
+model DcaSession {
+  userId          String
+  conversationId  String
+  status          String
+  stage           String?
+  event           String?
+  intent          Json
+  missingFields   String[]
+  nextField       String?
+  pendingQuestion String?
+  choices         Json?
+  errorMessage    String?
+  historyCursor   Int       @default(0)
+  updatedAt       DateTime  @default(now())
+  tenantId        String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@id([userId, conversationId])
+  @@index([userId, conversationId, updatedAt])
+}
+
+model DcaHistory {
+  historyId      String   @id @default(uuid())
+  userId         String
+  conversationId String
+  summary        String?
+  workflowType   String?
+  cadence        Json?
+  tokens         Json?
+  amounts        Json?
+  strategy       Json?
+  venue          String?
+  slippageBps    Int?
+  stopConditions Json?
+  metadata       Json?
+  errorMessage   String?
+  recordedAt     DateTime @default(now())
+  tenantId       String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@index([userId, conversationId, recordedAt])
+}
+
+model DcaWorkflow {
+  workflowId      String   @id @default(uuid())
+  userId          String
+  conversationId  String?
+  walletAddress   String?
+  status          String
+  strategyId      String?
+  strategyVersion String?
+  strategyName    String?
+  strategy        Json?
+  cadence         Json?
+  tokens          Json?
+  amounts         Json?
+  metadata        Json?
+  guardrails      Json?
+  nextRunAt       DateTime?
+  lastRunAt       DateTime?
+  pausedAt        DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  tenantId        String
+
+  user User @relation(fields: [userId], references: [userId])
+  runs DcaRun[]
+
+  @@index([userId, status])
+  @@index([nextRunAt])
+}
+
+model DcaRun {
+  runId          String   @id @default(uuid())
+  workflowId     String
+  status         String
+  executedAt     DateTime @default(now())
+  txHash         String?
+  amountExecuted Json?
+  errorMessage   String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  tenantId       String
+
+  workflow DcaWorkflow @relation(fields: [workflowId], references: [workflowId])
+
+  @@index([workflowId, executedAt])
 }
 
 model AgentMetric {
