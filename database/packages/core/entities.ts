@@ -374,6 +374,190 @@ const entityConfigs: EntityConfig[] = [
     filter: baseQuerySchema
   },
   {
+    collection: 'dca-sessions',
+    model: 'DcaSession',
+    primaryKeys: ['userId', 'conversationId'],
+    tenantField: 'tenantId',
+    create: z
+      .object({
+        userId: z.string(),
+        conversationId: z.string(),
+        status: z.string(),
+        stage: z.string().optional(),
+        event: z.string().optional(),
+        intent: jsonRecord,
+        missingFields: z.array(z.string()),
+        nextField: z.string().optional(),
+        pendingQuestion: z.string().optional(),
+        choices: jsonRecord.optional(),
+        errorMessage: z.string().optional(),
+        historyCursor: z.number().int().optional(),
+        updatedAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        status: z.string().optional(),
+        stage: z.string().optional(),
+        event: z.string().optional(),
+        intent: jsonRecord.optional(),
+        missingFields: z.array(z.string()).optional(),
+        nextField: z.string().optional(),
+        pendingQuestion: z.string().optional(),
+        choices: jsonRecord.optional(),
+        errorMessage: z.string().optional(),
+        historyCursor: z.number().int().optional(),
+        updatedAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'dca-histories',
+    model: 'DcaHistory',
+    primaryKeys: ['historyId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { recordedAt: 'desc' },
+    create: z
+      .object({
+        historyId: z.string().optional(),
+        userId: z.string(),
+        conversationId: z.string(),
+        summary: z.string().optional(),
+        workflowType: z.string().optional(),
+        cadence: jsonRecord.optional(),
+        tokens: jsonRecord.optional(),
+        amounts: jsonRecord.optional(),
+        strategy: jsonRecord.optional(),
+        venue: z.string().optional(),
+        slippageBps: z.number().int().optional(),
+        stopConditions: jsonRecord.optional(),
+        metadata: jsonRecord.optional(),
+        errorMessage: z.string().optional(),
+        recordedAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        summary: z.string().optional(),
+        workflowType: z.string().optional(),
+        cadence: jsonRecord.optional(),
+        tokens: jsonRecord.optional(),
+        amounts: jsonRecord.optional(),
+        strategy: jsonRecord.optional(),
+        venue: z.string().optional(),
+        slippageBps: z.number().int().optional(),
+        stopConditions: jsonRecord.optional(),
+        metadata: jsonRecord.optional(),
+        errorMessage: z.string().optional(),
+        recordedAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'dca-workflows',
+    model: 'DcaWorkflow',
+    primaryKeys: ['workflowId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { createdAt: 'desc' },
+    create: z
+      .object({
+        workflowId: z.string().optional(),
+        userId: z.string(),
+        conversationId: z.string().optional(),
+        walletAddress: z.string().optional(),
+        status: z.string(),
+        strategyId: z.string().optional(),
+        strategyVersion: z.string().optional(),
+        strategyName: z.string().optional(),
+        strategy: jsonRecord.optional(),
+        cadence: jsonRecord.optional(),
+        tokens: jsonRecord.optional(),
+        amounts: jsonRecord.optional(),
+        metadata: jsonRecord.optional(),
+        guardrails: jsonRecord.optional(),
+        nextRunAt: isoDate.optional(),
+        lastRunAt: isoDate.optional(),
+        pausedAt: isoDate.optional(),
+        cancelledAt: isoDate.optional(),
+        createdAt: isoDate.optional(),
+        updatedAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        userId: z.string().optional(),
+        conversationId: z.string().optional(),
+        walletAddress: z.string().optional(),
+        status: z.string().optional(),
+        strategyId: z.string().optional(),
+        strategyVersion: z.string().optional(),
+        strategyName: z.string().optional(),
+        strategy: jsonRecord.optional(),
+        cadence: jsonRecord.optional(),
+        tokens: jsonRecord.optional(),
+        amounts: jsonRecord.optional(),
+        metadata: jsonRecord.optional(),
+        guardrails: jsonRecord.optional(),
+        nextRunAt: isoDate.optional(),
+        lastRunAt: isoDate.optional(),
+        pausedAt: isoDate.optional(),
+        cancelledAt: isoDate.optional(),
+        updatedAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'dca-runs',
+    model: 'DcaRun',
+    primaryKeys: ['runId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { executedAt: 'desc' },
+    create: z
+      .object({
+        runId: z.string().optional(),
+        workflowId: z.string(),
+        status: z.string(),
+        executedAt: isoDate.optional(),
+        txHash: z.string().optional(),
+        amountExecuted: jsonRecord.optional(),
+        errorMessage: z.string().optional(),
+        metadata: jsonRecord.optional(),
+        createdAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        status: z.string().optional(),
+        executedAt: isoDate.optional(),
+        txHash: z.string().optional(),
+        amountExecuted: jsonRecord.optional(),
+        errorMessage: z.string().optional(),
+        metadata: jsonRecord.optional(),
+        createdAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
     collection: 'agent-metrics',
     model: 'AgentMetric',
     primaryKeys: ['metricId'],
