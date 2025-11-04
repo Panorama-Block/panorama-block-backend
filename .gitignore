@@ -15,3 +15,20 @@ dist/
 .cursorrules/
 .cursorignore/
 .cursor
+
+# Foundry (Solidity)
+cache/
+broadcast/
+out/
+
+# Secrets e arquivos sensíveis
+*secrets.txt
+*.secret
+jwt-secrets.txt
+
+# Arquivos de teste temporários
+test-*.js
+test.js
+
+# Arquivos do Windows
+*.lnk
