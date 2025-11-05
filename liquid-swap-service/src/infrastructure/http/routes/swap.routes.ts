@@ -19,6 +19,9 @@ router.post("/quote", controller.getQuote);
 // Bundle preparado (approve? + swap) para o FRONT assinar
 router.post("/tx", controller.getPreparedTx);
 
+// DEBUG: Compare providers (Thirdweb vs Uniswap)
+router.post("/compare", controller.compareProviders);
+
 // (Opcional) Mantido para compat; retorna 501 no V1 non-custodial
 router.post("/execute", controller.executeSwap);
 

@@ -1,0 +1,31 @@
+{
+  "chains": {
+    "1": {
+      "rpcEnv": ["ETHEREUM_RPC_URL", "RPC_URL_1"],
+      "native": {
+        "symbol": "ETH",
+        "decimals": 18,
+        "sentinel": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+      },
+      "tokens": [
+        {
+          "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "symbol": "WETH",
+          "decimals": 18,
+          "name": "Wrapped Ether"
+        },
+        {
+          "address": "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC",
+          "decimals": 6,
+          "name": "USD Coin"
+        },
+        {
+          "address": "0xC02aaA39b223Fe8D0a0e5C4F27eAD9083C756Cc2",
+          "symbol": "WETH",
+          "decimals": 18
+        }
+      ]
+    }
+  }
+}

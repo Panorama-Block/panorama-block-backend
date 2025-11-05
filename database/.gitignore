@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.DS_Store
+coverage
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*

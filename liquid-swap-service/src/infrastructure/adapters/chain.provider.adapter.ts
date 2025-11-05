@@ -1,8 +1,9 @@
 import { IChainProvider } from "../../domain/ports/swap.repository";
+import { ethers } from "ethers";
 
 export class ChainProviderAdapter implements IChainProvider {
   private readonly supportedChains = [1, 137, 56, 8453, 10, 42161, 43114];
-  private readonly providers: { [chainId: number]: any } = {};
+  private readonly providers: { [chainId: number]: ethers.providers.StaticJsonRpcProvider } = {};
 
   constructor() {
     this.initializeProviders();
@@ -11,8 +12,16 @@ export class ChainProviderAdapter implements IChainProvider {
 
   private initializeProviders(): void {
     for (const chainId of this.supportedChains) {
-      // Mantemos apenas o RPC URL para debug/observabilidade, sem criar provider ethers
-      this.providers[chainId] = { rpcUrl: this.getRpcUrl(chainId) };
+      const rpcUrl = this.getRpcUrl(chainId);
+      const network = { name: `chain-${chainId}`, chainId };
+      const provider = new ethers.providers.StaticJsonRpcProvider(
+        {
+          url: rpcUrl,
+          skipFetchSetup: true,
+        },
+        network
+      );
+      this.providers[chainId] = provider;
     }
   }
 

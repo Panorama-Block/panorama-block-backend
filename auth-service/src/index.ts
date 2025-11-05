@@ -6,6 +6,7 @@ import https from 'https';
 import { createClient, RedisClientType } from 'redis';
 import authRoutes from './routes/auth';
 import { getAuthInstance, isAuthConfigured } from './utils/thirdwebAuth';
+import { requestLogger, errorLogger } from './middleware/loggingMiddleware';
 
 // Load environment variables
 dotenv.config();
@@ -13,6 +14,8 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || process.env.AUTH_PORT || 3001;
+
+app.set('trust proxy', 1);
 
 // SSL certificate options for HTTPS
 const getSSLOptions = () => {
@@ -41,20 +44,62 @@ const getSSLOptions = () => {
   }
 };
 
+// Configure CORS with credentials support
+const corsOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || corsOrigins.length === 0 || corsOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    console.warn(`[Auth Service] ⛔️ Blocked CORS origin: ${origin}`);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
+
 // Set up middleware
 app.use(express.json());
-app.use(cors());
 
-// Debug logging
-if (process.env.DEBUG === 'true') {
-  console.log('[Auth Service] Starting with environment:');
-  console.log('- PORT:', PORT);
-  console.log('- NODE_ENV:', process.env.NODE_ENV);
-  console.log('- REDIS_HOST:', process.env.REDIS_HOST);
-  console.log('- REDIS_PORT:', process.env.REDIS_PORT);
-  console.log('- AUTH_DOMAIN:', process.env.AUTH_DOMAIN);
-  console.log('- AUTH_PRIVATE_KEY:', process.env.AUTH_PRIVATE_KEY ? '[SET]' : '[NOT SET]');
-}
+// Normalize duplicated slashes in request URL to avoid 404 on //auth/login
+app.use((req, _res, next) => {
+  if (req.url.includes('//')) {
+    req.url = req.url.replace(/\/+/g, '/');
+  }
+  next();
+});
+
+// Add logging middleware
+app.use(requestLogger);
+
+// Environment logging - always show on startup
+console.log('\n🌍 [ENVIRONMENT] Auth Service Environment Variables:');
+console.log('='.repeat(60));
+console.log('📊 PORT:', PORT);
+console.log('🌍 NODE_ENV:', process.env.NODE_ENV || 'development');
+const redisHost = process.env.REDIS_HOST || 'localhost';
+const redisPort = Number(process.env.REDIS_PORT || 6379);
+const redisPassword = process.env.REDIS_PASS || '';
+const redisUseTls = (process.env.REDIS_TLS || process.env.REDIS_USE_TLS || '').toLowerCase() === 'true';
+
+console.log('🔗 REDIS_HOST:', redisHost);
+console.log('🔗 REDIS_PORT:', redisPort);
+console.log('🔗 REDIS_PASS:', redisPassword ? '[SET]' : '[NOT SET]');
+console.log('🔐 REDIS_TLS:', redisUseTls);
+console.log('🌐 AUTH_DOMAIN:', process.env.AUTH_DOMAIN || '[NOT SET]');
+console.log('🔑 AUTH_PRIVATE_KEY:', process.env.AUTH_PRIVATE_KEY ? '[SET]' : '[NOT SET]');
+console.log('🐛 DEBUG:', process.env.DEBUG || 'false');
+console.log('🍪 AUTH_REFRESH_COOKIE_NAME:', process.env.AUTH_REFRESH_COOKIE_NAME || 'panorama_refresh');
+console.log('🍪 AUTH_REFRESH_TTL_SECONDS:', process.env.AUTH_REFRESH_TTL_SECONDS || '1209600 (14 days)');
+console.log('🍪 AUTH_COOKIE_DOMAIN:', process.env.AUTH_COOKIE_DOMAIN || '[NOT SET]');
+console.log('🍪 AUTH_COOKIE_SECURE:', process.env.AUTH_COOKIE_SECURE || (process.env.NODE_ENV === 'production' ? 'true (default in production)' : 'false'));
+console.log('🍪 AUTH_COOKIE_SAMESITE:', process.env.AUTH_COOKIE_SAMESITE || (process.env.NODE_ENV === 'production' ? 'none (default in production)' : 'lax'));
+console.log('🔒 FULLCHAIN:', process.env.FULLCHAIN || '/etc/letsencrypt/live/api.panoramablock.com/fullchain.pem');
+console.log('🔒 PRIVKEY:', process.env.PRIVKEY || '/etc/letsencrypt/live/api.panoramablock.com/privkey.pem');
+console.log('='.repeat(60));
 
 // Initialize ThirdWeb auth if configured
 try {
@@ -69,9 +114,18 @@ try {
 }
 
 // Set up Redis client for session management
+const redisSocketOptions: { host: string; port: number; tls?: boolean } = {
+  host: redisHost,
+  port: redisPort,
+};
+
+if (redisUseTls) {
+  redisSocketOptions.tls = true;
+}
+
 const redisClient: RedisClientType = createClient({
-  url: `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`,
-  password: process.env.REDIS_PASS || '',
+  socket: redisSocketOptions,
+  password: redisPassword || undefined,
 });
 
 redisClient.connect().then(() => {
@@ -89,8 +143,12 @@ redisClient.on('error', (err) => {
 // Pass Redis client to routes
 app.use('/auth', authRoutes(redisClient));
 
+// Add error logging middleware
+app.use(errorLogger);
+
 // Health check endpoint
 app.get('/health', (req, res) => {
+  console.log('🏥 [HEALTH CHECK] Service health check requested');
   res.status(200).json({ 
     status: 'ok', 
     service: 'auth-service',
@@ -101,6 +159,7 @@ app.get('/health', (req, res) => {
 
 // Root endpoint
 app.get('/', (req, res) => {
+  console.log('🏠 [ROOT] Service info requested');
   res.json({
     name: 'PanoramaBlock Auth Service',
     description: 'Authentication service using ThirdWeb',
@@ -118,7 +177,8 @@ app.get('/', (req, res) => {
 const sslOptions = getSSLOptions();
 
 if (sslOptions) {
-  const server = https.createServer(sslOptions, app).listen(PORT, () => {
+  const server = https.createServer(sslOptions, app).listen(Number(PORT), '0.0.0.0', () => {
+
     console.log(`\n🎉 [Auth Service] HTTPS Server running successfully!`);
     console.log(`📊 Port: ${PORT}`);
     console.log(`🔒 Protocol: HTTPS`);
@@ -139,7 +199,8 @@ if (sslOptions) {
     });
   });
 } else {
-  const server = app.listen(PORT, () => {
+
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`\n🎉 [Auth Service] HTTP Server running successfully!`);
     console.log(`📊 Port: ${PORT}`);
     console.log(`🔓 Protocol: HTTP`);

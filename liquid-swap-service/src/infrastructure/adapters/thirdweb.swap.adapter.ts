@@ -1,5 +1,5 @@
 // Infrastructure Adapters (non-custodial V1)
-import { createThirdwebClient, Bridge, NATIVE_TOKEN_ADDRESS } from "thirdweb";
+import { createThirdwebClient, Bridge } from "thirdweb";
 import {
   SwapRequest,
   SwapQuote,
@@ -8,7 +8,7 @@ import {
   TransactionStatus,
 } from "../../domain/entities/swap";
 import { ISwapService } from "../../domain/ports/swap.repository";
-import { isNativeLike } from "../../utils/native.utils";
+import { resolveToken } from "../../config/tokens/registry";
 
 export class ThirdwebSwapAdapter implements ISwapService {
   private client: ReturnType<typeof createThirdwebClient>;
@@ -45,17 +45,31 @@ export class ThirdwebSwapAdapter implements ISwapService {
         swapRequest.toLogString()
       );
 
+      const originToken = resolveToken("thirdweb", swapRequest.fromChainId, swapRequest.fromToken);
+      const destinationToken = resolveToken("thirdweb", swapRequest.toChainId, swapRequest.toToken);
+
+      console.log("[ThirdwebSwapAdapter] Resolved tokens:", {
+        origin: {
+          identifier: originToken.identifier,
+          isNative: originToken.isNative,
+          address: originToken.metadata.address,
+          symbol: originToken.metadata.symbol,
+        },
+        destination: {
+          identifier: destinationToken.identifier,
+          isNative: destinationToken.isNative,
+          address: destinationToken.metadata.address,
+          symbol: destinationToken.metadata.symbol,
+        },
+      });
+
       const sellAmountWei = swapRequest.amount;
 
       const quote = await Bridge.Sell.quote({
         originChainId: swapRequest.fromChainId,
-        originTokenAddress: isNativeLike(swapRequest.fromToken)
-          ? NATIVE_TOKEN_ADDRESS
-          : swapRequest.fromToken,
+        originTokenAddress: originToken.identifier,
         destinationChainId: swapRequest.toChainId,
-        destinationTokenAddress: isNativeLike(swapRequest.toToken)
-          ? NATIVE_TOKEN_ADDRESS
-          : swapRequest.toToken,
+        destinationTokenAddress: destinationToken.identifier,
         amount: sellAmountWei,
         client: this.client,
       });
@@ -66,16 +80,33 @@ export class ThirdwebSwapAdapter implements ISwapService {
       const destAmount = BigInt(quote.destinationAmount.toString());
       const estMs = quote.estimatedExecutionTimeMs ?? 60_000;
 
-      // Gas/FX simples para MVP (troque quando integrar campos oficiais)
-      const estimatedGasFee = BigInt("420000000000000"); // ~0.00042 ETH em wei (placeholder)
-      const exchangeRate =
-        Number(destAmount) > 0
-          ? Number(destAmount) / Number(originAmount)
-          : 0.998;
+      // Decimals-aware exchangeRate: (destHuman / originHuman)
+      const fromDecimals = originToken.metadata.decimals;
+      const toDecimals = destinationToken.metadata.decimals;
+
+      // rate = destWei * 10^fromDecimals / (originWei * 10^toDecimals)
+      const SCALE = 12n; // 12 decimal places of precision
+      const num = destAmount * (10n ** (BigInt(fromDecimals) + SCALE));
+      const den = originAmount * (10n ** BigInt(toDecimals));
+      const scaledRate = den === 0n ? 0n : (num / den);
+      const exchangeRate = Number(scaledRate) / 10 ** Number(SCALE);
+
+      if (process.env.DEBUG === "true") {
+        console.log("[ThirdwebSwapAdapter] Quote breakdown:", {
+          originAmount: originAmount.toString(),
+          destAmount: destAmount.toString(),
+          fromDecimals,
+          toDecimals,
+          exchangeRate,
+        });
+      }
+
+      // Keep gas fee as small placeholder (TODO: replace when provider exposes it)
+      const estimatedGasFee = BigInt("420000000000000"); // ~0.00042 ETH em wei
 
       return new SwapQuote(
         destAmount,
-        originAmount > destAmount ? originAmount - destAmount : 0n, // "bridgeFee" aprox
+        0n, // bridgeFee unknown across assets; do not infer from origin-dest difference
         estimatedGasFee,
         exchangeRate,
         Math.floor(estMs / 1000)
@@ -105,15 +136,14 @@ export class ThirdwebSwapAdapter implements ISwapService {
 
   public async prepareSwap(swapRequest: SwapRequest): Promise<any> {
     try {
+      const originToken = resolveToken("thirdweb", swapRequest.fromChainId, swapRequest.fromToken);
+      const destinationToken = resolveToken("thirdweb", swapRequest.toChainId, swapRequest.toToken);
+
       const payload = {
         originChainId: swapRequest.fromChainId,
-        originTokenAddress: isNativeLike(swapRequest.fromToken)
-          ? NATIVE_TOKEN_ADDRESS
-          : swapRequest.fromToken,
+        originTokenAddress: originToken.identifier,
         destinationChainId: swapRequest.toChainId,
-        destinationTokenAddress: isNativeLike(swapRequest.toToken)
-          ? NATIVE_TOKEN_ADDRESS
-          : swapRequest.toToken,
+        destinationTokenAddress: destinationToken.identifier,
         amount: swapRequest.amount,
         sender: swapRequest.sender,
         receiver: swapRequest.receiver || swapRequest.sender,
@@ -140,9 +170,22 @@ export class ThirdwebSwapAdapter implements ISwapService {
             amount: payload.amount,
             client: this.client,
           });
+          const qOrigin = BigInt(q.originAmount?.toString?.() ?? String(q.originAmount));
+          const qDest = BigInt(q.destinationAmount?.toString?.() ?? String(q.destinationAmount));
+          // compute normalized rate for diagnostics
+          const fDec = originToken.metadata.decimals;
+          const tDec = destinationToken.metadata.decimals;
+          const SCALE = 12n;
+          const num = qDest * (10n ** (BigInt(fDec) + SCALE));
+          const den = qOrigin * (10n ** BigInt(tDec));
+          const scaled = den === 0n ? 0n : (num / den);
+          const rate = Number(scaled) / 10 ** Number(SCALE);
           console.log("[ThirdwebSwapAdapter] Preflight quote:", {
-            originAmount: q.originAmount?.toString?.() ?? String(q.originAmount),
-            destinationAmount: q.destinationAmount?.toString?.() ?? String(q.destinationAmount),
+            originAmount: qOrigin.toString(),
+            destinationAmount: qDest.toString(),
+            fromDecimals: fDec,
+            toDecimals: tDec,
+            normalizedRate: rate,
             estimatedExecutionTimeMs: q.estimatedExecutionTimeMs,
           });
         } catch (preErr: any) {

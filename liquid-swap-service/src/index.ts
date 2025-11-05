@@ -17,6 +17,10 @@ import type {
 import cors from "cors";
 import { swapRouter } from "./infrastructure/http/routes/swap.routes";
 import { verifyJwtMiddleware } from "./middleware/authMiddleware";
+import { requestContextMiddleware } from "./infrastructure/http/middlewares/request-context.middleware";
+import { createErrorResponder } from "./infrastructure/http/middlewares/error.responder";
+import { SwapError, SwapErrorCode } from "./domain/entities/errors";
+import { DIContainer } from "./infrastructure/di/container";
 
 const PORT = process.env.PORT || process.env.LIQUID_SWAP_PORT || 3002;
 
@@ -75,18 +79,28 @@ try {
   app.use(cors());
   app.use(expressLib.json({ limit: "10mb" }));
   app.use(expressLib.urlencoded({ extended: true, limit: "10mb" }));
+  app.use(requestContextMiddleware);
 
   // Request logging (opcional via DEBUG)
   app.use((req: Request, _res: Response, next: NextFunction) => {
     if (process.env.DEBUG === "true") {
-      console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+      console.log(
+        `[${new Date().toISOString()}][trace:${req.traceId}] ${req.method} ${req.path}`
+      );
     }
     next();
   });
 
   // Rotas protegidas por JWT
   console.log("[Liquid Swap Service] 🔗 Registering routes...");
-  
+
+  // Debug route without authentication (for development only)
+  if (process.env.NODE_ENV === "development") {
+    const di = DIContainer.getInstance();
+    app.post("/debug/compare-providers", di.swapController.compareProviders);
+    console.log("[Liquid Swap Service] 🔍 Debug endpoint enabled: /debug/compare-providers");
+  }
+
   app.use("/swap", verifyJwtMiddleware, swapRouter);
 
   // Health check
@@ -206,43 +220,24 @@ try {
     res.json({address});
   });
 
-  // 404 handler
-  app.use((req: Request, res: Response) => {
+  // 404 handler forwarding to error responder
+  app.use((req: Request, _res: Response, next: NextFunction) => {
     console.warn(`[404] Route not found: ${req.method} ${req.originalUrl}`);
-    res.status(404).json({
-      error: "Endpoint not found",
-      path: req.originalUrl,
-      method: req.method,
-      availableEndpoints: [
-        "GET /",
-        "GET /health",
-        "POST /swap/quote",
-        "POST /swap/tx",
-        "GET /swap/history",
-        "POST /swap/execute",
-        "GET /swap/status/:transactionHash?chainId=...",
-      ],
-    });
+    next(
+      new SwapError(
+        SwapErrorCode.INVALID_REQUEST,
+        "Endpoint not found",
+        {
+          path: req.originalUrl,
+          method: req.method,
+        },
+        404
+      )
+    );
   });
 
-  // Global error handler
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error("[Error] Unhandled application error:", err.message);
-    if (process.env.DEBUG === "true") {
-      console.error("[Error] Stack trace:", err.stack);
-    }
-
-    if (!res.headersSent) {
-      res.status(500).json({
-        error: "Internal server error",
-        message:
-          process.env.NODE_ENV === "development"
-            ? err.message
-            : "An error occurred",
-        architecture: "hexagonal",
-      });
-    }
-  });
+  // Centralized error handler must be registered last
+  app.use(createErrorResponder());
 
   const sslOptions = getSSLOptions();
 
