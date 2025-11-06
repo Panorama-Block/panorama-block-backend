@@ -1,3 +1,6 @@
 [submodule "api_refactor/lib/forge-std"]
 	path = api_refactor/lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
+[submodule "lending-service/lib/forge-std"]
+	path = lending-service/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std

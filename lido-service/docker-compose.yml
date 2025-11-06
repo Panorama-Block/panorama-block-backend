@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  lido-service:
+    build: .
+    ports:
+      - "3004:3004"
+    environment:
+      - NODE_ENV=production
+      - PORT=3004
+      - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
+      - ETHEREUM_CHAIN_ID=${ETHEREUM_CHAIN_ID}
+      - LIDO_STETH_CONTRACT=${LIDO_STETH_CONTRACT}
+      - LIDO_WSTETH_CONTRACT=${LIDO_WSTETH_CONTRACT}
+      - LIDO_REWARDS_CONTRACT=${LIDO_REWARDS_CONTRACT}
+      - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
+      - THIRDWEB_SECRET_KEY=${THIRDWEB_SECRET_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
