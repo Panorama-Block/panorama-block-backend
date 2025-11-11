@@ -558,6 +558,7 @@ export function dcaRoutes(redisClient: RedisClientType) {
       const wallet = smartWallet({
         chain,
         gasless: false, // Smart Account pays gas from its own ETH balance
+        sponsorGas: false, // Disable Thirdweb paymaster (Smart Account pays directly!)
         // Using Thirdweb's default bundler (included with secretKey)
         // No custom bundler override needed
       });
