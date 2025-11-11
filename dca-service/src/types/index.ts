@@ -16,6 +16,7 @@ export interface SmartAccountData {
 }
 
 export interface DCAStrategy {
+  strategyId?: string; // Unique identifier
   smartAccountId: string;
   fromToken: string;
   toToken: string;
