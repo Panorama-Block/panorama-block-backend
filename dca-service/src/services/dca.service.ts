@@ -99,6 +99,7 @@ export class DCAService {
       }
 
       strategies.push({
+        strategyId, // Add unique ID
         smartAccountId: data.smartAccountId,
         fromToken: data.fromToken,
         toToken: data.toToken,
