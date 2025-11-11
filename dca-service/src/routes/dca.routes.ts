@@ -536,7 +536,7 @@ export function dcaRoutes(redisClient: RedisClientType) {
       const { defineChain } = await import('thirdweb/chains');
       const { privateKeyToAccount, smartWallet } = await import('thirdweb/wallets');
       const { prepareContractCall, sendTransaction, toWei } = await import('thirdweb');
-      const { approve, getAllowance } = await import('thirdweb/extensions/erc20');
+      const { approve, allowance: getAllowance } = await import('thirdweb/extensions/erc20');
 
       // 1. Initialize Thirdweb client
       const client = createThirdwebClient({
@@ -554,9 +554,12 @@ export function dcaRoutes(redisClient: RedisClientType) {
       });
 
       // 3. Connect to smart wallet
+      // Smart Account will pay gas from its own balance
       const wallet = smartWallet({
         chain,
-        gasless: false,
+        gasless: false, // Smart Account pays gas from its own ETH balance
+        // Using Thirdweb's default bundler (included with secretKey)
+        // No custom bundler override needed
       });
 
       const smartAccount = await wallet.connect({
@@ -565,6 +568,7 @@ export function dcaRoutes(redisClient: RedisClientType) {
       });
 
       console.log('[executeSwap] ✅ Connected to smart account:', smartAccount.address);
+      console.log('[executeSwap] 💰 Smart wallet will pay gas from its own balance');
 
       // 4. Check if we need to swap native ETH or ERC20 token
       const isNativeToken = params.fromToken === '0x0000000000000000000000000000000000000000' ||
@@ -576,6 +580,9 @@ export function dcaRoutes(redisClient: RedisClientType) {
 
         // Uniswap V3 SwapRouter address on Ethereum mainnet
         const SWAP_ROUTER_ADDRESS = '0xE592427A0AEce92De3Edee1F18E0157C05861564';
+
+        // WETH address on Ethereum mainnet (Uniswap V3 requires WETH, not 0x00...00)
+        const WETH_ADDRESS = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 
         const swapRouterContract = getContract({
           client,
@@ -593,7 +600,7 @@ export function dcaRoutes(redisClient: RedisClientType) {
 
         // exactInputSingle parameters
         const swapParams = {
-          tokenIn: params.fromToken,
+          tokenIn: WETH_ADDRESS, // ✅ Use WETH instead of 0x00...00 for Uniswap V3
           tokenOut: params.toToken,
           fee: 3000, // 0.3% fee tier
           recipient: smartAccount.address,
@@ -602,6 +609,18 @@ export function dcaRoutes(redisClient: RedisClientType) {
           amountOutMinimum: BigInt(0), // In production, calculate with slippage
           sqrtPriceLimitX96: BigInt(0),
         };
+
+        console.log('[executeSwap] 📋 Swap params:', {
+          tokenIn: swapParams.tokenIn,
+          tokenOut: swapParams.tokenOut,
+          fee: swapParams.fee,
+          recipient: swapParams.recipient,
+          deadline: swapParams.deadline.toString(),
+          amountIn: swapParams.amountIn.toString(),
+          amountInEth: params.amount,
+          amountOutMinimum: swapParams.amountOutMinimum.toString(),
+          value: amountInWei.toString(),
+        });
 
         const transaction = prepareContractCall({
           contract: swapRouterContract,
