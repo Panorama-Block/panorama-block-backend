@@ -45,6 +45,8 @@ properties:
             secretRef: REDIS_PORT
           - name: REDIS_PASS
             secretRef: REDIS_PASS
+          - name: REDIS_TLS
+            value: "true"
           - name: THIRDWEB_CLIENT_ID
             secretRef: THIRDWEB_CLIENT_ID
           - name: THIRDWEB_SECRET_KEY
