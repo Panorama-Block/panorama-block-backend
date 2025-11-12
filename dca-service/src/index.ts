@@ -11,7 +11,7 @@ dotenv.config();
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.DCA_PORT || 3003;
+const PORT = process.env.DCA_PORT || process.env.PORT || 3003;
 
 // Middleware
 app.use(express.json());
