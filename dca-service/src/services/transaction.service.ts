@@ -6,7 +6,7 @@
 
 import { RedisClientType } from 'redis';
 import { SmartAccountService } from './smartAccount.service';
-import { createThirdwebClient, prepareTransaction, type Address } from 'thirdweb';
+import { createThirdwebClient, prepareTransaction, type Address, type Hex } from 'thirdweb';
 import { defineChain } from 'thirdweb/chains';
 import { privateKeyToAccount, smartWallet } from 'thirdweb/wallets';
 import { sendTransaction, toWei } from 'thirdweb';
@@ -124,7 +124,7 @@ export class TransactionService {
         value: toWei(request.value),
         chain,
         client: this.client,
-        data: request.data,
+        data: (request.data as Hex | undefined) ?? undefined,
       });
 
       console.log('[TransactionService] 📝 Transaction prepared');
