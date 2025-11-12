@@ -1,0 +1,63 @@
+name: dca-service
+type: containerapp
+location: brazilsouth
+properties:
+  environmentId: ${ACA_ENV_ID}
+  configuration:
+    ingress:
+      external: false
+      targetPort: 3003
+    registries:
+      - server: ghcr.io
+        username: ${GHCR_USERNAME}
+        passwordSecretRef: ghcr-password
+    secrets:
+      - name: ghcr-password
+        value: ${GHCR_PASSWORD}
+      - name: REDIS_HOST
+        value: ${REDIS_HOST}
+      - name: REDIS_PORT
+        value: ${REDIS_PORT}
+      - name: REDIS_PASS
+        value: ${REDIS_PASS}
+      - name: THIRDWEB_CLIENT_ID
+        value: ${THIRDWEB_CLIENT_ID}
+      - name: THIRDWEB_SECRET_KEY
+        value: ${THIRDWEB_SECRET_KEY}
+      - name: ENCRYPTION_PASSWORD
+        value: ${ENCRYPTION_PASSWORD}
+      - name: ENGINE_URL
+        value: ${ENGINE_URL}
+      - name: ENGINE_ACCESS_TOKEN
+        value: ${ENGINE_ACCESS_TOKEN}
+  template:
+    containers:
+      - name: dca-service
+        image: ghcr.io/${GHCR_NAMESPACE}/dca-service:${IMAGE_TAG}
+        env:
+          - name: NODE_ENV
+            value: "production"
+          - name: DCA_PORT
+            value: "3003"
+          - name: REDIS_HOST
+            secretRef: REDIS_HOST
+          - name: REDIS_PORT
+            secretRef: REDIS_PORT
+          - name: REDIS_PASS
+            secretRef: REDIS_PASS
+          - name: THIRDWEB_CLIENT_ID
+            secretRef: THIRDWEB_CLIENT_ID
+          - name: THIRDWEB_SECRET_KEY
+            secretRef: THIRDWEB_SECRET_KEY
+          - name: ENCRYPTION_PASSWORD
+            secretRef: ENCRYPTION_PASSWORD
+          - name: ENGINE_URL
+            secretRef: ENGINE_URL
+          - name: ENGINE_ACCESS_TOKEN
+            secretRef: ENGINE_ACCESS_TOKEN
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+    scale:
+      minReplicas: 1
+      maxReplicas: 5
