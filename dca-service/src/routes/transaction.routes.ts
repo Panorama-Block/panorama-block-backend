@@ -3,10 +3,12 @@
  * Secure endpoints for signing transactions with session keys
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { RedisClientType } from 'redis';
 import { TransactionService } from '../services/transaction.service';
 import { SmartAccountService } from '../services/smartAccount.service';
+import { AuthenticatedRequest, verifyTelegramAuth, devBypassAuth } from '../middleware/auth.middleware';
+import { transactionLimiter, generalLimiter } from '../middleware/rateLimit.middleware';
 
 export function createTransactionRoutes(redisClient: RedisClientType): Router {
   const router = Router();
@@ -19,6 +21,7 @@ export function createTransactionRoutes(redisClient: RedisClientType): Router {
   /**
    * POST /transaction/sign-and-execute
    * Sign and execute a transaction using session key (SECURE!)
+   * 🔒 PROTECTED: Requires Telegram authentication + rate limiting
    *
    * Body:
    * {
@@ -29,7 +32,11 @@ export function createTransactionRoutes(redisClient: RedisClientType): Router {
    *   "chainId": 1
    * }
    */
-  router.post('/sign-and-execute', async (req: Request, res: Response) => {
+  router.post('/sign-and-execute',
+    transactionLimiter, // Rate limit: 20 per 5 minutes
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     console.log('[POST /transaction/sign-and-execute] Request received');
 
     try {
@@ -41,6 +48,15 @@ export function createTransactionRoutes(redisClient: RedisClientType): Router {
         return res.status(400).json({
           error:
             'Missing required fields: smartAccountAddress, userId, to, value, chainId',
+        });
+      }
+
+      // 🔒 SECURITY: Verify ownership
+      if (req.user && req.user.id !== userId) {
+        console.warn(`[POST /transaction/sign-and-execute] User ${req.user.id} tried to sign transaction for ${userId}`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only sign transactions for your own accounts'
         });
       }
 
@@ -75,6 +91,7 @@ export function createTransactionRoutes(redisClient: RedisClientType): Router {
   /**
    * POST /transaction/withdraw-token
    * Withdraw ERC20 tokens from smart account
+   * 🔒 PROTECTED: Requires Telegram authentication + rate limiting
    *
    * Body:
    * {
@@ -86,7 +103,11 @@ export function createTransactionRoutes(redisClient: RedisClientType): Router {
    *   "chainId": 1
    * }
    */
-  router.post('/withdraw-token', async (req: Request, res: Response) => {
+  router.post('/withdraw-token',
+    transactionLimiter, // Rate limit: 20 per 5 minutes
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     console.log('[POST /transaction/withdraw-token] ERC20 withdrawal request');
 
     try {
@@ -96,6 +117,15 @@ export function createTransactionRoutes(redisClient: RedisClientType): Router {
       if (!smartAccountAddress || !userId || !tokenAddress || !amount || !chainId) {
         return res.status(400).json({
           error: 'Missing required fields: smartAccountAddress, userId, tokenAddress, amount, chainId',
+        });
+      }
+
+      // 🔒 SECURITY: Verify ownership
+      if (req.user && req.user.id !== userId) {
+        console.warn(`[POST /transaction/withdraw-token] User ${req.user.id} tried to withdraw from ${userId}'s account`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only withdraw from your own accounts'
         });
       }
 
@@ -187,6 +217,7 @@ export function createTransactionRoutes(redisClient: RedisClientType): Router {
   /**
    * POST /transaction/validate
    * Validate if a transaction would be allowed by session key permissions
+   * 🔒 PROTECTED: Requires Telegram authentication
    *
    * Body:
    * {
@@ -195,7 +226,11 @@ export function createTransactionRoutes(redisClient: RedisClientType): Router {
    *   "value": "0.01"
    * }
    */
-  router.post('/validate', async (req: Request, res: Response) => {
+  router.post('/validate',
+    generalLimiter,
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     console.log('[POST /transaction/validate] Validating permissions');
 
     try {

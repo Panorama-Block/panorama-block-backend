@@ -2,7 +2,8 @@ import { RedisClientType } from 'redis';
 import { SmartAccountData, SmartAccountPermissions, CreateSmartAccountRequest } from '../types';
 import { encryptPrivateKey, generatePrivateKey, privateKeyToAddress } from '../utils/encryption';
 import { createThirdwebClient, getContract, defineChain } from 'thirdweb';
-import { privateKeyToAccount, smartWallet } from 'thirdweb/wallets';
+import { smartWallet } from 'thirdweb/wallets';
+import { privateKeyToAccount } from 'thirdweb/wallets';
 
 export class SmartAccountService {
   private client: any;
@@ -72,7 +73,7 @@ export class SmartAccountService {
     };
 
     const accountData: SmartAccountData = {
-      address: smartAccountAddress,
+      address: smartAccountAddress, // Add the address field
       userId: request.userId,
       name: request.name,
       createdAt: Date.now(),
@@ -170,7 +171,7 @@ export class SmartAccountService {
     }
 
     return {
-      address: data.address || address,
+      address: address, // Add the address field
       userId: data.userId,
       name: data.name,
       createdAt: parseInt(data.createdAt),
