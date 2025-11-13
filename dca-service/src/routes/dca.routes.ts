@@ -1,8 +1,18 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { RedisClientType } from 'redis';
 import { SmartAccountService } from '../services/smartAccount.service';
 import { DCAService } from '../services/dca.service';
+import { QuoteService } from '../services/quote.service';
 import { CreateSmartAccountRequest, CreateStrategyRequest } from '../types';
+import { AuthenticatedRequest, verifyTelegramAuth, requireOwnership, devBypassAuth } from '../middleware/auth.middleware';
+import {
+  createAccountLimiter,
+  createStrategyLimiter,
+  readLimiter,
+  debugLimiter,
+  generalLimiter
+} from '../middleware/rateLimit.middleware';
+import { WETH_ADDRESS, SWAP_DEADLINE_SECONDS, MAX_SLIPPAGE_PERCENT } from '../config/swap.config';
 
 export function dcaRoutes(redisClient: RedisClientType) {
   const router = Router();
@@ -14,8 +24,13 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * POST /dca/create-account
    * Create a new smart account with session keys
+   * 🔒 PROTECTED: Requires Telegram authentication
    */
-  router.post('/create-account', async (req: Request, res: Response) => {
+  router.post('/create-account',
+    createAccountLimiter, // Rate limit: 5 per hour
+    devBypassAuth, // Allow dev bypass in development
+    verifyTelegramAuth, // Validate Telegram initData
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[POST /create-account] Request received');
 
@@ -23,6 +38,15 @@ export function dcaRoutes(redisClient: RedisClientType) {
 
       if (!request.userId || !request.name || !request.permissions) {
         return res.status(400).json({ error: 'Missing required fields' });
+      }
+
+      // 🔒 SECURITY: Verify user can only create accounts for themselves
+      if (req.user && req.user.id !== request.userId) {
+        console.warn(`[POST /create-account] User ${req.user.id} tried to create account for ${request.userId}`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only create accounts for yourself'
+        });
       }
 
       const result = await smartAccountService.createSmartAccount(request);
@@ -38,8 +62,14 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * GET /dca/accounts/:userId
    * Get all smart accounts for a user
+   * 🔒 PROTECTED: Requires Telegram authentication + ownership
    */
-  router.get('/accounts/:userId', async (req: Request, res: Response) => {
+  router.get('/accounts/:userId',
+    readLimiter, // Rate limit: 200 per 15min
+    devBypassAuth,
+    verifyTelegramAuth,
+    requireOwnership('userId'), // Ensure user can only access their own accounts
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[GET /accounts/:userId] Request for user:', req.params.userId);
 
@@ -58,13 +88,27 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * GET /dca/account/:address
    * Get single smart account details
+   * 🔒 PROTECTED: Requires Telegram authentication
    */
-  router.get('/account/:address', async (req: Request, res: Response) => {
+  router.get('/account/:address',
+    readLimiter,
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       const account = await smartAccountService.getSmartAccount(req.params.address);
 
       if (!account) {
         return res.status(404).json({ error: 'Account not found' });
+      }
+
+      // 🔒 SECURITY: Verify ownership
+      if (req.user && req.user.id !== account.userId) {
+        console.warn(`[GET /account/:address] User ${req.user.id} tried to access ${account.userId}'s account`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only access your own accounts'
+        });
       }
 
       res.json(account);
@@ -77,8 +121,13 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * DELETE /dca/account/:address
    * Delete a smart account
+   * 🔒 PROTECTED: Requires Telegram authentication + ownership
    */
-  router.delete('/account/:address', async (req: Request, res: Response) => {
+  router.delete('/account/:address',
+    generalLimiter,
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[DELETE /account/:address] Deleting account:', req.params.address);
 
@@ -86,6 +135,15 @@ export function dcaRoutes(redisClient: RedisClientType) {
 
       if (!userId) {
         return res.status(400).json({ error: 'userId is required' });
+      }
+
+      // 🔒 SECURITY: Verify ownership
+      if (req.user && req.user.id !== userId) {
+        console.warn(`[DELETE /account/:address] User ${req.user.id} tried to delete ${userId}'s account`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only delete your own accounts'
+        });
       }
 
       await smartAccountService.deleteSmartAccount(req.params.address, userId);
@@ -102,8 +160,13 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * POST /dca/create-strategy
    * Create a new DCA strategy
+   * 🔒 PROTECTED: Requires Telegram authentication
    */
-  router.post('/create-strategy', async (req: Request, res: Response) => {
+  router.post('/create-strategy',
+    createStrategyLimiter, // Rate limit: 10 per 15min
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[POST /create-strategy] Request received');
 
@@ -111,6 +174,19 @@ export function dcaRoutes(redisClient: RedisClientType) {
 
       if (!request.smartAccountId || !request.fromToken || !request.toToken || !request.amount || !request.interval) {
         return res.status(400).json({ error: 'Missing required fields' });
+      }
+
+      // 🔒 SECURITY: Verify user owns the smart account
+      const account = await smartAccountService.getSmartAccount(request.smartAccountId);
+      if (!account) {
+        return res.status(404).json({ error: 'Smart account not found' });
+      }
+      if (req.user && req.user.id !== account.userId) {
+        console.warn(`[POST /create-strategy] User ${req.user.id} tried to create strategy for ${account.userId}'s account`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only create strategies for your own accounts'
+        });
       }
 
       const result = await dcaService.createStrategy(request);
@@ -126,9 +202,27 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * GET /dca/strategies/:smartAccountId
    * Get all strategies for a smart account
+   * 🔒 PROTECTED: Requires Telegram authentication
    */
-  router.get('/strategies/:smartAccountId', async (req: Request, res: Response) => {
+  router.get('/strategies/:smartAccountId',
+    readLimiter,
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
+      // 🔒 SECURITY: Verify ownership
+      const account = await smartAccountService.getSmartAccount(req.params.smartAccountId);
+      if (!account) {
+        return res.status(404).json({ error: 'Smart account not found' });
+      }
+      if (req.user && req.user.id !== account.userId) {
+        console.warn(`[GET /strategies/:smartAccountId] User ${req.user.id} tried to access ${account.userId}'s strategies`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only access your own strategies'
+        });
+      }
+
       const strategies = await dcaService.getAccountStrategies(req.params.smartAccountId);
 
       res.json({ strategies });
@@ -141,13 +235,35 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * PATCH /dca/strategy/:strategyId/toggle
    * Activate or deactivate a strategy
+   * 🔒 PROTECTED: Requires Telegram authentication
    */
-  router.patch('/strategy/:strategyId/toggle', async (req: Request, res: Response) => {
+  router.patch('/strategy/:strategyId/toggle',
+    generalLimiter,
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { isActive } = req.body;
 
       if (typeof isActive !== 'boolean') {
         return res.status(400).json({ error: 'isActive must be a boolean' });
+      }
+
+      // 🔒 SECURITY: Verify ownership
+      const strategyData = await redisClient.hGetAll(`dca-strategy:${req.params.strategyId}`);
+      if (Object.keys(strategyData).length === 0) {
+        return res.status(404).json({ error: 'Strategy not found' });
+      }
+      const account = await smartAccountService.getSmartAccount(strategyData.smartAccountId);
+      if (!account) {
+        return res.status(404).json({ error: 'Smart account not found' });
+      }
+      if (req.user && req.user.id !== account.userId) {
+        console.warn(`[PATCH /strategy/:strategyId/toggle] User ${req.user.id} tried to toggle ${account.userId}'s strategy`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only modify your own strategies'
+        });
       }
 
       await dcaService.toggleStrategy(req.params.strategyId, isActive);
@@ -162,9 +278,31 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * DELETE /dca/strategy/:strategyId
    * Delete a strategy
+   * 🔒 PROTECTED: Requires Telegram authentication
    */
-  router.delete('/strategy/:strategyId', async (req: Request, res: Response) => {
+  router.delete('/strategy/:strategyId',
+    generalLimiter,
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
+      // 🔒 SECURITY: Verify ownership
+      const strategyData = await redisClient.hGetAll(`dca-strategy:${req.params.strategyId}`);
+      if (Object.keys(strategyData).length === 0) {
+        return res.status(404).json({ error: 'Strategy not found' });
+      }
+      const account = await smartAccountService.getSmartAccount(strategyData.smartAccountId);
+      if (!account) {
+        return res.status(404).json({ error: 'Smart account not found' });
+      }
+      if (req.user && req.user.id !== account.userId) {
+        console.warn(`[DELETE /strategy/:strategyId] User ${req.user.id} tried to delete ${account.userId}'s strategy`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only delete your own strategies'
+        });
+      }
+
       await dcaService.deleteStrategy(req.params.strategyId);
 
       res.json({ success: true });
@@ -177,9 +315,27 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * GET /dca/history/:smartAccountId
    * Get execution history for a smart account
+   * 🔒 PROTECTED: Requires Telegram authentication
    */
-  router.get('/history/:smartAccountId', async (req: Request, res: Response) => {
+  router.get('/history/:smartAccountId',
+    readLimiter,
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
+      // 🔒 SECURITY: Verify ownership
+      const account = await smartAccountService.getSmartAccount(req.params.smartAccountId);
+      if (!account) {
+        return res.status(404).json({ error: 'Smart account not found' });
+      }
+      if (req.user && req.user.id !== account.userId) {
+        console.warn(`[GET /history/:smartAccountId] User ${req.user.id} tried to access ${account.userId}'s history`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only access your own history'
+        });
+      }
+
       const limit = parseInt(req.query.limit as string) || 100;
       const history = await dcaService.getExecutionHistory(req.params.smartAccountId, limit);
 
@@ -195,8 +351,11 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * GET /dca/debug/all-accounts
    * Get ALL smart accounts in Redis
+   * 🔒 DEBUG: Rate limited, disable in production
    */
-  router.get('/debug/all-accounts', async (_req: Request, res: Response) => {
+  router.get('/debug/all-accounts',
+    debugLimiter, // Rate limit: 10 per hour
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[GET /debug/all-accounts] Fetching all smart accounts from Redis...');
 
@@ -231,8 +390,11 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * GET /dca/debug/all-strategies
    * Get ALL DCA strategies in Redis
+   * 🔒 DEBUG: Rate limited, disable in production
    */
-  router.get('/debug/all-strategies', async (_req: Request, res: Response) => {
+  router.get('/debug/all-strategies',
+    debugLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[GET /debug/all-strategies] Fetching all strategies from Redis...');
 
@@ -270,8 +432,11 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * GET /dca/debug/scheduled
    * Get all scheduled strategies (sorted set)
+   * 🔒 DEBUG: Rate limited, disable in production
    */
-  router.get('/debug/scheduled', async (_req: Request, res: Response) => {
+  router.get('/debug/scheduled',
+    debugLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[GET /debug/scheduled] Fetching scheduled strategies...');
 
@@ -304,8 +469,11 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * GET /dca/debug/all-history
    * Get ALL execution history from all accounts
+   * 🔒 DEBUG: Rate limited, disable in production
    */
-  router.get('/debug/all-history', async (_req: Request, res: Response) => {
+  router.get('/debug/all-history',
+    debugLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[GET /debug/all-history] Fetching all execution history...');
 
@@ -339,10 +507,134 @@ export function dcaRoutes(redisClient: RedisClientType) {
   });
 
   /**
+   * GET /dca/debug/circuit-breakers
+   * Get status of all circuit breakers
+   * 🔒 DEBUG: Rate limited, disable in production
+   */
+  router.get('/debug/circuit-breakers',
+    debugLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { CircuitBreakerManager } = await import('../services/circuitBreaker.service');
+      const stats = CircuitBreakerManager.getAllStats();
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        circuitBreakers: stats,
+      });
+    } catch (error: any) {
+      console.error('[GET /debug/circuit-breakers] Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * GET /dca/debug/audit-logs
+   * Get recent audit logs with optional filters
+   * 🔒 DEBUG: Rate limited, disable in production
+   */
+  router.get('/debug/audit-logs',
+    debugLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { AuditLogger, AuditEventType } = await import('../services/auditLog.service');
+      const auditLogger = AuditLogger.getInstance();
+
+      const limit = parseInt(req.query.limit as string) || 100;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const eventType = req.query.eventType as string;
+      const userId = req.query.userId as string;
+      const startTime = req.query.startTime ? parseInt(req.query.startTime as string) : undefined;
+      const endTime = req.query.endTime ? parseInt(req.query.endTime as string) : undefined;
+
+      const logs = await auditLogger.getLogs({
+        limit,
+        offset,
+        eventType: eventType as any,
+        userId,
+        startTime,
+        endTime,
+      });
+
+      res.json({
+        total: logs.length,
+        limit,
+        offset,
+        filters: {
+          eventType: eventType || null,
+          userId: userId || null,
+          startTime: startTime || null,
+          endTime: endTime || null,
+        },
+        logs,
+      });
+    } catch (error: any) {
+      console.error('[GET /debug/audit-logs] Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * GET /dca/debug/audit-logs/security
+   * Get security-related audit events only
+   * 🔒 DEBUG: Rate limited, disable in production
+   */
+  router.get('/debug/audit-logs/security',
+    debugLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { AuditLogger } = await import('../services/auditLog.service');
+      const auditLogger = AuditLogger.getInstance();
+
+      const limit = parseInt(req.query.limit as string) || 100;
+      const logs = await auditLogger.getSecurityEvents(limit);
+
+      res.json({
+        total: logs.length,
+        limit,
+        logs,
+      });
+    } catch (error: any) {
+      console.error('[GET /debug/audit-logs/security] Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * GET /dca/debug/audit-logs/user/:userId
+   * Get audit logs for a specific user
+   * 🔒 DEBUG: Rate limited, disable in production
+   */
+  router.get('/debug/audit-logs/user/:userId',
+    debugLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { AuditLogger } = await import('../services/auditLog.service');
+      const auditLogger = AuditLogger.getInstance();
+
+      const limit = parseInt(req.query.limit as string) || 100;
+      const logs = await auditLogger.getUserLogs(req.params.userId, limit);
+
+      res.json({
+        userId: req.params.userId,
+        total: logs.length,
+        limit,
+        logs,
+      });
+    } catch (error: any) {
+      console.error('[GET /debug/audit-logs/user/:userId] Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
    * GET /dca/debug/redis-stats
    * Get Redis database statistics
+   * 🔒 DEBUG: Rate limited, disable in production
    */
-  router.get('/debug/redis-stats', async (_req: Request, res: Response) => {
+  router.get('/debug/redis-stats',
+    debugLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[GET /debug/redis-stats] Fetching Redis stats...');
 
@@ -380,8 +672,13 @@ export function dcaRoutes(redisClient: RedisClientType) {
   /**
    * POST /dca/debug/execute/:strategyId
    * Manually execute a DCA strategy (for testing)
+   * 🔒 DEBUG: Rate limited, disable in production
    */
-  router.post('/debug/execute/:strategyId', async (req: Request, res: Response) => {
+  router.post('/debug/execute/:strategyId',
+    debugLimiter,
+    devBypassAuth,
+    verifyTelegramAuth,
+    async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { strategyId } = req.params;
       console.log(`\n[POST /debug/execute] 🚀 Manually executing strategy: ${strategyId}`);
@@ -582,22 +879,37 @@ export function dcaRoutes(redisClient: RedisClientType) {
         // Uniswap V3 SwapRouter address on Ethereum mainnet
         const SWAP_ROUTER_ADDRESS = '0xE592427A0AEce92De3Edee1F18E0157C05861564';
 
-        // WETH address on Ethereum mainnet (Uniswap V3 requires WETH, not 0x00...00)
-        const WETH_ADDRESS = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
-
         const swapRouterContract = getContract({
           client,
           chain,
           address: SWAP_ROUTER_ADDRESS,
         });
 
-        // Prepare exactInputSingle call
-        // This is a simplified version - in production you'd want to:
-        // 1. Get best route from a DEX aggregator
-        // 2. Calculate slippage
-        // 3. Set deadline
         const amountInWei = toWei(params.amount);
-        const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes
+        const deadline = Math.floor(Date.now() / 1000) + SWAP_DEADLINE_SECONDS;
+
+        // 🔒 SECURITY: Get quote with slippage protection
+        console.log('[executeSwap] 🔍 Getting price quote with slippage protection...');
+        const quoteService = new QuoteService();
+        const quote = await quoteService.getQuote({
+          fromToken: WETH_ADDRESS,
+          toToken: params.toToken,
+          amountIn: BigInt(amountInWei),
+          chainId: params.fromChainId,
+          slippagePercent: MAX_SLIPPAGE_PERCENT,
+        });
+
+        console.log('[executeSwap] 💰 Quote:', {
+          expectedOutput: quote.amountOut.toString(),
+          minimumOutput: quote.amountOutMinimum.toString(),
+          priceImpact: `${quote.priceImpact.toFixed(2)}%`,
+          slippage: `${MAX_SLIPPAGE_PERCENT}%`,
+        });
+
+        // Warn if price impact is too high
+        if (quote.priceImpact > 5.0) {
+          console.warn(`[executeSwap] ⚠️ High price impact: ${quote.priceImpact.toFixed(2)}%`);
+        }
 
         // exactInputSingle parameters
         const swapParams = {
@@ -607,7 +919,7 @@ export function dcaRoutes(redisClient: RedisClientType) {
           recipient: smartAccount.address,
           deadline: BigInt(deadline),
           amountIn: BigInt(amountInWei),
-          amountOutMinimum: BigInt(0), // In production, calculate with slippage
+          amountOutMinimum: quote.amountOutMinimum, // ✅ SECURITY: Slippage protection enabled
           sqrtPriceLimitX96: BigInt(0),
         };
 
@@ -690,7 +1002,30 @@ export function dcaRoutes(redisClient: RedisClientType) {
           address: SWAP_ROUTER_ADDRESS,
         });
 
-        const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
+        const deadline = Math.floor(Date.now() / 1000) + SWAP_DEADLINE_SECONDS;
+
+        // 🔒 SECURITY: Get quote with slippage protection
+        console.log('[executeSwap] 🔍 Getting price quote with slippage protection...');
+        const quoteService = new QuoteService();
+        const quote = await quoteService.getQuote({
+          fromToken: params.fromToken,
+          toToken: params.toToken,
+          amountIn: amountInWei,
+          chainId: params.fromChainId,
+          slippagePercent: MAX_SLIPPAGE_PERCENT,
+        });
+
+        console.log('[executeSwap] 💰 Quote:', {
+          expectedOutput: quote.amountOut.toString(),
+          minimumOutput: quote.amountOutMinimum.toString(),
+          priceImpact: `${quote.priceImpact.toFixed(2)}%`,
+          slippage: `${MAX_SLIPPAGE_PERCENT}%`,
+        });
+
+        // Warn if price impact is too high
+        if (quote.priceImpact > 5.0) {
+          console.warn(`[executeSwap] ⚠️ High price impact: ${quote.priceImpact.toFixed(2)}%`);
+        }
 
         const swapParams = {
           tokenIn: params.fromToken,
@@ -699,7 +1034,7 @@ export function dcaRoutes(redisClient: RedisClientType) {
           recipient: smartAccount.address,
           deadline: BigInt(deadline),
           amountIn: amountInWei,
-          amountOutMinimum: BigInt(0),
+          amountOutMinimum: quote.amountOutMinimum, // ✅ SECURITY: Slippage protection enabled
           sqrtPriceLimitX96: BigInt(0),
         };
 

@@ -5,6 +5,14 @@ import { createClient, RedisClientType } from 'redis';
 import { dcaRoutes } from './routes/dca.routes';
 import { createTransactionRoutes } from './routes/transaction.routes';
 import { startDCAExecutor } from './jobs/dca.executor';
+import { AuditLogger } from './services/auditLog.service';
+import {
+  forceHTTPS,
+  securityHeaders,
+  removeSensitiveHeaders,
+  securityLogger,
+  validateRequestSize
+} from './middleware/security.middleware';
 
 // Load environment variables
 dotenv.config();
@@ -13,7 +21,14 @@ dotenv.config();
 const app = express();
 const PORT = process.env.DCA_PORT || 3003;
 
-// Middleware
+// Security middleware (applied first)
+app.use(securityLogger);
+app.use(removeSensitiveHeaders);
+app.use(forceHTTPS);
+app.use(securityHeaders);
+app.use(validateRequestSize(2 * 1024 * 1024)); // 2MB max request size
+
+// Standard middleware
 app.use(express.json());
 app.use(cors());
 
@@ -61,7 +76,11 @@ app.get('/', (req, res) => {
       '/dca/strategies/:smartAccountId': 'Get account strategies',
       '/dca/history/:smartAccountId': 'Get execution history',
       '/transaction/sign-and-execute': '🔐 SECURE: Sign & execute transaction (private key never leaves backend!)',
-      '/transaction/validate': 'Validate transaction permissions'
+      '/transaction/validate': 'Validate transaction permissions',
+      '/dca/debug/circuit-breakers': '🔍 Monitor circuit breaker status',
+      '/dca/debug/audit-logs': '📋 View audit logs (with filters)',
+      '/dca/debug/audit-logs/security': '⚠️ View security events only',
+      '/dca/debug/audit-logs/user/:userId': '👤 View user-specific audit logs'
     }
   });
 });
@@ -71,6 +90,11 @@ app.use('/dca', dcaRoutes(redisClient));
 
 redisClient.connect().then(() => {
   console.log('[DCA Service] ✅ Connected to Redis successfully');
+
+  // Initialize Audit Logger with Redis
+  const auditLogger = AuditLogger.getInstance();
+  auditLogger.setRedisClient(redisClient);
+  console.log('[DCA Service] ✅ Audit Logger initialized');
 
   // Register transaction routes (after env vars are loaded!)
   app.use('/transaction', createTransactionRoutes(redisClient));
