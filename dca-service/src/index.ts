@@ -19,7 +19,7 @@ dotenv.config();
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.DCA_PORT || 3003;
+const PORT = process.env.DCA_PORT || process.env.PORT || 3003;
 
 // Security middleware (applied first)
 app.use(securityLogger);
@@ -37,16 +37,34 @@ console.log('\n💰 [DCA SERVICE] Environment Variables:');
 console.log('='.repeat(60));
 console.log('📊 PORT:', PORT);
 console.log('🌍 NODE_ENV:', process.env.NODE_ENV || 'development');
-console.log('🔗 REDIS_HOST:', process.env.REDIS_HOST || 'localhost');
-console.log('🔗 REDIS_PORT:', process.env.REDIS_PORT || '6379');
+const redisHost = process.env.REDIS_HOST || 'localhost';
+const redisPort = Number(process.env.REDIS_PORT || 6379);
+const redisPassword = process.env.REDIS_PASS || '';
+const redisUrlFromEnv = process.env.REDIS_URL;
+const redisUseTls =
+  (process.env.REDIS_TLS || process.env.REDIS_USE_TLS || '').toLowerCase() === 'true' ||
+  redisPort === 6380 ||
+  (redisUrlFromEnv?.startsWith('rediss://') ?? false);
+const redisUrl =
+  redisUrlFromEnv || `${redisUseTls ? 'rediss' : 'redis'}://${redisHost}:${redisPort}`;
+
+console.log('🔗 REDIS_HOST:', redisHost);
+console.log('🔗 REDIS_PORT:', redisPort);
+console.log('🔐 REDIS_TLS:', redisUseTls);
 console.log('🔑 THIRDWEB_CLIENT_ID:', process.env.THIRDWEB_CLIENT_ID ? '[SET]' : '[NOT SET]');
 console.log('🔒 ENCRYPTION_PASSWORD:', process.env.ENCRYPTION_PASSWORD ? '[SET]' : '[NOT SET]');
 console.log('='.repeat(60));
 
 // Initialize Redis client
 const redisClient: RedisClientType = createClient({
-  url: `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`,
-  password: process.env.REDIS_PASS || '',
+  url: redisUrl,
+  socket: redisUseTls
+    ? {
+        tls: true,
+        servername: redisHost,
+      }
+    : undefined,
+  password: redisPassword || undefined,
 });
 
 // Health check endpoint (before Redis connection)

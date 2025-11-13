@@ -91,6 +91,7 @@ export class SmartAccountService {
 
     // Store smart account metadata
     multi.hSet(`smart-account:${smartAccountAddress}`, {
+      address: smartAccountAddress,
       userId: accountData.userId,
       name: accountData.name,
       createdAt: accountData.createdAt.toString(),
@@ -145,7 +146,7 @@ export class SmartAccountService {
       }
 
       accounts.push({
-        address: address, // ← IMPORTANTE: Adicionar o address aqui!
+        address: data.address || address,
         userId: data.userId,
         name: data.name,
         createdAt: parseInt(data.createdAt),
