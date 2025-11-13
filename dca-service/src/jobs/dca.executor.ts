@@ -2,6 +2,8 @@ import cron from 'node-cron';
 import { RedisClientType } from 'redis';
 import { DCAService } from '../services/dca.service';
 import { SmartAccountService } from '../services/smartAccount.service';
+import { SwapService } from '../services/swap.service';
+import { AuditLogger, AuditEventType } from '../services/auditLog.service';
 
 /**
  * DCA Executor - Runs strategies on schedule
@@ -10,11 +12,15 @@ import { SmartAccountService } from '../services/smartAccount.service';
 export class DCAExecutor {
   private dcaService: DCAService;
   private smartAccountService: SmartAccountService;
+  private swapService: SwapService;
+  private auditLogger: AuditLogger;
   private job: cron.ScheduledTask | null = null;
 
   constructor(private redisClient: RedisClientType) {
     this.dcaService = new DCAService(redisClient);
     this.smartAccountService = new SmartAccountService(redisClient);
+    this.swapService = new SwapService();
+    this.auditLogger = AuditLogger.getInstance();
   }
 
   /**
@@ -139,15 +145,35 @@ export class DCAExecutor {
       return;
     }
 
-    // 3. Execute swap via liquid-swap-service or thirdweb engine
-    const swapResult = await this.executeSwap({
+    // Get smart account info for audit logging
+    const account = await this.smartAccountService.getSmartAccount(smartAccountId);
+    const userId = account?.userId || smartAccountId;
+
+    // Audit log: DCA execution started
+    await this.auditLogger.log({
+      eventType: AuditEventType.STRATEGY_UPDATED,
+      userId,
+      metadata: {
+        strategyId,
+        smartAccountId,
+        fromToken,
+        toToken,
+        amount,
+        action: 'execution_started'
+      },
+    });
+
+    // 3. Execute swap via SwapService (REAL implementation)
+    console.log(`[DCA Executor] 🔄 Executing swap for strategy ${strategyId}...`);
+    const swapResult = await this.swapService.executeSwap({
       smartAccountAddress: smartAccountId,
       sessionKey,
       fromToken,
       toToken,
       fromChainId: parseInt(fromChainId),
       toChainId: parseInt(toChainId),
-      amount
+      amount,
+      userId,
     });
 
     // 4. Log execution in history
@@ -164,54 +190,21 @@ export class DCAExecutor {
     await this.dcaService.updateStrategyAfterExecution(strategyId);
 
     console.log(`[DCA Executor] ✅ Strategy ${strategyId} executed successfully. TX: ${swapResult.txHash}`);
-  }
 
-  /**
-   * Execute swap (placeholder - integrate with liquid-swap-service)
-   */
-  private async executeSwap(params: {
-    smartAccountAddress: string;
-    sessionKey: string;
-    fromToken: string;
-    toToken: string;
-    fromChainId: number;
-    toChainId: number;
-    amount: string;
-  }): Promise<{ txHash: string }> {
-    console.log('[DCA Executor] Executing swap:', params);
-
-    // TODO: Integrate with liquid-swap-service API
-    // For now, simulate swap execution
-
-    /**
-     * Real implementation would call:
-     *
-     * const response = await fetch(`http://localhost:3002/swap/prepare`, {
-     *   method: 'POST',
-     *   headers: { 'Content-Type': 'application/json' },
-     *   body: JSON.stringify({
-     *     fromChainId: params.fromChainId,
-     *     toChainId: params.toChainId,
-     *     fromToken: params.fromToken,
-     *     toToken: params.toToken,
-     *     amount: params.amount,
-     *     sender: params.smartAccountAddress
-     *   })
-     * });
-     *
-     * const { prepared } = await response.json();
-     *
-     * // Then execute with session key
-     * const executeResponse = await executeWithSessionKey(prepared, params.sessionKey);
-     */
-
-    // Simulate delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Return mock transaction hash
-    return {
-      txHash: `0x${Math.random().toString(16).substring(2)}${Math.random().toString(16).substring(2)}`
-    };
+    // Audit log: DCA execution success
+    await this.auditLogger.log({
+      eventType: AuditEventType.SWAP_SUCCESS,
+      userId,
+      metadata: {
+        strategyId,
+        smartAccountId,
+        txHash: swapResult.txHash,
+        fromToken,
+        toToken,
+        amountIn: swapResult.amountIn,
+        amountOut: swapResult.amountOut,
+      },
+    });
   }
 }
 

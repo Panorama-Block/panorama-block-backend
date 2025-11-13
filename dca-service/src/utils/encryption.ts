@@ -1,4 +1,5 @@
 import CryptoJS from 'crypto-js';
+// @ts-ignore - viem types not fully compatible
 import { privateKeyToAccount as viemPrivateKeyToAccount } from 'viem/accounts';
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_PASSWORD || 'default-key-change-in-production';
