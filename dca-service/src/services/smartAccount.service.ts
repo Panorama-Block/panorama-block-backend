@@ -120,7 +120,7 @@ export class SmartAccountService {
   async getUserAccounts(userId: string): Promise<SmartAccountData[]> {
     console.log('[SmartAccountService] Fetching accounts for user:', userId);
 
-    const result = await this.db.query<SmartAccountData>(
+    const result = await this.db.query(
       `SELECT
         address,
         user_id as "userId",

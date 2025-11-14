@@ -168,8 +168,8 @@ export class DCAExecutor {
       sessionKey,
       fromToken,
       toToken,
-      fromChainId: parseInt(fromChainId),
-      toChainId: parseInt(toChainId),
+      fromChainId,
+      toChainId,
       amount,
       userId,
     });

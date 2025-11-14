@@ -442,8 +442,8 @@ export function dcaRoutes() {
         sessionKey,
         fromToken,
         toToken,
-        fromChainId: parseInt(fromChainId),
-        toChainId: parseInt(toChainId),
+        fromChainId,
+        toChainId,
         amount
       });
 
