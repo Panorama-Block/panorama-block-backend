@@ -1,87 +1,142 @@
 import { Request, Response, NextFunction } from 'express';
-import { JWTService, JWTPayload } from '../../auth/jwt.service';
+import axios, { AxiosError, AxiosResponse } from 'axios';
 import { Logger } from '../../logs/logger';
 
+interface TokenValidationResponse {
+  isValid: boolean;
+  payload: {
+    address: string;
+    [key: string]: any;
+  };
+}
+
+interface ErrorResponse {
+  error: string;
+  message: string;
+}
+
 interface AuthRequest extends Request {
-  user?: JWTPayload;
+  user?: any;
 }
 
 export class AuthMiddleware {
   private static logger = new Logger();
-  
-  private static getJWTService(): JWTService {
-    return new JWTService();
-  }
 
-  static authenticate(req: AuthRequest, res: Response, next: NextFunction): void {
+  /**
+   * Authenticate middleware - validates JWT via centralized auth-service
+   * Same authentication flow as liquid-swap-service
+   */
+  static async authenticate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      // Log detalhado da requisição
-      AuthMiddleware.logger.info('🔍 Debug Authentication Request:');
+      // Log authentication request
+      AuthMiddleware.logger.info('🔍 [Lido Service] Authenticating request:');
       AuthMiddleware.logger.info(`   Method: ${req.method}`);
       AuthMiddleware.logger.info(`   URL: ${req.url}`);
-      AuthMiddleware.logger.info(`   Headers: ${JSON.stringify(req.headers, null, 2)}`);
-      AuthMiddleware.logger.info(`   Body: ${JSON.stringify(req.body, null, 2)}`);
-      AuthMiddleware.logger.info(`   Query: ${JSON.stringify(req.query, null, 2)}`);
-      
+
       const authHeader = req.headers.authorization;
-      
+
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        AuthMiddleware.logger.error('❌ No Authorization header or invalid format');
-        AuthMiddleware.logger.error(`   Auth Header: ${authHeader}`);
+        AuthMiddleware.logger.error('❌ [Lido Service] No Authorization header or invalid format');
         res.status(401).json({
           success: false,
-          error: 'Authorization header required'
+          error: 'Authorization header required',
+          message: 'Missing authorization token'
         });
         return;
       }
 
-      AuthMiddleware.logger.info(`✅ Authorization header found: ${authHeader.substring(0, 20)}...`);
+      const token = authHeader.split(' ')[1];
+      AuthMiddleware.logger.info(`✅ [Lido Service] Token extracted: ${token.substring(0, 20)}...`);
 
-      const jwtService = AuthMiddleware.getJWTService();
-      const token = jwtService.extractTokenFromHeader(authHeader);
-      AuthMiddleware.logger.info(`🔑 Extracted token: ${token.substring(0, 20)}...`);
-      
-      const decoded = jwtService.verifyAccessToken(token);
-      AuthMiddleware.logger.info(`✅ Token verified successfully: ${JSON.stringify(decoded, null, 2)}`);
-      
-      req.user = decoded;
-      AuthMiddleware.logger.info(`👤 User authenticated: ${decoded.address}`);
-      
-      next();
+      // Validate token with centralized Auth Service
+      try {
+        const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+        AuthMiddleware.logger.info(`🔗 [Lido Service] Validating token with Auth Service: ${authServiceUrl}`);
+
+        const response: AxiosResponse<TokenValidationResponse> =
+          await axios.post(`${authServiceUrl}/auth/validate`, { token }, {
+            httpsAgent: new (require('https').Agent)({
+              rejectUnauthorized: false // Disable SSL verification for internal communication
+            })
+          });
+
+        if (response.data.isValid) {
+          // Add user data to request
+          req.user = response.data.payload;
+          AuthMiddleware.logger.info(`✅ [Lido Service] Token validated successfully for user: ${req.user.address}`);
+          next();
+          return;
+        } else {
+          AuthMiddleware.logger.error('❌ [Lido Service] Invalid token provided');
+          res.status(401).json({
+            success: false,
+            error: 'Invalid token',
+            message: 'Token validation failed'
+          });
+          return;
+        }
+      } catch (error) {
+        const axiosError = error as AxiosError<ErrorResponse>;
+        AuthMiddleware.logger.error('[Lido Service] ❌ Error validating token with Auth service:',
+          axiosError.response?.data?.message || axiosError.message);
+
+        res.status(500).json({
+          success: false,
+          error: 'Authentication error',
+          message: 'Could not validate authentication with auth service'
+        });
+        return;
+      }
     } catch (error) {
-      AuthMiddleware.logger.error(`❌ Authentication error: ${error}`);
-      AuthMiddleware.logger.error(`   Error details: ${JSON.stringify(error, null, 2)}`);
-      res.status(401).json({
+      const err = error as Error;
+      AuthMiddleware.logger.error(`❌ [Lido Service] Unexpected error in auth middleware: ${err.message}`);
+      res.status(500).json({
         success: false,
-        error: 'Invalid or expired token'
+        error: 'Internal server error'
       });
+      return;
     }
   }
 
-  static optionalAuth(req: AuthRequest, res: Response, next: NextFunction): void {
+  /**
+   * Optional authentication - validates token if present, but doesn't block if missing
+   */
+  static async optionalAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const authHeader = req.headers.authorization;
-      
+
       if (authHeader && authHeader.startsWith('Bearer ')) {
         try {
-          const jwtService = AuthMiddleware.getJWTService();
-          const token = jwtService.extractTokenFromHeader(authHeader);
-          const decoded = jwtService.verifyAccessToken(token);
-          req.user = decoded;
-          AuthMiddleware.logger.debug(`Optional auth successful: ${decoded.address}`);
+          const token = authHeader.split(' ')[1];
+          const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+
+          const response: AxiosResponse<TokenValidationResponse> =
+            await axios.post(`${authServiceUrl}/auth/validate`, { token }, {
+              httpsAgent: new (require('https').Agent)({
+                rejectUnauthorized: false
+              })
+            });
+
+          if (response.data.isValid) {
+            req.user = response.data.payload;
+            AuthMiddleware.logger.debug(`✅ [Lido Service] Optional auth successful: ${req.user.address}`);
+          }
         } catch (error) {
           // Token is invalid, but we continue without authentication
-          AuthMiddleware.logger.warn(`Invalid token in optional auth: ${error}`);
+          AuthMiddleware.logger.warn(`⚠️ [Lido Service] Invalid token in optional auth: ${(error as Error).message}`);
         }
       }
-      
+
       next();
     } catch (error) {
-      AuthMiddleware.logger.error(`Optional authentication error: ${error}`);
+      AuthMiddleware.logger.error(`❌ [Lido Service] Optional authentication error: ${(error as Error).message}`);
       next(); // Continue even if there's an error
     }
   }
 
+  /**
+   * Require user address - validates that authenticated user matches requested resource
+   */
   static requireUserAddress(req: AuthRequest, res: Response, next: NextFunction): void {
     try {
       if (!req.user || !req.user.address) {
@@ -94,7 +149,7 @@ export class AuthMiddleware {
 
       // Validate that the user address in the token matches the request
       const { userAddress } = req.params;
-      if (userAddress && userAddress !== req.user.address) {
+      if (userAddress && userAddress.toLowerCase() !== req.user.address.toLowerCase()) {
         res.status(403).json({
           success: false,
           error: 'Access denied: token user does not match requested user'
@@ -104,11 +159,20 @@ export class AuthMiddleware {
 
       next();
     } catch (error) {
-      AuthMiddleware.logger.error(`User address validation error: ${error}`);
+      AuthMiddleware.logger.error(`❌ [Lido Service] User address validation error: ${(error as Error).message}`);
       res.status(500).json({
         success: false,
         error: 'Internal server error'
       });
+    }
+  }
+}
+
+// Extend Express Request type
+declare global {
+  namespace Express {
+    interface Request {
+      user?: any;
     }
   }
 }

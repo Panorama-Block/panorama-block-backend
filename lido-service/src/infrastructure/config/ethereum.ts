@@ -25,13 +25,13 @@ export class EthereumConfig {
         throw new Error('ETHEREUM_RPC_URL environment variable is required');
       }
 
-      // Create provider with explicit network configuration
-      this.provider = new ethers.providers.JsonRpcProvider({
-        url: rpcUrl,
+      // Create provider with RPC URL
+      // ethers v5 JsonRpcProvider accepts URL string or ConnectionInfo (which has url property, not name/chainId)
+      this.provider = new ethers.providers.JsonRpcProvider(rpcUrl, {
         name: 'mainnet',
         chainId: 1
       });
-      
+
       this.logger.info('Ethereum provider initialized successfully');
     } catch (error) {
       this.logger.error(`Failed to initialize Ethereum provider: ${error}`);
