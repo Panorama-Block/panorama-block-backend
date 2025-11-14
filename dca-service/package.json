@@ -7,15 +7,18 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "setup-db": "ts-node src/scripts/setup-database.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@types/pg": "^8.15.6",
     "cors": "^2.8.5",
     "crypto-js": "^4.2.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^8.2.1",
     "node-cron": "^3.0.3",
+    "pg": "^8.16.3",
     "redis": "^4.6.7",
     "thirdweb": "^5.94.2"
   },

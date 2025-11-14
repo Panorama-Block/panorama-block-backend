@@ -4,19 +4,15 @@
  */
 
 import { Router, Response } from 'express';
-import { RedisClientType } from 'redis';
 import { TransactionService } from '../services/transaction.service';
 import { SmartAccountService } from '../services/smartAccount.service';
 import { AuthenticatedRequest, verifyTelegramAuth, devBypassAuth } from '../middleware/auth.middleware';
 import { transactionLimiter, generalLimiter } from '../middleware/rateLimit.middleware';
 
-export function createTransactionRoutes(redisClient: RedisClientType): Router {
+export function createTransactionRoutes(): Router {
   const router = Router();
-  const smartAccountService = new SmartAccountService(redisClient);
-  const transactionService = new TransactionService(
-    redisClient,
-    smartAccountService
-  );
+  const smartAccountService = new SmartAccountService();
+  const transactionService = new TransactionService(smartAccountService);
 
   /**
    * POST /transaction/sign-and-execute

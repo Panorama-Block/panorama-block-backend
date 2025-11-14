@@ -1,14 +1,15 @@
-import { RedisClientType } from 'redis';
+import { DatabaseService } from './database.service';
 import { SmartAccountData, SmartAccountPermissions, CreateSmartAccountRequest } from '../types';
-import { encryptPrivateKey, generatePrivateKey, privateKeyToAddress } from '../utils/encryption';
-import { createThirdwebClient, getContract, defineChain } from 'thirdweb';
+import { encryptPrivateKey, generatePrivateKey, privateKeyToAddress, decryptPrivateKey } from '../utils/encryption';
+import { createThirdwebClient, defineChain } from 'thirdweb';
 import { smartWallet } from 'thirdweb/wallets';
 import { privateKeyToAccount } from 'thirdweb/wallets';
 
 export class SmartAccountService {
   private client: any;
+  private db: DatabaseService;
 
-  constructor(private redisClient: RedisClientType) {
+  constructor() {
     // Initialize Thirdweb client
     const secretKey = process.env.THIRDWEB_SECRET_KEY;
     if (!secretKey) {
@@ -18,6 +19,8 @@ export class SmartAccountService {
     this.client = createThirdwebClient({
       secretKey: secretKey,
     });
+
+    this.db = DatabaseService.getInstance();
   }
 
   /**
@@ -42,19 +45,16 @@ export class SmartAccountService {
     const endTimestamp = startTimestamp + (request.permissions.durationDays * 86400);
 
     // 3. Create REAL smart account using Thirdweb
-    // The session key will be the personal account that controls the smart wallet
     const personalAccount = privateKeyToAccount({
       client: this.client,
       privateKey: sessionKeyPrivate,
     });
 
-    // Create smart wallet with the session key as admin
     const wallet = smartWallet({
       chain: defineChain(1), // Ethereum mainnet (can be configurable)
-      gasless: false, // Set to true if using sponsored transactions
+      gasless: false,
     });
 
-    // Connect the wallet with the personal account (session key)
     const smartAccount = await wallet.connect({
       client: this.client,
       personalAccount,
@@ -64,57 +64,52 @@ export class SmartAccountService {
 
     console.log('[SmartAccountService] ✅ Smart account deployed:', smartAccountAddress);
 
-    // 4. Prepare data
-    const permissions: SmartAccountPermissions = {
-      approvedTargets: request.permissions.approvedTargets,
-      nativeTokenLimitPerTransaction: request.permissions.nativeTokenLimit,
-      startTimestamp,
-      endTimestamp
-    };
-
-    const accountData: SmartAccountData = {
-      address: smartAccountAddress, // Add the address field
-      userId: request.userId,
-      name: request.name,
-      createdAt: Date.now(),
-      sessionKeyAddress,
-      expiresAt: endTimestamp * 1000,
-      permissions
-    };
-
-    // 5. Encrypt session key
+    // 4. Encrypt session key
     const encryptedKey = encryptPrivateKey(sessionKeyPrivate);
 
-    // 6. Save to Redis (atomic transaction)
-    const ttl = endTimestamp - startTimestamp;
-    const multi = this.redisClient.multi();
+    // 5. Save to database (transaction)
+    await this.db.transaction(async (client) => {
+      // Ensure user exists in users table
+      await client.query(
+        `INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`,
+        [request.userId]
+      );
 
-    // Store smart account metadata
-    multi.hSet(`smart-account:${smartAccountAddress}`, {
-      address: smartAccountAddress,
-      userId: accountData.userId,
-      name: accountData.name,
-      createdAt: accountData.createdAt.toString(),
-      sessionKeyAddress: accountData.sessionKeyAddress,
-      expiresAt: accountData.expiresAt.toString(),
-      permissions: JSON.stringify(accountData.permissions)
+      // Insert smart account
+      await client.query(
+        `INSERT INTO smart_accounts (
+          address, user_id, name, created_at, session_key_address,
+          expires_at, approved_targets, native_token_limit,
+          start_timestamp, end_timestamp
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          smartAccountAddress,
+          request.userId,
+          request.name,
+          Date.now(),
+          sessionKeyAddress,
+          endTimestamp * 1000,
+          JSON.stringify(request.permissions.approvedTargets),
+          request.permissions.nativeTokenLimit,
+          startTimestamp,
+          endTimestamp
+        ]
+      );
+
+      // Insert encrypted session key
+      await client.query(
+        `INSERT INTO session_keys (smart_account_address, encrypted_key, expires_at)
+         VALUES ($1, $2, $3)`,
+        [smartAccountAddress, encryptedKey, endTimestamp * 1000]
+      );
     });
-
-    // Store encrypted session key with TTL
-    multi.set(`session-key:${smartAccountAddress}`, encryptedKey, { EX: ttl });
-
-    // Add to user's accounts index
-    multi.sAdd(`user:accounts:${request.userId}`, smartAccountAddress);
-
-    await multi.exec();
 
     console.log('[SmartAccountService] ✅ Smart account created successfully');
     console.log('[SmartAccountService] 🔒 Session key stored securely (encrypted)');
 
-    // SECURITY: NEVER return private key to frontend!
     return {
       smartAccountAddress,
-      sessionKeyAddress, // Only public address
+      sessionKeyAddress,
       expiresAt: new Date(endTimestamp * 1000)
     };
   }
@@ -125,36 +120,38 @@ export class SmartAccountService {
   async getUserAccounts(userId: string): Promise<SmartAccountData[]> {
     console.log('[SmartAccountService] Fetching accounts for user:', userId);
 
-    // Get list of account addresses
-    const accountAddresses = await this.redisClient.sMembers(`user:accounts:${userId}`);
+    const result = await this.db.query<SmartAccountData>(
+      `SELECT
+        address,
+        user_id as "userId",
+        name,
+        created_at as "createdAt",
+        session_key_address as "sessionKeyAddress",
+        expires_at as "expiresAt",
+        approved_targets as "approvedTargets",
+        native_token_limit as "nativeTokenLimitPerTransaction",
+        start_timestamp as "startTimestamp",
+        end_timestamp as "endTimestamp"
+       FROM smart_accounts
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId]
+    );
 
-    if (accountAddresses.length === 0) {
-      console.log('[SmartAccountService] No accounts found for user');
-      return [];
-    }
-
-    // Fetch metadata for each account
-    const accounts: SmartAccountData[] = [];
-
-    for (const address of accountAddresses) {
-      const data = await this.redisClient.hGetAll(`smart-account:${address}`);
-
-      if (Object.keys(data).length === 0) {
-        // Account data not found (possibly expired), remove from index
-        await this.redisClient.sRem(`user:accounts:${userId}`, address);
-        continue;
+    const accounts: SmartAccountData[] = result.rows.map(row => ({
+      address: row.address,
+      userId: row.userId,
+      name: row.name,
+      createdAt: parseInt(row.createdAt as any),
+      sessionKeyAddress: row.sessionKeyAddress,
+      expiresAt: parseInt(row.expiresAt as any),
+      permissions: {
+        approvedTargets: row.approvedTargets as any,
+        nativeTokenLimitPerTransaction: row.nativeTokenLimitPerTransaction as any,
+        startTimestamp: parseInt(row.startTimestamp as any),
+        endTimestamp: parseInt(row.endTimestamp as any),
       }
-
-      accounts.push({
-        address: data.address || address,
-        userId: data.userId,
-        name: data.name,
-        createdAt: parseInt(data.createdAt),
-        sessionKeyAddress: data.sessionKeyAddress,
-        expiresAt: parseInt(data.expiresAt),
-        permissions: JSON.parse(data.permissions)
-      });
-    }
+    }));
 
     console.log(`[SmartAccountService] Found ${accounts.length} accounts`);
     return accounts;
@@ -164,20 +161,42 @@ export class SmartAccountService {
    * Get single smart account data
    */
   async getSmartAccount(address: string): Promise<SmartAccountData | null> {
-    const data = await this.redisClient.hGetAll(`smart-account:${address}`);
+    const result = await this.db.query(
+      `SELECT
+        address,
+        user_id as "userId",
+        name,
+        created_at as "createdAt",
+        session_key_address as "sessionKeyAddress",
+        expires_at as "expiresAt",
+        approved_targets as "approvedTargets",
+        native_token_limit as "nativeTokenLimitPerTransaction",
+        start_timestamp as "startTimestamp",
+        end_timestamp as "endTimestamp"
+       FROM smart_accounts
+       WHERE address = $1`,
+      [address]
+    );
 
-    if (Object.keys(data).length === 0) {
+    if (result.rows.length === 0) {
       return null;
     }
 
+    const row = result.rows[0];
+
     return {
-      address: address, // Add the address field
-      userId: data.userId,
-      name: data.name,
-      createdAt: parseInt(data.createdAt),
-      sessionKeyAddress: data.sessionKeyAddress,
-      expiresAt: parseInt(data.expiresAt),
-      permissions: JSON.parse(data.permissions)
+      address: row.address,
+      userId: row.userId,
+      name: row.name,
+      createdAt: parseInt(row.createdAt),
+      sessionKeyAddress: row.sessionKeyAddress,
+      expiresAt: parseInt(row.expiresAt),
+      permissions: {
+        approvedTargets: row.approvedTargets,
+        nativeTokenLimitPerTransaction: row.nativeTokenLimitPerTransaction,
+        startTimestamp: parseInt(row.startTimestamp),
+        endTimestamp: parseInt(row.endTimestamp),
+      }
     };
   }
 
@@ -187,37 +206,29 @@ export class SmartAccountService {
   async deleteSmartAccount(address: string, userId: string): Promise<void> {
     console.log('[SmartAccountService] Deleting smart account:', address);
 
-    const multi = this.redisClient.multi();
-
-    // Remove account metadata
-    multi.del(`smart-account:${address}`);
-
-    // Remove encrypted session key
-    multi.del(`session-key:${address}`);
-
-    // Remove from user index
-    multi.sRem(`user:accounts:${userId}`, address);
-
-    // Remove execution history
-    multi.del(`dca-history:${address}`);
-
-    await multi.exec();
+    // All related data will be deleted via CASCADE
+    await this.db.query(
+      `DELETE FROM smart_accounts WHERE address = $1 AND user_id = $2`,
+      [address, userId]
+    );
 
     console.log('[SmartAccountService] ✅ Smart account deleted');
   }
-
 
   /**
    * Get decrypted session key (for internal use by executor)
    */
   async getSessionKey(smartAccountAddress: string): Promise<string | null> {
-    const encryptedKey = await this.redisClient.get(`session-key:${smartAccountAddress}`);
+    const result = await this.db.query(
+      `SELECT encrypted_key FROM session_keys WHERE smart_account_address = $1`,
+      [smartAccountAddress]
+    );
 
-    if (!encryptedKey) {
+    if (result.rows.length === 0) {
       return null;
     }
 
-    const { decryptPrivateKey } = await import('../utils/encryption');
+    const encryptedKey = result.rows[0].encrypted_key;
     return decryptPrivateKey(encryptedKey);
   }
 }

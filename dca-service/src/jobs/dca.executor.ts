@@ -1,5 +1,4 @@
 import cron from 'node-cron';
-import { RedisClientType } from 'redis';
 import { DCAService } from '../services/dca.service';
 import { SmartAccountService } from '../services/smartAccount.service';
 import { SwapService } from '../services/swap.service';
@@ -16,9 +15,9 @@ export class DCAExecutor {
   private auditLogger: AuditLogger;
   private job: cron.ScheduledTask | null = null;
 
-  constructor(private redisClient: RedisClientType) {
-    this.dcaService = new DCAService(redisClient);
-    this.smartAccountService = new SmartAccountService(redisClient);
+  constructor() {
+    this.dcaService = new DCAService();
+    this.smartAccountService = new SmartAccountService();
     this.swapService = new SwapService();
     this.auditLogger = AuditLogger.getInstance();
   }
@@ -73,8 +72,8 @@ export class DCAExecutor {
           console.error(`[DCA Executor] ❌ Error executing strategy ${strategyId}:`, error.message);
 
           // Log failure in history
-          const strategy = await this.redisClient.hGetAll(`dca-strategy:${strategyId}`);
-          if (strategy.smartAccountId) {
+          const strategy = await this.dcaService.getStrategy(strategyId);
+          if (strategy) {
             await this.dcaService.addExecutionHistory(strategy.smartAccountId, {
               timestamp: Date.now(),
               txHash: '',
@@ -99,16 +98,15 @@ export class DCAExecutor {
     console.log(`[DCA Executor] Executing strategy ${strategyId}...`);
 
     // 1. Get strategy data
-    const strategyData = await this.redisClient.hGetAll(`dca-strategy:${strategyId}`);
+    const strategy = await this.dcaService.getStrategy(strategyId);
 
-    if (Object.keys(strategyData).length === 0) {
-      console.log(`[DCA Executor] Strategy ${strategyId} not found, removing from schedule`);
-      await this.redisClient.zRem('dca-scheduled', strategyId);
+    if (!strategy) {
+      console.log(`[DCA Executor] Strategy ${strategyId} not found`);
       return;
     }
 
     // Check if strategy is active
-    if (strategyData.isActive !== 'true') {
+    if (!strategy.isActive) {
       console.log(`[DCA Executor] Strategy ${strategyId} is inactive, skipping`);
       return;
     }
@@ -120,7 +118,7 @@ export class DCAExecutor {
       fromChainId,
       toChainId,
       amount
-    } = strategyData;
+    } = strategy;
 
     // 2. Get encrypted session key
     const sessionKey = await this.smartAccountService.getSessionKey(smartAccountId);
@@ -211,8 +209,8 @@ export class DCAExecutor {
 /**
  * Initialize and start DCA executor
  */
-export function startDCAExecutor(redisClient: RedisClientType): DCAExecutor {
-  const executor = new DCAExecutor(redisClient);
+export function startDCAExecutor(): DCAExecutor {
+  const executor = new DCAExecutor();
   executor.start();
   return executor;
 }

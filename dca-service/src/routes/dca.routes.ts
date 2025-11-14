@@ -1,5 +1,4 @@
 import { Router, Response } from 'express';
-import { RedisClientType } from 'redis';
 import { SmartAccountService } from '../services/smartAccount.service';
 import { DCAService } from '../services/dca.service';
 import { QuoteService } from '../services/quote.service';
@@ -14,10 +13,10 @@ import {
 } from '../middleware/rateLimit.middleware';
 import { WETH_ADDRESS, SWAP_DEADLINE_SECONDS, MAX_SLIPPAGE_PERCENT } from '../config/swap.config';
 
-export function dcaRoutes(redisClient: RedisClientType) {
+export function dcaRoutes() {
   const router = Router();
-  const smartAccountService = new SmartAccountService(redisClient);
-  const dcaService = new DCAService(redisClient);
+  const smartAccountService = new SmartAccountService();
+  const dcaService = new DCAService();
 
   // ==================== SMART ACCOUNTS ====================
 
@@ -250,11 +249,11 @@ export function dcaRoutes(redisClient: RedisClientType) {
       }
 
       // 🔒 SECURITY: Verify ownership
-      const strategyData = await redisClient.hGetAll(`dca-strategy:${req.params.strategyId}`);
-      if (Object.keys(strategyData).length === 0) {
+      const strategy = await dcaService.getStrategy(req.params.strategyId);
+      if (!strategy) {
         return res.status(404).json({ error: 'Strategy not found' });
       }
-      const account = await smartAccountService.getSmartAccount(strategyData.smartAccountId);
+      const account = await smartAccountService.getSmartAccount(strategy.smartAccountId);
       if (!account) {
         return res.status(404).json({ error: 'Smart account not found' });
       }
@@ -287,11 +286,11 @@ export function dcaRoutes(redisClient: RedisClientType) {
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       // 🔒 SECURITY: Verify ownership
-      const strategyData = await redisClient.hGetAll(`dca-strategy:${req.params.strategyId}`);
-      if (Object.keys(strategyData).length === 0) {
+      const strategy = await dcaService.getStrategy(req.params.strategyId);
+      if (!strategy) {
         return res.status(404).json({ error: 'Strategy not found' });
       }
-      const account = await smartAccountService.getSmartAccount(strategyData.smartAccountId);
+      const account = await smartAccountService.getSmartAccount(strategy.smartAccountId);
       if (!account) {
         return res.status(404).json({ error: 'Smart account not found' });
       }
@@ -348,326 +347,10 @@ export function dcaRoutes(redisClient: RedisClientType) {
 
   // ==================== DEBUG/ADMIN ROUTES ====================
 
-  /**
-   * GET /dca/debug/all-accounts
-   * Get ALL smart accounts in Redis
-   * 🔒 DEBUG: Rate limited, disable in production
-   */
-  router.get('/debug/all-accounts',
-    debugLimiter, // Rate limit: 10 per hour
-    async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      console.log('[GET /debug/all-accounts] Fetching all smart accounts from Redis...');
-
-      // Get all keys matching smart-account:*
-      const accountKeys = await redisClient.keys('smart-account:*');
-
-      const accounts = [];
-      for (const key of accountKeys) {
-        const accountData = await redisClient.hGetAll(key);
-        if (Object.keys(accountData).length > 0) {
-          accounts.push({
-            key,
-            address: key.replace('smart-account:', ''),
-            ...accountData,
-            permissions: accountData.permissions ? JSON.parse(accountData.permissions) : null,
-            createdAt: accountData.createdAt ? parseInt(accountData.createdAt) : null,
-            expiresAt: accountData.expiresAt ? parseInt(accountData.expiresAt) : null,
-          });
-        }
-      }
-
-      res.json({
-        total: accounts.length,
-        accounts,
-      });
-    } catch (error: any) {
-      console.error('[GET /debug/all-accounts] Error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  /**
-   * GET /dca/debug/all-strategies
-   * Get ALL DCA strategies in Redis
-   * 🔒 DEBUG: Rate limited, disable in production
-   */
-  router.get('/debug/all-strategies',
-    debugLimiter,
-    async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      console.log('[GET /debug/all-strategies] Fetching all strategies from Redis...');
-
-      // Get all keys matching dca-strategy:*
-      const strategyKeys = await redisClient.keys('dca-strategy:*');
-
-      const strategies = [];
-      for (const key of strategyKeys) {
-        const strategyData = await redisClient.hGetAll(key);
-        if (Object.keys(strategyData).length > 0) {
-          strategies.push({
-            key,
-            strategyId: key.replace('dca-strategy:', ''),
-            ...strategyData,
-            fromChainId: parseInt(strategyData.fromChainId),
-            toChainId: parseInt(strategyData.toChainId),
-            lastExecuted: parseInt(strategyData.lastExecuted),
-            nextExecution: parseInt(strategyData.nextExecution),
-            nextExecutionDate: new Date(parseInt(strategyData.nextExecution) * 1000).toISOString(),
-            isActive: strategyData.isActive === 'true',
-          });
-        }
-      }
-
-      res.json({
-        total: strategies.length,
-        strategies,
-      });
-    } catch (error: any) {
-      console.error('[GET /debug/all-strategies] Error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  /**
-   * GET /dca/debug/scheduled
-   * Get all scheduled strategies (sorted set)
-   * 🔒 DEBUG: Rate limited, disable in production
-   */
-  router.get('/debug/scheduled',
-    debugLimiter,
-    async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      console.log('[GET /debug/scheduled] Fetching scheduled strategies...');
-
-      // Get all scheduled strategies with scores
-      const scheduled = await redisClient.zRangeWithScores('dca-scheduled', 0, -1);
-
-      const scheduledStrategies = scheduled.map((item) => ({
-        strategyId: item.value,
-        nextExecution: item.score,
-        nextExecutionDate: new Date(item.score * 1000).toISOString(),
-        isReady: item.score <= Math.floor(Date.now() / 1000),
-      }));
-
-      const now = Math.floor(Date.now() / 1000);
-      const readyStrategies = scheduledStrategies.filter(s => s.isReady);
-
-      res.json({
-        total: scheduledStrategies.length,
-        ready: readyStrategies.length,
-        currentTimestamp: now,
-        currentTime: new Date(now * 1000).toISOString(),
-        scheduled: scheduledStrategies,
-      });
-    } catch (error: any) {
-      console.error('[GET /debug/scheduled] Error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  /**
-   * GET /dca/debug/all-history
-   * Get ALL execution history from all accounts
-   * 🔒 DEBUG: Rate limited, disable in production
-   */
-  router.get('/debug/all-history',
-    debugLimiter,
-    async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      console.log('[GET /debug/all-history] Fetching all execution history...');
-
-      // Get all keys matching dca-history:*
-      const historyKeys = await redisClient.keys('dca-history:*');
-
-      const allHistory: any[] = [];
-      for (const key of historyKeys) {
-        const smartAccountId = key.replace('dca-history:', '');
-        const historyJson = await redisClient.lRange(key, 0, -1);
-
-        const accountHistory = historyJson.map(json => ({
-          smartAccountId,
-          ...JSON.parse(json),
-        }));
-
-        allHistory.push(...accountHistory);
-      }
-
-      // Sort by timestamp descending
-      allHistory.sort((a, b) => b.timestamp - a.timestamp);
-
-      res.json({
-        total: allHistory.length,
-        history: allHistory,
-      });
-    } catch (error: any) {
-      console.error('[GET /debug/all-history] Error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  /**
-   * GET /dca/debug/circuit-breakers
-   * Get status of all circuit breakers
-   * 🔒 DEBUG: Rate limited, disable in production
-   */
-  router.get('/debug/circuit-breakers',
-    debugLimiter,
-    async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { CircuitBreakerManager } = await import('../services/circuitBreaker.service');
-      const stats = CircuitBreakerManager.getAllStats();
-
-      res.json({
-        timestamp: new Date().toISOString(),
-        circuitBreakers: stats,
-      });
-    } catch (error: any) {
-      console.error('[GET /debug/circuit-breakers] Error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  /**
-   * GET /dca/debug/audit-logs
-   * Get recent audit logs with optional filters
-   * 🔒 DEBUG: Rate limited, disable in production
-   */
-  router.get('/debug/audit-logs',
-    debugLimiter,
-    async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { AuditLogger, AuditEventType } = await import('../services/auditLog.service');
-      const auditLogger = AuditLogger.getInstance();
-
-      const limit = parseInt(req.query.limit as string) || 100;
-      const offset = parseInt(req.query.offset as string) || 0;
-      const eventType = req.query.eventType as string;
-      const userId = req.query.userId as string;
-      const startTime = req.query.startTime ? parseInt(req.query.startTime as string) : undefined;
-      const endTime = req.query.endTime ? parseInt(req.query.endTime as string) : undefined;
-
-      const logs = await auditLogger.getLogs({
-        limit,
-        offset,
-        eventType: eventType as any,
-        userId,
-        startTime,
-        endTime,
-      });
-
-      res.json({
-        total: logs.length,
-        limit,
-        offset,
-        filters: {
-          eventType: eventType || null,
-          userId: userId || null,
-          startTime: startTime || null,
-          endTime: endTime || null,
-        },
-        logs,
-      });
-    } catch (error: any) {
-      console.error('[GET /debug/audit-logs] Error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  /**
-   * GET /dca/debug/audit-logs/security
-   * Get security-related audit events only
-   * 🔒 DEBUG: Rate limited, disable in production
-   */
-  router.get('/debug/audit-logs/security',
-    debugLimiter,
-    async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { AuditLogger } = await import('../services/auditLog.service');
-      const auditLogger = AuditLogger.getInstance();
-
-      const limit = parseInt(req.query.limit as string) || 100;
-      const logs = await auditLogger.getSecurityEvents(limit);
-
-      res.json({
-        total: logs.length,
-        limit,
-        logs,
-      });
-    } catch (error: any) {
-      console.error('[GET /debug/audit-logs/security] Error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  /**
-   * GET /dca/debug/audit-logs/user/:userId
-   * Get audit logs for a specific user
-   * 🔒 DEBUG: Rate limited, disable in production
-   */
-  router.get('/debug/audit-logs/user/:userId',
-    debugLimiter,
-    async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { AuditLogger } = await import('../services/auditLog.service');
-      const auditLogger = AuditLogger.getInstance();
-
-      const limit = parseInt(req.query.limit as string) || 100;
-      const logs = await auditLogger.getUserLogs(req.params.userId, limit);
-
-      res.json({
-        userId: req.params.userId,
-        total: logs.length,
-        limit,
-        logs,
-      });
-    } catch (error: any) {
-      console.error('[GET /debug/audit-logs/user/:userId] Error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  /**
-   * GET /dca/debug/redis-stats
-   * Get Redis database statistics
-   * 🔒 DEBUG: Rate limited, disable in production
-   */
-  router.get('/debug/redis-stats',
-    debugLimiter,
-    async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      console.log('[GET /debug/redis-stats] Fetching Redis stats...');
-
-      const [
-        accountKeys,
-        strategyKeys,
-        historyKeys,
-        scheduledCount,
-      ] = await Promise.all([
-        redisClient.keys('smart-account:*'),
-        redisClient.keys('dca-strategy:*'),
-        redisClient.keys('dca-history:*'),
-        redisClient.zCard('dca-scheduled'),
-      ]);
-
-      res.json({
-        stats: {
-          smartAccounts: accountKeys.length,
-          strategies: strategyKeys.length,
-          historyLists: historyKeys.length,
-          scheduledStrategies: scheduledCount,
-        },
-        keys: {
-          accountKeys: accountKeys.slice(0, 10), // Sample
-          strategyKeys: strategyKeys.slice(0, 10), // Sample
-          historyKeys: historyKeys.slice(0, 10), // Sample
-        },
-      });
-    } catch (error: any) {
-      console.error('[GET /debug/redis-stats] Error:', error);
-      res.status(500).json({ error: error.message });
-    }
-  });
+  // TODO: Reimplementar rotas de debug com PostgreSQL
+  // Ver TODO_DEBUG_ROUTES.md para lista completa de rotas removidas temporariamente
+  // As seguintes rotas foram removidas pois usavam Redis diretamente:
+  // - GET /dca/debug/all-accounts, GET /dca/debug/all-strategies, etc.
 
   /**
    * POST /dca/debug/execute/:strategyId
@@ -684,9 +367,9 @@ export function dcaRoutes(redisClient: RedisClientType) {
       console.log(`\n[POST /debug/execute] 🚀 Manually executing strategy: ${strategyId}`);
 
       // 1. Get strategy data
-      const strategyData = await redisClient.hGetAll(`dca-strategy:${strategyId}`);
+      const strategy = await dcaService.getStrategy(strategyId);
 
-      if (Object.keys(strategyData).length === 0) {
+      if (!strategy) {
         return res.status(404).json({
           error: 'Strategy not found',
           strategyId
@@ -694,11 +377,11 @@ export function dcaRoutes(redisClient: RedisClientType) {
       }
 
       // 2. Check if strategy is active
-      if (strategyData.isActive !== 'true') {
+      if (!strategy.isActive) {
         return res.status(400).json({
           error: 'Strategy is inactive',
           strategyId,
-          status: strategyData.isActive
+          status: strategy.isActive
         });
       }
 
@@ -710,7 +393,7 @@ export function dcaRoutes(redisClient: RedisClientType) {
         toChainId,
         amount,
         interval
-      } = strategyData;
+      } = strategy;
 
       console.log(`[POST /debug/execute] Strategy details:`, {
         smartAccountId,
@@ -780,7 +463,7 @@ export function dcaRoutes(redisClient: RedisClientType) {
       await dcaService.updateStrategyAfterExecution(strategyId);
 
       // 7. Get updated strategy data
-      const updatedStrategy = await redisClient.hGetAll(`dca-strategy:${strategyId}`);
+      const updatedStrategy = await dcaService.getStrategy(strategyId);
 
       res.json({
         success: true,
@@ -792,12 +475,12 @@ export function dcaRoutes(redisClient: RedisClientType) {
           amount,
           fromToken,
           toToken,
-          fromChainId: parseInt(fromChainId),
-          toChainId: parseInt(toChainId),
+          fromChainId,
+          toChainId,
         },
         nextExecution: {
-          timestamp: parseInt(updatedStrategy.nextExecution),
-          date: new Date(parseInt(updatedStrategy.nextExecution) * 1000).toISOString(),
+          timestamp: updatedStrategy?.nextExecution || 0,
+          date: updatedStrategy ? new Date(updatedStrategy.nextExecution * 1000).toISOString() : 'N/A',
         }
       });
     } catch (error: any) {

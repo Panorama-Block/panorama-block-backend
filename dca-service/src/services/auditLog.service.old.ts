@@ -1,9 +1,9 @@
 /**
- * Audit Log Service - PostgreSQL Version
+ * Audit Log Service
  * Tracks all critical security events and actions
  */
 
-import { DatabaseService } from './database.service';
+import { RedisClientType } from 'redis';
 
 /**
  * Audit Event Types
@@ -63,11 +63,11 @@ export interface AuditLogEntry {
  */
 export class AuditLogger {
   private static instance: AuditLogger;
-  private db: DatabaseService;
+  private redisClient: RedisClientType | null = null;
+  private readonly AUDIT_LOG_KEY = 'audit-logs';
+  private readonly MAX_LOGS = 10000; // Keep last 10k logs
 
-  private constructor() {
-    this.db = DatabaseService.getInstance();
-  }
+  private constructor() {}
 
   /**
    * Get singleton instance
@@ -80,11 +80,10 @@ export class AuditLogger {
   }
 
   /**
-   * Initialize (for compatibility with old code)
+   * Initialize with Redis client
    */
-  setRedisClient(_client: any) {
-    // No-op for compatibility - we use PostgreSQL now
-    console.log('[AuditLogger] Using PostgreSQL for audit logs');
+  setRedisClient(client: RedisClientType) {
+    this.redisClient = client;
   }
 
   /**
@@ -122,11 +121,13 @@ export class AuditLogger {
         console.log(logMessage);
     }
 
-    // Store in database
-    try {
-      await this.storeInDatabase(entry);
-    } catch (error) {
-      console.error('[AuditLogger] Failed to store in database:', error);
+    // Store in Redis (if available)
+    if (this.redisClient) {
+      try {
+        await this.storeInRedis(entry);
+      } catch (error) {
+        console.error('[AuditLogger] Failed to store in Redis:', error);
+      }
     }
 
     // For critical events, could send alerts here
@@ -136,25 +137,23 @@ export class AuditLogger {
   }
 
   /**
-   * Store audit log in database
+   * Store audit log in Redis
    */
-  private async storeInDatabase(entry: AuditLogEntry): Promise<void> {
-    await this.db.query(
-      `INSERT INTO audit_logs (
-        id, timestamp, event_type, user_id, ip_address,
-        user_agent, metadata, severity
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        entry.id,
-        entry.timestamp,
-        entry.eventType,
-        entry.userId,
-        entry.ipAddress,
-        entry.userAgent,
-        entry.metadata ? JSON.stringify(entry.metadata) : null,
-        entry.severity
-      ]
-    );
+  private async storeInRedis(entry: AuditLogEntry): Promise<void> {
+    if (!this.redisClient) return;
+
+    // Store in sorted set by timestamp
+    await this.redisClient.zAdd(this.AUDIT_LOG_KEY, {
+      score: entry.timestamp,
+      value: JSON.stringify(entry),
+    });
+
+    // Trim to keep only recent logs
+    const count = await this.redisClient.zCard(this.AUDIT_LOG_KEY);
+    if (count > this.MAX_LOGS) {
+      const removeCount = count - this.MAX_LOGS;
+      await this.redisClient.zRemRangeByRank(this.AUDIT_LOG_KEY, 0, removeCount - 1);
+    }
   }
 
   /**
@@ -168,50 +167,46 @@ export class AuditLogger {
     startTime?: number;
     endTime?: number;
   } = {}): Promise<AuditLogEntry[]> {
+    if (!this.redisClient) {
+      console.warn('[AuditLogger] Redis client not initialized');
+      return [];
+    }
+
     try {
       const {
         limit = 100,
         offset = 0,
         startTime = 0,
         endTime = Date.now(),
-        eventType,
-        userId
       } = options;
 
-      let query = `
-        SELECT id, timestamp, event_type as "eventType", user_id as "userId",
-               ip_address as "ipAddress", user_agent as "userAgent",
-               metadata, severity
-        FROM audit_logs
-        WHERE timestamp >= $1 AND timestamp <= $2
-      `;
-      const params: any[] = [startTime, endTime];
+      // Get logs from sorted set
+      const logs = await this.redisClient.zRangeByScore(
+        this.AUDIT_LOG_KEY,
+        startTime,
+        endTime,
+        {
+          LIMIT: {
+            offset,
+            count: limit,
+          },
+        }
+      );
 
-      if (eventType) {
-        params.push(eventType);
-        query += ` AND event_type = $${params.length}`;
+      // Parse and filter logs
+      let entries: AuditLogEntry[] = logs.map(log => JSON.parse(log as string));
+
+      // Filter by event type
+      if (options.eventType) {
+        entries = entries.filter(e => e.eventType === options.eventType);
       }
 
-      if (userId) {
-        params.push(userId);
-        query += ` AND user_id = $${params.length}`;
+      // Filter by user ID
+      if (options.userId) {
+        entries = entries.filter(e => e.userId === options.userId);
       }
 
-      query += ` ORDER BY timestamp DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-      params.push(limit, offset);
-
-      const result = await this.db.query(query, params);
-
-      return result.rows.map(row => ({
-        id: row.id,
-        timestamp: row.timestamp,
-        eventType: row.eventType,
-        userId: row.userId,
-        ipAddress: row.ipAddress,
-        userAgent: row.userAgent,
-        metadata: row.metadata,
-        severity: row.severity
-      }));
+      return entries.reverse(); // Most recent first
     } catch (error) {
       console.error('[AuditLogger] Failed to get logs:', error);
       return [];
@@ -229,36 +224,16 @@ export class AuditLogger {
    * Get security events
    */
   async getSecurityEvents(limit: number = 100): Promise<AuditLogEntry[]> {
-    const result = await this.db.query(
-      `SELECT id, timestamp, event_type as "eventType", user_id as "userId",
-              ip_address as "ipAddress", user_agent as "userAgent",
-              metadata, severity
-       FROM audit_logs
-       WHERE event_type IN ($1, $2, $3, $4, $5) OR severity IN ($6, $7)
-       ORDER BY timestamp DESC
-       LIMIT $8`,
-      [
-        AuditEventType.AUTH_FAILED,
-        AuditEventType.AUTH_UNAUTHORIZED,
-        AuditEventType.RATE_LIMIT_EXCEEDED,
-        AuditEventType.CIRCUIT_BREAKER_OPENED,
-        AuditEventType.SUSPICIOUS_ACTIVITY,
-        'critical',
-        'error',
-        limit
-      ]
-    );
-
-    return result.rows.map(row => ({
-      id: row.id,
-      timestamp: row.timestamp,
-      eventType: row.eventType,
-      userId: row.userId,
-      ipAddress: row.ipAddress,
-      userAgent: row.userAgent,
-      metadata: row.metadata,
-      severity: row.severity
-    }));
+    const logs = await this.getLogs({ limit: limit * 3 }); // Get more to filter
+    return logs.filter(log =>
+      log.eventType === AuditEventType.AUTH_FAILED ||
+      log.eventType === AuditEventType.AUTH_UNAUTHORIZED ||
+      log.eventType === AuditEventType.RATE_LIMIT_EXCEEDED ||
+      log.eventType === AuditEventType.CIRCUIT_BREAKER_OPENED ||
+      log.eventType === AuditEventType.SUSPICIOUS_ACTIVITY ||
+      log.severity === 'critical' ||
+      log.severity === 'error'
+    ).slice(0, limit);
   }
 
   /**
@@ -312,6 +287,10 @@ export class AuditLogger {
    * Handle critical events
    */
   private async handleCriticalEvent(entry: AuditLogEntry): Promise<void> {
+    // In production, this could:
+    // - Send alerts to Slack/PagerDuty
+    // - Send email to security team
+    // - Trigger automated response
     console.error('🚨 CRITICAL SECURITY EVENT:', {
       eventType: entry.eventType,
       userId: entry.userId,
@@ -319,6 +298,8 @@ export class AuditLogger {
     });
 
     // Could implement alerting here
+    // await this.sendSlackAlert(entry);
+    // await this.sendEmailAlert(entry);
   }
 }
 
