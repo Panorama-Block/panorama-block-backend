@@ -4,7 +4,6 @@
  * SECURITY: Private keys never leave the backend
  */
 
-import { RedisClientType } from 'redis';
 import { SmartAccountService } from './smartAccount.service';
 import { createThirdwebClient, prepareTransaction, type Address, type Hex } from 'thirdweb';
 import { defineChain } from 'thirdweb/chains';
@@ -28,11 +27,10 @@ export interface SignedTransactionResponse {
 
 export class TransactionService {
   private client: any;
+  private smartAccountService: SmartAccountService;
 
-  constructor(
-    private redisClient: RedisClientType,
-    private smartAccountService: SmartAccountService
-  ) {
+  constructor(smartAccountService?: SmartAccountService) {
+    this.smartAccountService = smartAccountService || new SmartAccountService();
     // Validate environment variable
     const secretKey = process.env.THIRDWEB_SECRET_KEY;
     if (!secretKey) {

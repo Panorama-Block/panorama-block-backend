@@ -901,6 +901,71 @@
           "icon": "https://assets.coingecko.com/coins/images/9576/small/BUSD.png"
         }
       ]
+    },
+    "480": {
+      "name": "World Chain",
+      "explorer": "https://worldscan.org",
+      "native": {
+        "symbol": "ETH",
+        "name": "Ether",
+        "decimals": 18,
+        "icon": "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
+        "identifiers": {
+          "uniswap": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+          "thirdweb": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+        },
+        "wrapped": {
+          "address": "0x4200000000000000000000000000000000000006",
+          "symbol": "WETH",
+          "name": "Wrapped Ether"
+        }
+      },
+      "tokens": [
+        {
+          "address": "0x4200000000000000000000000000000000000006",
+          "symbol": "WETH",
+          "name": "Wrapped Ether",
+          "decimals": 18,
+          "providers": [
+            "uniswap",
+            "thirdweb"
+          ],
+          "icon": "https://assets.coingecko.com/coins/images/2518/small/weth.png"
+        },
+        {
+          "address": "0x2cfc85d8e48f8eab294be644d9e25c3030863003",
+          "symbol": "WLD",
+          "name": "Worldcoin",
+          "decimals": 18,
+          "providers": [
+            "uniswap",
+            "thirdweb"
+          ],
+          "icon": "https://assets.coingecko.com/coins/images/31069/small/worldcoin.jpeg"
+        },
+        {
+          "address": "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1",
+          "symbol": "USDC",
+          "name": "USD Coin",
+          "decimals": 6,
+          "providers": [
+            "uniswap",
+            "thirdweb"
+          ],
+          "icon": "https://assets.coingecko.com/coins/images/6319/small/usdc.png"
+        },
+        {
+          "address": "0xf1E7adc9C1743Cd2c6ceA47D0CA43Fad57190616",
+          "symbol": "MCW",
+          "name": "Milhas da Confra",
+          "decimals": 18,
+          "providers": [
+            "uniswap",
+            "thirdweb"
+          ],
+          "icon": "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
+        }
+      ]
     }
   }
 }

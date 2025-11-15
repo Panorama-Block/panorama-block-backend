@@ -1,7 +1,7 @@
 import express, { Router } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { createClient, RedisClientType } from 'redis';
+import { DatabaseService } from './services/database.service';
 import { dcaRoutes } from './routes/dca.routes';
 import { createTransactionRoutes } from './routes/transaction.routes';
 import { startDCAExecutor } from './jobs/dca.executor';
@@ -37,37 +37,12 @@ console.log('\n💰 [DCA SERVICE] Environment Variables:');
 console.log('='.repeat(60));
 console.log('📊 PORT:', PORT);
 console.log('🌍 NODE_ENV:', process.env.NODE_ENV || 'development');
-const redisHost = process.env.REDIS_HOST || 'localhost';
-const redisPort = Number(process.env.REDIS_PORT || 6379);
-const redisPassword = process.env.REDIS_PASS || '';
-const redisUrlFromEnv = process.env.REDIS_URL;
-const redisUseTls =
-  (process.env.REDIS_TLS || process.env.REDIS_USE_TLS || '').toLowerCase() === 'true' ||
-  redisPort === 6380 ||
-  (redisUrlFromEnv?.startsWith('rediss://') ?? false);
-const redisUrl =
-  redisUrlFromEnv || `${redisUseTls ? 'rediss' : 'redis'}://${redisHost}:${redisPort}`;
-
-console.log('🔗 REDIS_HOST:', redisHost);
-console.log('🔗 REDIS_PORT:', redisPort);
-console.log('🔐 REDIS_TLS:', redisUseTls);
+console.log('🗄️  DATABASE_URL:', process.env.DATABASE_URL ? '[SET]' : '[NOT SET]');
 console.log('🔑 THIRDWEB_CLIENT_ID:', process.env.THIRDWEB_CLIENT_ID ? '[SET]' : '[NOT SET]');
 console.log('🔒 ENCRYPTION_PASSWORD:', process.env.ENCRYPTION_PASSWORD ? '[SET]' : '[NOT SET]');
 console.log('='.repeat(60));
 
-// Initialize Redis client
-const redisClient: RedisClientType = createClient({
-  url: redisUrl,
-  socket: redisUseTls
-    ? {
-        tls: true,
-        servername: redisHost,
-      }
-    : undefined,
-  password: redisPassword || undefined,
-});
-
-// Health check endpoint (before Redis connection)
+// Health check endpoint
 app.get('/health', (req, res) => {
   console.log('🏥 [HEALTH CHECK] DCA Service health check requested');
   res.status(200).json({
@@ -103,52 +78,66 @@ app.get('/', (req, res) => {
   });
 });
 
-// Register DCA routes
-app.use('/dca', dcaRoutes(redisClient));
+// Initialize database
+async function initializeDatabase() {
+  try {
+    console.log('[DCA Service] 🔌 Connecting to PostgreSQL...');
 
-redisClient.connect().then(() => {
-  console.log('[DCA Service] ✅ Connected to Redis successfully');
+    // Get database instance
+    const db = DatabaseService.getInstance();
 
-  // Initialize Audit Logger with Redis
-  const auditLogger = AuditLogger.getInstance();
-  auditLogger.setRedisClient(redisClient);
-  console.log('[DCA Service] ✅ Audit Logger initialized');
+    // Check connection
+    const connected = await db.checkConnection();
+    if (!connected) {
+      throw new Error('Failed to connect to PostgreSQL');
+    }
 
-  // Register transaction routes (after env vars are loaded!)
-  app.use('/transaction', createTransactionRoutes(redisClient));
-  console.log('[DCA Service] ✅ Transaction routes registered');
+    console.log('[DCA Service] ✅ Connected to PostgreSQL successfully');
 
-  // 404 handler - MUST be after all routes
-  app.use((req, res) => {
-    console.warn(`[404] Route not found: ${req.method} ${req.originalUrl}`);
-    res.status(404).json({
-      error: 'Endpoint not found',
-      path: req.originalUrl,
-      method: req.method
+    // Initialize schema
+    console.log('[DCA Service] 📋 Initializing database schema...');
+    await db.initializeSchema();
+
+    // Initialize Audit Logger
+    const auditLogger = AuditLogger.getInstance();
+    console.log('[DCA Service] ✅ Audit Logger initialized');
+
+    // Register routes
+    app.use('/dca', dcaRoutes());
+    app.use('/transaction', createTransactionRoutes());
+    console.log('[DCA Service] ✅ Routes registered');
+
+    // 404 handler - MUST be after all routes
+    app.use((req, res) => {
+      console.warn(`[404] Route not found: ${req.method} ${req.originalUrl}`);
+      res.status(404).json({
+        error: 'Endpoint not found',
+        path: req.originalUrl,
+        method: req.method
+      });
     });
-  });
 
-  // Global error handler
-  app.use((err: any, req: any, res: any, next: any) => {
-    console.error('[Error] Unhandled error:', err);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: err.message || 'An unknown error occurred'
+    // Global error handler
+    app.use((err: any, req: any, res: any, next: any) => {
+      console.error('[Error] Unhandled error:', err);
+      res.status(500).json({
+        error: 'Internal server error',
+        message: err.message || 'An unknown error occurred'
+      });
     });
-  });
 
-  // Start DCA executor cron job
-  startDCAExecutor(redisClient);
+    // Start DCA executor cron job
+    startDCAExecutor();
 
-}).catch(err => {
-  console.error('[DCA Service] ❌ Redis connection error:', err);
-  process.exit(1);
-});
+    console.log('[DCA Service] ✅ Database initialization complete');
+  } catch (err) {
+    console.error('[DCA Service] ❌ Database initialization error:', err);
+    process.exit(1);
+  }
+}
 
-// Handle Redis errors
-redisClient.on('error', (err) => {
-  console.error('[DCA Service] Redis client error:', err);
-});
+// Initialize database before starting server
+initializeDatabase();
 
 // Start server
 const server = app.listen(Number(PORT), '0.0.0.0', () => {
@@ -161,20 +150,22 @@ const server = app.listen(Number(PORT), '0.0.0.0', () => {
 });
 
 // Graceful shutdown
-process.on("SIGTERM", () => {
+process.on("SIGTERM", async () => {
   console.log("[DCA Service] SIGTERM received, shutting down gracefully...");
-  server.close(() => {
+  server.close(async () => {
     console.log("[DCA Service] Server closed");
-    redisClient.quit();
+    const db = DatabaseService.getInstance();
+    await db.close();
     process.exit(0);
   });
 });
 
-process.on("SIGINT", () => {
+process.on("SIGINT", async () => {
   console.log("\n[DCA Service] SIGINT received, shutting down gracefully...");
-  server.close(() => {
+  server.close(async () => {
     console.log("[DCA Service] Server closed");
-    redisClient.quit();
+    const db = DatabaseService.getInstance();
+    await db.close();
     process.exit(0);
   });
 });
