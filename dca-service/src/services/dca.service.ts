@@ -1,8 +1,12 @@
-import { RedisClientType } from 'redis';
+import { DatabaseService } from './database.service';
 import { DCAStrategy, CreateStrategyRequest, ExecutionHistory } from '../types';
 
 export class DCAService {
-  constructor(private redisClient: RedisClientType) {}
+  private db: DatabaseService;
+
+  constructor() {
+    this.db = DatabaseService.getInstance();
+  }
 
   /**
    * Create a new DCA strategy
@@ -14,8 +18,12 @@ export class DCAService {
     console.log('[DCAService] Creating strategy for account:', request.smartAccountId);
 
     // 1. Verify smart account exists
-    const exists = await this.redisClient.exists(`smart-account:${request.smartAccountId}`);
-    if (!exists) {
+    const accountCheck = await this.db.query(
+      `SELECT 1 FROM smart_accounts WHERE address = $1`,
+      [request.smartAccountId]
+    );
+
+    if (accountCheck.rows.length === 0) {
       throw new Error('Smart account not found');
     }
 
@@ -27,47 +35,27 @@ export class DCAService {
     // 3. Generate strategy ID
     const strategyId = `${request.smartAccountId}-${Date.now()}`;
 
-    // 4. Create strategy data
-    const strategy: DCAStrategy = {
-      smartAccountId: request.smartAccountId,
-      fromToken: request.fromToken,
-      toToken: request.toToken,
-      fromChainId: request.fromChainId,
-      toChainId: request.toChainId,
-      amount: request.amount,
-      interval: request.interval,
-      lastExecuted: 0,
-      nextExecution,
-      isActive: true
-    };
-
-    // 5. Save to Redis
-    const multi = this.redisClient.multi();
-
-    // Store strategy
-    multi.hSet(`dca-strategy:${strategyId}`, {
-      smartAccountId: strategy.smartAccountId,
-      fromToken: strategy.fromToken,
-      toToken: strategy.toToken,
-      fromChainId: strategy.fromChainId.toString(),
-      toChainId: strategy.toChainId.toString(),
-      amount: strategy.amount,
-      interval: strategy.interval,
-      lastExecuted: strategy.lastExecuted.toString(),
-      nextExecution: strategy.nextExecution.toString(),
-      isActive: strategy.isActive.toString()
-    });
-
-    // Add to scheduled sorted set
-    multi.zAdd('dca-scheduled', {
-      score: nextExecution,
-      value: strategyId
-    });
-
-    // Add to account's strategies index
-    multi.sAdd(`account:strategies:${request.smartAccountId}`, strategyId);
-
-    await multi.exec();
+    // 4. Create strategy in database
+    await this.db.query(
+      `INSERT INTO dca_strategies (
+        id, smart_account_address, from_token, to_token,
+        from_chain_id, to_chain_id, amount, "interval",
+        last_executed, next_execution, is_active
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        strategyId,
+        request.smartAccountId,
+        request.fromToken,
+        request.toToken,
+        request.fromChainId,
+        request.toChainId,
+        request.amount,
+        request.interval,
+        0,
+        nextExecution,
+        true
+      ]
+    );
 
     console.log('[DCAService] ✅ Strategy created:', strategyId);
 
@@ -78,67 +66,96 @@ export class DCAService {
   }
 
   /**
+   * Get a single strategy by ID
+   */
+  async getStrategy(strategyId: string): Promise<DCAStrategy | null> {
+    const result = await this.db.query(
+      `SELECT
+        id as "strategyId",
+        smart_account_address as "smartAccountId",
+        from_token as "fromToken",
+        to_token as "toToken",
+        from_chain_id as "fromChainId",
+        to_chain_id as "toChainId",
+        amount,
+        "interval",
+        last_executed as "lastExecuted",
+        next_execution as "nextExecution",
+        is_active as "isActive"
+       FROM dca_strategies
+       WHERE id = $1`,
+      [strategyId]
+    );
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    return {
+      strategyId: row.strategyId,
+      smartAccountId: row.smartAccountId,
+      fromToken: row.fromToken,
+      toToken: row.toToken,
+      fromChainId: row.fromChainId,
+      toChainId: row.toChainId,
+      amount: row.amount,
+      interval: row.interval as 'daily' | 'weekly' | 'monthly',
+      lastExecuted: row.lastExecuted,
+      nextExecution: row.nextExecution,
+      isActive: row.isActive
+    };
+  }
+
+  /**
    * Get all strategies for a smart account
    */
   async getAccountStrategies(smartAccountId: string): Promise<DCAStrategy[]> {
-    const strategyIds = await this.redisClient.sMembers(`account:strategies:${smartAccountId}`);
+    const result = await this.db.query(
+      `SELECT
+        id as "strategyId",
+        smart_account_address as "smartAccountId",
+        from_token as "fromToken",
+        to_token as "toToken",
+        from_chain_id as "fromChainId",
+        to_chain_id as "toChainId",
+        amount,
+        "interval",
+        last_executed as "lastExecuted",
+        next_execution as "nextExecution",
+        is_active as "isActive"
+       FROM dca_strategies
+       WHERE smart_account_address = $1
+       ORDER BY created_at DESC`,
+      [smartAccountId]
+    );
 
-    if (strategyIds.length === 0) {
-      return [];
-    }
-
-    const strategies: DCAStrategy[] = [];
-
-    for (const strategyId of strategyIds) {
-      const data = await this.redisClient.hGetAll(`dca-strategy:${strategyId}`);
-
-      if (Object.keys(data).length === 0) {
-        // Strategy not found, remove from index
-        await this.redisClient.sRem(`account:strategies:${smartAccountId}`, strategyId);
-        continue;
-      }
-
-      strategies.push({
-        strategyId, // Add unique ID
-        smartAccountId: data.smartAccountId,
-        fromToken: data.fromToken,
-        toToken: data.toToken,
-        fromChainId: parseInt(data.fromChainId),
-        toChainId: parseInt(data.toChainId),
-        amount: data.amount,
-        interval: data.interval as 'daily' | 'weekly' | 'monthly',
-        lastExecuted: parseInt(data.lastExecuted),
-        nextExecution: parseInt(data.nextExecution),
-        isActive: data.isActive === 'true'
-      });
-    }
-
-    return strategies;
+    return result.rows.map(row => ({
+      strategyId: row.strategyId,
+      smartAccountId: row.smartAccountId,
+      fromToken: row.fromToken,
+      toToken: row.toToken,
+      fromChainId: row.fromChainId,
+      toChainId: row.toChainId,
+      amount: row.amount,
+      interval: row.interval as 'daily' | 'weekly' | 'monthly',
+      lastExecuted: row.lastExecuted,
+      nextExecution: row.nextExecution,
+      isActive: row.isActive
+    }));
   }
 
   /**
    * Update strategy active status
    */
   async toggleStrategy(strategyId: string, isActive: boolean): Promise<void> {
-    const exists = await this.redisClient.exists(`dca-strategy:${strategyId}`);
-    if (!exists) {
+    const result = await this.db.query(
+      `UPDATE dca_strategies SET is_active = $1 WHERE id = $2`,
+      [isActive, strategyId]
+    );
+
+    if (result.rowCount === 0) {
       throw new Error('Strategy not found');
-    }
-
-    await this.redisClient.hSet(`dca-strategy:${strategyId}`, {
-      isActive: isActive.toString()
-    });
-
-    if (!isActive) {
-      // Remove from scheduled if deactivated
-      await this.redisClient.zRem('dca-scheduled', strategyId);
-    } else {
-      // Re-add to scheduled if activated
-      const strategy = await this.redisClient.hGetAll(`dca-strategy:${strategyId}`);
-      await this.redisClient.zAdd('dca-scheduled', {
-        score: parseInt(strategy.nextExecution),
-        value: strategyId
-      });
     }
 
     console.log(`[DCAService] Strategy ${strategyId} ${isActive ? 'activated' : 'deactivated'}`);
@@ -148,24 +165,14 @@ export class DCAService {
    * Delete a strategy
    */
   async deleteStrategy(strategyId: string): Promise<void> {
-    const strategy = await this.redisClient.hGetAll(`dca-strategy:${strategyId}`);
+    const result = await this.db.query(
+      `DELETE FROM dca_strategies WHERE id = $1`,
+      [strategyId]
+    );
 
-    if (Object.keys(strategy).length === 0) {
+    if (result.rowCount === 0) {
       throw new Error('Strategy not found');
     }
-
-    const multi = this.redisClient.multi();
-
-    // Remove strategy data
-    multi.del(`dca-strategy:${strategyId}`);
-
-    // Remove from scheduled
-    multi.zRem('dca-scheduled', strategyId);
-
-    // Remove from account index
-    multi.sRem(`account:strategies:${strategy.smartAccountId}`, strategyId);
-
-    await multi.exec();
 
     console.log('[DCAService] ✅ Strategy deleted:', strategyId);
   }
@@ -174,19 +181,53 @@ export class DCAService {
    * Get execution history for a smart account
    */
   async getExecutionHistory(smartAccountId: string, limit: number = 100): Promise<ExecutionHistory[]> {
-    const historyJson = await this.redisClient.lRange(`dca-history:${smartAccountId}`, 0, limit - 1);
+    const result = await this.db.query(
+      `SELECT
+        timestamp,
+        tx_hash as "txHash",
+        amount,
+        from_token as "fromToken",
+        to_token as "toToken",
+        status,
+        error
+       FROM execution_history
+       WHERE smart_account_address = $1
+       ORDER BY timestamp DESC
+       LIMIT $2`,
+      [smartAccountId, limit]
+    );
 
-    return historyJson.map(json => JSON.parse(json));
+    return result.rows.map(row => ({
+      timestamp: row.timestamp,
+      txHash: row.txHash,
+      amount: row.amount,
+      fromToken: row.fromToken,
+      toToken: row.toToken,
+      status: row.status as 'success' | 'failed',
+      error: row.error
+    }));
   }
 
   /**
    * Add execution to history
    */
   async addExecutionHistory(smartAccountId: string, execution: ExecutionHistory): Promise<void> {
-    await this.redisClient.lPush(`dca-history:${smartAccountId}`, JSON.stringify(execution));
-
-    // Keep only last 100 records
-    await this.redisClient.lTrim(`dca-history:${smartAccountId}`, 0, 99);
+    await this.db.query(
+      `INSERT INTO execution_history (
+        smart_account_address, timestamp, tx_hash, amount,
+        from_token, to_token, status, error
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        smartAccountId,
+        execution.timestamp,
+        execution.txHash,
+        execution.amount,
+        execution.fromToken,
+        execution.toToken,
+        execution.status,
+        execution.error
+      ]
+    );
   }
 
   /**
@@ -195,39 +236,39 @@ export class DCAService {
   async getReadyStrategies(): Promise<string[]> {
     const now = Math.floor(Date.now() / 1000);
 
-    // Get all strategies with score (nextExecution) <= now
-    return await this.redisClient.zRangeByScore('dca-scheduled', 0, now);
+    const result = await this.db.query(
+      `SELECT id FROM dca_strategies
+       WHERE is_active = true AND next_execution <= $1
+       ORDER BY next_execution ASC`,
+      [now]
+    );
+
+    return result.rows.map(row => row.id);
   }
 
   /**
    * Update strategy after execution
    */
   async updateStrategyAfterExecution(strategyId: string): Promise<void> {
-    const strategy = await this.redisClient.hGetAll(`dca-strategy:${strategyId}`);
+    const strategyResult = await this.db.query(
+      `SELECT "interval" FROM dca_strategies WHERE id = $1`,
+      [strategyId]
+    );
 
-    if (Object.keys(strategy).length === 0) {
+    if (strategyResult.rows.length === 0) {
       return;
     }
 
     const now = Math.floor(Date.now() / 1000);
-    const intervalSeconds = this.getIntervalSeconds(strategy.interval as any);
+    const intervalSeconds = this.getIntervalSeconds(strategyResult.rows[0].interval as any);
     const nextExecution = now + intervalSeconds;
 
-    const multi = this.redisClient.multi();
-
-    // Update strategy
-    multi.hSet(`dca-strategy:${strategyId}`, {
-      lastExecuted: now.toString(),
-      nextExecution: nextExecution.toString()
-    });
-
-    // Update scheduled time
-    multi.zAdd('dca-scheduled', {
-      score: nextExecution,
-      value: strategyId
-    });
-
-    await multi.exec();
+    await this.db.query(
+      `UPDATE dca_strategies
+       SET last_executed = $1, next_execution = $2
+       WHERE id = $3`,
+      [now, nextExecution, strategyId]
+    );
 
     console.log(`[DCAService] Strategy ${strategyId} rescheduled for ${new Date(nextExecution * 1000)}`);
   }

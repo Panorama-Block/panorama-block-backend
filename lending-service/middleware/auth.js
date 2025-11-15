@@ -1,14 +1,16 @@
 const { ethers } = require('ethers');
 const { SECURITY } = require('../config/constants');
+const axios = require('axios');
 
 /**
  * Middleware para verificar assinatura de wallet (smart wallet ou private key)
  * Suporta tanto smart wallets quanto private keys
+ * Também suporta autenticação via JWT do auth-service
  */
-function verifySignature(req, res, next) {
+async function verifySignature(req, res, next) {
   try {
     const { address, signature, message, timestamp, privateKey, walletType, isSmartWallet } = req.body;
-    
+
     // Debug logs para frontend
     console.log('🔍 Debug verifySignature (Frontend):');
     console.log('   Address:', address);
@@ -17,16 +19,72 @@ function verifySignature(req, res, next) {
     console.log('   Timestamp:', timestamp);
     console.log('   isSmartWallet:', isSmartWallet);
     console.log('   walletType:', walletType);
-    console.log('   User-Agent:', req.headers['user-agent']);
+    console.log('   Authorization header:', req.headers.authorization ? 'Present' : 'Missing');
+
+    // NOVA LÓGICA: Verifica se há JWT no header Authorization
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+
+      try {
+        console.log('🔐 Tentando autenticação via JWT...');
+        const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+        const response = await axios.post(`${authServiceUrl}/auth/validate`,
+          { token },
+          {
+            httpsAgent: new (require('https').Agent)({
+              rejectUnauthorized: false
+            })
+          }
+        );
+
+        if (response.data.isValid) {
+          console.log('✅ JWT válido, autenticação bem-sucedida');
+          const jwtAddress = response.data.payload.address || response.data.payload.sub;
+
+          // Verifica se o endereço do JWT corresponde ao endereço fornecido
+          if (address && jwtAddress.toLowerCase() !== address.toLowerCase()) {
+            return res.status(401).json({
+              error: 'JWT address mismatch',
+              message: 'O endereço no JWT não corresponde ao endereço fornecido',
+              jwtAddress: jwtAddress.toLowerCase(),
+              providedAddress: address.toLowerCase()
+            });
+          }
+
+          // Adiciona informações verificadas ao request
+          req.verifiedAddress = jwtAddress.toLowerCase();
+          req.authMode = 'jwt';
+          req.user = response.data.payload;
+          req.signatureData = {
+            address: jwtAddress.toLowerCase(),
+            message,
+            timestamp: timestamp || Date.now(),
+            walletType: walletType || 'smart_wallet',
+            isSmartWallet: true,
+            authenticatedViaJWT: true
+          };
+
+          console.log(`🔐 Autenticação via JWT para endereço: ${jwtAddress}`);
+          return next();
+        }
+      } catch (jwtError) {
+        console.error('⚠️ Falha na validação JWT:', jwtError.response?.data?.message || jwtError.message);
+        // Continua para tentar autenticação por assinatura
+      }
+    }
+
+    // LÓGICA ORIGINAL: Autenticação por assinatura
+    console.log('🔐 Tentando autenticação via assinatura...');
 
     // Verificação de assinatura obrigatória
     if (!address || !signature || !message) {
       return res.status(400).json({
         error: 'Parâmetros inválidos',
         required: ['address', 'signature', 'message'],
-        received: { 
-          address: !!address, 
-          signature: !!signature, 
+        received: {
+          address: !!address,
+          signature: !!signature,
           message: !!message
         }
       });
@@ -70,7 +128,7 @@ function verifySignature(req, res, next) {
 
     // Determina o tipo de autenticação
     const authMode = isSmartWallet || walletType === 'smart_wallet' ? 'smart_wallet' : 'private_key';
-    
+
     // Adiciona informações verificadas ao request
     req.verifiedAddress = address.toLowerCase();
     req.authMode = authMode;
