@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mongodb:
     image: mongo:6.0
@@ -157,6 +155,43 @@ services:
       - ADMIN_WALLET_ADDRESS=${ADMIN_WALLET_ADDRESS}
       - ENCRYPTION_PASSWORD=${ENCRYPTION_PASSWORD}
       # >>> SSL configuration
+      - FULLCHAIN=${FULLCHAIN}
+      - PRIVKEY=${PRIVKEY}
+      - FORCE_HTTPS=${FORCE_HTTPS}
+    env_file:
+      - .env
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      auth_service:
+        condition: service_started
+      engine:
+        condition: service_started
+    restart: always
+
+  lido_service:
+    build:
+      context: ./lido-service
+      dockerfile: Dockerfile
+    container_name: panorama-lido-service
+    ports:
+      - "${LIDO_PORT:-3004}:3004"
+    environment:
+      - PORT=3004
+      - NODE_ENV=${NODE_ENV}
+      - DEBUG=${DEBUG}
+      - AUTH_SERVICE_URL=https://auth_service:3001
+      - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
+      - THIRDWEB_SECRET_KEY=${THIRDWEB_SECRET_KEY}
+      - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
+      - RPC_URL=${RPC_URL}
+      # Engine configuration (for ERC-4337 execution)
+      - ENGINE_URL=http://engine:3005
+      - ENGINE_ENABLED=${ENGINE_ENABLED:-true}
+      - ENGINE_ACCESS_TOKEN=${ENGINE_ACCESS_TOKEN}
+      - ADMIN_WALLET_ADDRESS=${ADMIN_WALLET_ADDRESS}
+      - ENCRYPTION_PASSWORD=${ENCRYPTION_PASSWORD}
+      # SSL configuration
       - FULLCHAIN=${FULLCHAIN}
       - PRIVKEY=${PRIVKEY}
       - FORCE_HTTPS=${FORCE_HTTPS}

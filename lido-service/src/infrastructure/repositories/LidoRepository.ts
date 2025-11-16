@@ -115,8 +115,8 @@ export class LidoRepository implements ILidoRepository {
           token: 'ETH',
           status: 'pending',
           transactionData: {
-            to: txData.to,
-            data: txData.data,
+            to: txData.to || LIDO_CONTRACTS.STETH,
+            data: txData.data || '0x',
             value: txData.value?.toString() || '0',
             gasLimit: '200000',
             chainId: this.ethereumConfig.getChainId()
@@ -206,8 +206,8 @@ export class LidoRepository implements ILidoRepository {
           token: 'stETH',
           status: 'pending',
           transactionData: {
-            to: txData.to,
-            data: txData.data,
+            to: txData.to || LIDO_CONTRACTS.WITHDRAWAL_QUEUE,
+            data: txData.data || '0x',
             value: '0',
             gasLimit: '300000',
             chainId: this.ethereumConfig.getChainId()
@@ -290,8 +290,8 @@ export class LidoRepository implements ILidoRepository {
           token: 'stETH',
           status: 'pending',
           transactionData: {
-            to: txData.to,
-            data: txData.data,
+            to: txData.to || LIDO_CONTRACTS.STETH,
+            data: txData.data || '0x',
             value: '0',
             gasLimit: '100000',
             chainId: this.ethereumConfig.getChainId()

@@ -1,0 +1,69 @@
+name: lido-service
+type: containerapp
+location: brazilsouth
+properties:
+  environmentId: ${ACA_ENV_ID}
+  configuration:
+    ingress:
+      external: false
+      targetPort: 3004
+    registries:
+      - server: ghcr.io
+        username: ${GHCR_USERNAME}
+        passwordSecretRef: ghcr-password
+    secrets:
+      - name: ghcr-password
+        value: ${GHCR_PASSWORD}
+      - name: ETHEREUM_RPC_URL
+        value: ${ETHEREUM_RPC_URL}
+      - name: THIRDWEB_CLIENT_ID
+        value: ${THIRDWEB_CLIENT_ID}
+      - name: THIRDWEB_SECRET_KEY
+        value: ${THIRDWEB_SECRET_KEY}
+      - name: JWT_SECRET
+        value: ${JWT_SECRET}
+      - name: JWT_REFRESH_SECRET
+        value: ${JWT_REFRESH_SECRET}
+  template:
+    containers:
+      - name: lido-service
+        image: ghcr.io/${GHCR_NAMESPACE}/lido-service:${IMAGE_TAG}
+        env:
+          - name: PORT
+            value: "3004"
+          - name: NODE_ENV
+            value: "production"
+          - name: LOG_LEVEL
+            value: "info"
+          - name: ETHEREUM_CHAIN_ID
+            value: "1"
+          - name: LIDO_STETH_CONTRACT
+            value: "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84"
+          - name: LIDO_WSTETH_CONTRACT
+            value: "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
+          - name: LIDO_REWARDS_CONTRACT
+            value: "0x00000000219ab540356cBB839Cbe05303d7705Fa"
+          - name: JWT_ISSUER
+            value: "lido-service"
+          - name: JWT_AUDIENCE
+            value: "panorama-block"
+          - name: JWT_ACCESS_EXPIRY
+            value: "15m"
+          - name: JWT_REFRESH_EXPIRY
+            value: "7d"
+          - name: ETHEREUM_RPC_URL
+            secretRef: ETHEREUM_RPC_URL
+          - name: THIRDWEB_CLIENT_ID
+            secretRef: THIRDWEB_CLIENT_ID
+          - name: THIRDWEB_SECRET_KEY
+            secretRef: THIRDWEB_SECRET_KEY
+          - name: JWT_SECRET
+            secretRef: JWT_SECRET
+          - name: JWT_REFRESH_SECRET
+            secretRef: JWT_REFRESH_SECRET
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+    scale:
+      minReplicas: 1
+      maxReplicas: 5
