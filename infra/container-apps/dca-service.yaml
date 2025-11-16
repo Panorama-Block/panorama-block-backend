@@ -6,7 +6,7 @@ properties:
   configuration:
     ingress:
       external: false
-      targetPort: 3003
+      targetPort: 3004
     registries:
       - server: ghcr.io
         username: ${GHCR_USERNAME}
@@ -38,7 +38,7 @@ properties:
           - name: NODE_ENV
             value: "production"
           - name: DCA_PORT
-            value: "3003"
+            value: "3004"
           - name: REDIS_HOST
             secretRef: REDIS_HOST
           - name: REDIS_PORT
