@@ -243,7 +243,7 @@ async function initializeAPI() {
     }
 
     // Inicia o servidor
-    app.listen(port, () => {
+    const server = app.listen(port, () => {
       console.log('🚀 Zico Swap API iniciada com sucesso!');
       console.log(`📍 Servidor rodando em http://localhost:${port}`);
       console.log(`🌐 Rede: ${NETWORKS.AVALANCHE.name} (Chain ID: ${NETWORKS.AVALANCHE.chainId})`);
@@ -262,7 +262,19 @@ async function initializeAPI() {
       console.log('💡 Para testar a API, use:');
       console.log(`   curl http://localhost:${port}/health`);
       console.log(`   curl http://localhost:${port}/info`);
+      console.log('');
+      console.log('✅ Servidor aguardando requisições...');
     });
+
+    server.on('error', (error) => {
+      console.error('❌ Erro no servidor:', error);
+      if (error.code === 'EADDRINUSE') {
+        console.error(`⚠️  Porta ${port} já está em uso!`);
+      }
+    });
+
+    // Manter referência ao servidor
+    global.server = server;
 
   } catch (error) {
     console.error('❌ Erro ao inicializar a API:', error);
@@ -284,12 +296,21 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 // Tratamento de erros não capturados
 process.on('uncaughtException', (error) => {
   console.error('❌ Erro não capturado:', error);
-  process.exit(1);
+  console.error('Stack:', error.stack);
+  // NÃO sair imediatamente para debug
+  // process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Promise rejeitada não tratada:', reason);
-  process.exit(1);
+  console.error('Promise:', promise);
+  // NÃO sair imediatamente para debug
+  // process.exit(1);
+});
+
+process.on('exit', (code) => {
+  console.log('⚠️ Processo encerrando com código:', code);
+  console.trace('Stack trace do exit:');
 });
 
 // Inicializa a API
