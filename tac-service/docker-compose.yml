@@ -1,71 +1,31 @@
-version: '3.8'
-
 services:
   tac-service:
     build:
       context: .
       target: development
     container_name: tac-service
+    command: sh -c "npm run db:generate && npm run dev"
     ports:
-      - "3005:3005"   # Main API port
-      - "3006:3006"   # WebSocket port
+      - "3305:3005"   # Main API port (host 3305 to avoid conflict with backend engine)
+      - "3306:3006"   # WebSocket port
     environment:
       - NODE_ENV=development
       - PORT=3005
       - WEBSOCKET_PORT=3006
-      - DATABASE_URL=postgresql://postgres:tacpassword@tac-postgres:5432/tac_db
-      - REDIS_URL=redis://tac-redis:6379
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
       - AUTH_SERVICE_URL=http://auth-service:3000
       - LIQUID_SWAP_SERVICE_URL=http://liquid-swap-service:3002
+      - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-please-change-1234567890}
       - DEBUG=true
     volumes:
       - .:/app
       - /app/node_modules
       - ./logs:/app/logs
-    depends_on:
-      tac-postgres:
-        condition: service_healthy
-      tac-redis:
-        condition: service_healthy
     networks:
       - tac-network
+      - panorama-backend
     restart: unless-stopped
-
-  tac-postgres:
-    image: postgres:14-alpine
-    container_name: tac-postgres
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=tacpassword
-      - POSTGRES_DB=tac_db
-    ports:
-      - "5433:5432"  # Different port to avoid conflicts
-    volumes:
-      - tac-postgres-data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d tac_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - tac-network
-
-  tac-redis:
-    image: redis:7-alpine
-    container_name: tac-redis
-    ports:
-      - "6380:6379"  # Different port to avoid conflicts
-    volumes:
-      - tac-redis-data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    networks:
-      - tac-network
 
   # Development tools
   tac-adminer:
@@ -74,19 +34,12 @@ services:
     ports:
       - "8081:8080"
     environment:
-      - ADMINER_DEFAULT_SERVER=tac-postgres
-    depends_on:
-      - tac-postgres
+      - ADMINER_DEFAULT_SERVER=panorama-engine-postgres
     networks:
       - tac-network
+      - panorama-backend
     profiles:
       - tools
-
-volumes:
-  tac-postgres-data:
-    driver: local
-  tac-redis-data:
-    driver: local
 
 networks:
   tac-network:
@@ -94,3 +47,6 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/16
+  panorama-backend:
+    external: true
+    name: panorama-block-backend_default

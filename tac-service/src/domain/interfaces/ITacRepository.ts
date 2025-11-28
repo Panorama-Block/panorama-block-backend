@@ -2,28 +2,53 @@ import { TacOperation, TacOperationStatus, TacOperationType } from '../entities/
 import { CrossChainQuote } from '../entities/CrossChainQuote';
 import { TacBalance } from '../entities/TacBalance';
 
-export interface ITacOperationRepository {
-  // TacOperation CRUD operations
-  save(operation: TacOperation): Promise<void>;
-  findById(id: string): Promise<TacOperation | null>;
-  findByUserId(userId: string, limit?: number, offset?: number): Promise<TacOperation[]>;
-  findByStatus(status: TacOperationStatus): Promise<TacOperation[]>;
-  findByTacTransactionId(tacTransactionId: string): Promise<TacOperation | null>;
-  findPendingOperations(): Promise<TacOperation[]>;
-  findRecentOperations(timeframeHours: number): Promise<TacOperation[]>;
-  findOperationsByDateRange(startDate: Date, endDate: Date): Promise<TacOperation[]>;
-  update(operation: TacOperation): Promise<void>;
-  delete(id: string): Promise<void>;
+export interface OperationSearchFilters {
+  userId?: string;
+  status?: TacOperationStatus;
+  operationType?: TacOperationType;
+  sourceChain?: string;
+  targetChain?: string;
+  protocol?: string;
+  startDate?: Date;
+  endDate?: Date;
+}
 
-  // Analytics and reporting
-  getOperationMetrics(timeframe: string): Promise<{
+export interface QuoteSearchFilters {
+  userId?: string;
+  includeExpired?: boolean;
+  limit?: number;
+}
+
+export interface BalancePortfolioBreakdown {
+  totalValueUSD: string;
+  balancesByProtocol: Array<{ protocol: string; totalValue: string; positions: number }>;
+  totalRewardsEarned: string;
+  totalClaimableRewards: string;
+}
+
+export interface TotalValueLockedBreakdown {
+  totalUSD: string;
+  byProtocol: Array<{ protocol: string; tvl: string }>;
+  byChain: Array<{ chain: string; tvl: string }>;
+}
+
+export interface ITacRepository {
+  // Operations
+  saveOperation(operation: TacOperation): Promise<TacOperation>;
+  updateOperation(operation: TacOperation): Promise<TacOperation>;
+  deleteOperation(id: string): Promise<void>;
+  findOperationById(id: string): Promise<TacOperation | null>;
+  findOperations(filters: OperationSearchFilters, limit?: number, offset?: number): Promise<TacOperation[]>;
+  findPendingOperations(limit?: number): Promise<TacOperation[]>;
+  findRecentOperations(timeframeHours: number): Promise<TacOperation[]>;
+  findOperationsByStatus(status: TacOperationStatus, limit?: number): Promise<TacOperation[]>;
+  getOperationMetrics(timeframe: '24h' | '7d' | '30d'): Promise<{
     totalOperations: number;
     successfulOperations: number;
     failedOperations: number;
     averageCompletionTime: number;
     totalVolume: string;
   }>;
-
   getUserOperationStats(userId: string): Promise<{
     totalOperations: number;
     successRate: number;
@@ -31,158 +56,63 @@ export interface ITacOperationRepository {
     favoriteProtocols: string[];
     averageOperationSize: string;
   }>;
-}
 
-export interface ICrossChainQuoteRepository {
-  // Quote CRUD operations
-  save(quote: CrossChainQuote): Promise<void>;
-  findById(id: string): Promise<CrossChainQuote | null>;
-  findByUserId(userId: string, limit?: number): Promise<CrossChainQuote[]>;
-  findActiveQuotes(): Promise<CrossChainQuote[]>;
-  findExpiredQuotes(): Promise<CrossChainQuote[]>;
-  update(quote: CrossChainQuote): Promise<void>;
-  delete(id: string): Promise<void>;
-  deleteExpiredQuotes(): Promise<number>; // Returns number of deleted quotes
+  // Quotes
+  saveQuote(quote: CrossChainQuote): Promise<CrossChainQuote>;
+  updateQuote(quote: CrossChainQuote): Promise<CrossChainQuote>;
+  deleteQuote(id: string): Promise<void>;
+  findQuoteById(id: string): Promise<CrossChainQuote | null>;
+  findUserQuotes(userId: string, includeExpired?: boolean, limit?: number): Promise<CrossChainQuote[]>;
+  findActiveQuotes(limit?: number): Promise<CrossChainQuote[]>;
+  deleteExpiredQuotes(maxAgeMs?: number): Promise<number>;
 
-  // Quote analytics
-  getQuoteMetrics(timeframe: string): Promise<{
-    totalQuotes: number;
-    executedQuotes: number;
-    averageSlippage: number;
-    popularRoutes: Array<{
-      fromChain: string;
-      toChain: string;
-      fromToken: string;
-      toToken: string;
-      count: number;
-    }>;
-  }>;
-}
-
-export interface ITacBalanceRepository {
-  // Balance CRUD operations
-  save(balance: TacBalance): Promise<void>;
-  findById(id: string): Promise<TacBalance | null>;
-  findByUserId(userId: string): Promise<TacBalance[]>;
-  findByUserIdAndToken(userId: string, tokenSymbol: string): Promise<TacBalance | null>;
-  findByProtocol(protocol: string): Promise<TacBalance[]>;
-  findByChain(chain: string): Promise<TacBalance[]>;
+  // Balances
+  saveBalance(balance: TacBalance): Promise<TacBalance>;
+  updateBalance(balance: TacBalance): Promise<TacBalance>;
+  deleteBalance(id: string): Promise<void>;
+  findBalanceById(id: string): Promise<TacBalance | null>;
+  findUserBalances(userId: string): Promise<TacBalance[]>;
   findActiveBalances(): Promise<TacBalance[]>;
   findBalancesNeedingSync(maxAgeMs: number): Promise<TacBalance[]>;
-  update(balance: TacBalance): Promise<void>;
-  delete(id: string): Promise<void>;
+  getUserPortfolioValue(userId: string): Promise<BalancePortfolioBreakdown>;
+  getTotalValueLocked(): Promise<TotalValueLockedBreakdown>;
 
-  // Balance aggregation
-  getUserPortfolioValue(userId: string): Promise<{
-    totalValueUSD: string;
-    balancesByProtocol: Array<{
-      protocol: string;
-      totalValue: string;
-      positions: number;
-    }>;
-    totalRewardsEarned: string;
-    totalClaimableRewards: string;
-  }>;
+  // Bridge providers
+  findBridgeProviders(activeOnly?: boolean): Promise<Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    isActive: boolean;
+    isHealthy: boolean;
+    supportedChains: string[];
+    supportedTokens: string[];
+    endpoint: string;
+    apiKey?: string | null;
+    averageLatency?: number | null;
+    successRate?: string | null;
+  }>>;
+  updateBridgeProviderHealth(providerName: string, isHealthy: boolean, latencyMs?: number): Promise<void>;
 
-  getTotalValueLocked(): Promise<{
-    totalUSD: string;
-    byProtocol: Array<{
-      protocol: string;
-      tvl: string;
-    }>;
-    byChain: Array<{
-      chain: string;
-      tvl: string;
-    }>;
-  }>;
-}
+  // Configuration
+  getUserConfiguration(userId: string): Promise<any | null>;
+  saveUserConfiguration(userId: string, config: any): Promise<any>;
+  updateUserConfiguration(userId: string, config: any): Promise<any>;
 
-export interface ITacAnalyticsRepository {
-  // Analytics data storage
-  recordOperation(data: {
-    operationType: string;
-    sourceChain: string;
-    targetChain: string;
-    protocol?: string;
-    volumeUSD: number;
-    feesPaidUSD: number;
-    success: boolean;
-    durationSeconds: number;
-    userId: string;
+  // Notifications
+  saveNotification(notification: any): Promise<void>;
+  getPendingNotifications(limit?: number): Promise<any[]>;
+  markNotificationSent(notificationId: string, meta?: Record<string, any>): Promise<void>;
+
+  // Events
+  saveEvent(event: any): Promise<void>;
+  getUnprocessedEvents(limit?: number): Promise<any[]>;
+  markEventProcessed(eventId: string): Promise<void>;
+
+  // Cleanup helpers
+  pruneHistoricalData(options: {
+    expiredQuoteRetentionMs: number;
+    analyticsRetentionMs: number;
+    eventRetentionMs: number;
+    notificationRetentionMs: number;
   }): Promise<void>;
-
-  recordQuote(data: {
-    fromChain: string;
-    toChain: string;
-    fromToken: string;
-    toToken: string;
-    amount: string;
-    executed: boolean;
-    userId: string;
-  }): Promise<void>;
-
-  recordUserBehavior(data: {
-    userId: string;
-    action: string;
-    metadata: Record<string, any>;
-  }): Promise<void>;
-
-  // Analytics queries
-  getDashboardMetrics(timeframe: string): Promise<{
-    totalOperations: number;
-    totalVolume: number;
-    successRate: number;
-    averageCompletionTime: number;
-    topProtocols: Array<{
-      protocol: string;
-      volume: number;
-      operations: number;
-    }>;
-    chainDistribution: Array<{
-      chain: string;
-      volume: number;
-      percentage: number;
-    }>;
-    userRetention: {
-      daily: number;
-      weekly: number;
-      monthly: number;
-    };
-  }>;
-
-  getUserInsights(userId: string): Promise<{
-    totalOperations: number;
-    totalVolumeUSD: number;
-    favoriteProtocols: string[];
-    averageOperationSize: number;
-    riskProfile: 'conservative' | 'moderate' | 'aggressive';
-    recommendedProtocols: string[];
-  }>;
-}
-
-// Base repository interface with common operations
-export interface IBaseRepository<T> {
-  findById(id: string): Promise<T | null>;
-  save(entity: T): Promise<void>;
-  update(entity: T): Promise<void>;
-  delete(id: string): Promise<void>;
-  findAll(limit?: number, offset?: number): Promise<T[]>;
-  count(): Promise<number>;
-}
-
-// Transaction management
-export interface ITransactionManager {
-  executeInTransaction<T>(operation: () => Promise<T>): Promise<T>;
-  beginTransaction(): Promise<void>;
-  commit(): Promise<void>;
-  rollback(): Promise<void>;
-}
-
-// Repository factory for dependency injection
-export interface IRepositoryFactory {
-  createTacOperationRepository(): ITacOperationRepository;
-  createCrossChainQuoteRepository(): ICrossChainQuoteRepository;
-  createTacBalanceRepository(): ITacBalanceRepository;
-  createTacAnalyticsRepository(): ITacAnalyticsRepository;
-  createTransactionManager(): ITransactionManager;
 }

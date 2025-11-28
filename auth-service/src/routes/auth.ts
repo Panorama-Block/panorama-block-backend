@@ -1,6 +1,8 @@
 import { Router, Request, Response, CookieOptions } from 'express';
 import { RedisClientType } from 'redis';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
+import jwt from 'jsonwebtoken';
+import nacl from 'tweetnacl';
 import {
   verifySignature,
   generateToken,
@@ -8,6 +10,168 @@ import {
   generateLoginPayload,
   isAuthConfigured,
 } from '../utils/thirdwebAuth';
+
+const TON_PROOF_TTL_SECONDS = Number(process.env.TON_PROOF_TTL_SECONDS ?? 5 * 60);
+const TON_JWT_SECRET = process.env.TON_JWT_SECRET || process.env.AUTH_PRIVATE_KEY || '';
+const TON_JWT_ISSUER = process.env.TON_JWT_ISSUER || 'panoramablock-ton';
+const TON_JWT_AUDIENCE = process.env.TON_JWT_AUDIENCE || 'panoramablock';
+const TON_JWT_EXPIRATION = process.env.TON_JWT_EXPIRATION || '24h';
+const TON_PROOF_KEY_PREFIX = 'tonproof:';
+
+function tonProofKey(payload: string) {
+  return `${TON_PROOF_KEY_PREFIX}${payload}`;
+}
+
+async function storeTonProof(redisClient: RedisClientType, payload: string, address: string) {
+  const expiresAt = new Date(Date.now() + TON_PROOF_TTL_SECONDS * 1000).toISOString();
+  const key = tonProofKey(payload);
+  await redisClient.set(
+    key,
+    JSON.stringify({ address, expiresAt }),
+    { EX: TON_PROOF_TTL_SECONDS, NX: true }
+  );
+  return { payload, expiresAt };
+}
+
+async function consumeTonProof(redisClient: RedisClientType, payload: string) {
+  const key = tonProofKey(payload);
+  const raw = await redisClient.get(key);
+  if (!raw) return null;
+  await redisClient.del(key);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function parseRawTonAddress(address: string) {
+  const [workchainRaw, hashHex] = address.split(':');
+  if (!workchainRaw || !hashHex) {
+    throw new Error('Invalid TON address');
+  }
+  const workchain = Number(workchainRaw);
+  const hash = Buffer.from(hashHex, 'hex');
+  if (!Number.isInteger(workchain) || hash.length !== 32) {
+    throw new Error('Invalid TON address');
+  }
+  const wcBuffer = Buffer.alloc(4);
+  wcBuffer.writeInt32BE(workchain);
+  return { workchain, hash, wcBuffer };
+}
+
+type SignDataPayloadVariant =
+  | { type: 'text'; text: string }
+  | { type: 'binary'; bytes: string }
+  | { type: 'cell'; schema: string; cell: string };
+
+function createTonSignDataHash(options: {
+  address: string;
+  payload: string;
+  domain: string;
+  timestamp: number;
+  payloadMeta?: SignDataPayloadVariant;
+}) {
+  const { address, payload, domain, timestamp, payloadMeta } = options;
+  const { hash, wcBuffer } = parseRawTonAddress(address);
+
+  const domainBuffer = Buffer.from(domain, 'utf8');
+  const domainLenBuffer = Buffer.alloc(4);
+  domainLenBuffer.writeUInt32BE(domainBuffer.length);
+
+  const tsBuffer = Buffer.alloc(8);
+  tsBuffer.writeBigUInt64BE(BigInt(timestamp));
+
+  const payloadType = payloadMeta?.type || 'text';
+  let payloadPrefix: Buffer;
+  let payloadBuffer: Buffer;
+
+  if (payloadMeta && payloadMeta.type === 'binary') {
+    payloadPrefix = Buffer.from('bin');
+    payloadBuffer = Buffer.from(payloadMeta.bytes || '', 'base64');
+  } else {
+    payloadPrefix = Buffer.from('txt');
+    const textToUse =
+      payloadMeta && payloadMeta.type === 'text'
+        ? payloadMeta.text
+        : payload;
+    payloadBuffer = Buffer.from(textToUse, 'utf8');
+  }
+  const payloadLenBuffer = Buffer.alloc(4);
+  payloadLenBuffer.writeUInt32BE(payloadBuffer.length);
+
+  const message = Buffer.concat([
+    Buffer.from([0xff, 0xff]),
+    Buffer.from('ton-connect/sign-data/'),
+    wcBuffer,
+    hash,
+    domainLenBuffer,
+    domainBuffer,
+    tsBuffer,
+    payloadPrefix,
+    payloadLenBuffer,
+    payloadBuffer,
+  ]);
+
+  return createHash('sha256').update(message).digest();
+}
+
+function verifyTonSignature(options: {
+  payload: string;
+  signature: string;
+  publicKey: string;
+  address: string;
+  domain: string;
+  timestamp: number;
+  payloadMeta?: SignDataPayloadVariant;
+}) {
+  const { payload, signature, publicKey, address, domain, timestamp, payloadMeta } = options;
+  const signatureBytes = Buffer.from(signature, 'base64');
+  const cleanedPublicKey = publicKey.startsWith('0x') ? publicKey.slice(2) : publicKey;
+  const publicKeyBytes = Buffer.from(cleanedPublicKey, 'hex');
+  if (publicKeyBytes.length !== 32 || signatureBytes.length !== 64) {
+    return false;
+  }
+
+  const hash = createTonSignDataHash({ address, payload, domain, timestamp, payloadMeta });
+  return nacl.sign.detached.verify(hash, signatureBytes, publicKeyBytes);
+}
+
+function buildTonJwt(address: string) {
+  if (!TON_JWT_SECRET) {
+    throw new Error('TON_JWT_SECRET must be configured');
+  }
+  return jwt.sign(
+    { sub: address, type: 'ton' },
+    TON_JWT_SECRET,
+    {
+      issuer: TON_JWT_ISSUER,
+      audience: TON_JWT_AUDIENCE,
+      expiresIn: TON_JWT_EXPIRATION,
+    }
+  );
+}
+
+function decodeTonJwt(token: string) {
+  if (!TON_JWT_SECRET) return null;
+  try {
+    const decoded = jwt.verify(token, TON_JWT_SECRET, {
+      issuer: TON_JWT_ISSUER,
+      audience: TON_JWT_AUDIENCE,
+    }) as Record<string, any>;
+    if (!decoded?.sub) {
+      return null;
+    }
+    return {
+      address: decoded.sub,
+      type: decoded.type || 'ton',
+      issuedAt: decoded.iat,
+      expiresAt: decoded.exp,
+    };
+  } catch {
+    return null;
+  }
+}
 
 const REFRESH_COOKIE_NAME = process.env.AUTH_REFRESH_COOKIE_NAME || 'panorama_refresh';
 const REFRESH_TTL_SECONDS = Number(process.env.AUTH_REFRESH_TTL_SECONDS || 60 * 60 * 24 * 14); // default 14 days
@@ -181,11 +345,78 @@ export default function authRoutes(redisClient: RedisClientType) {
     }
   });
 
+  router.post('/ton/payload', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.body;
+      if (!address) {
+        return res.status(400).json({ error: 'Address is required' });
+      }
+
+      const payload = randomBytes(32).toString('hex');
+      const stored = await storeTonProof(redisClient, payload, address);
+      return res.json({
+        payload: stored.payload,
+        expiresAt: stored.expiresAt,
+      });
+    } catch (error: any) {
+      console.error('[AUTH TON] Failed to create proof payload', error);
+      return res.status(500).json({ error: 'Could not generate proof payload' });
+    }
+  });
+
+  router.post('/ton/verify', async (req: Request, res: Response) => {
+    try {
+      const { address, payload, signature, publicKey, timestamp, domain, payloadMeta } = req.body;
+      if (!address || !payload || !signature || !publicKey || !timestamp || !domain) {
+        return res.status(400).json({ error: 'Missing verification arguments' });
+      }
+
+      const stored = await consumeTonProof(redisClient, payload);
+      if (!stored || stored.address !== address) {
+        return res.status(400).json({ error: 'Proof expired or mismatched' });
+      }
+
+      const timestampNumber = Number(timestamp);
+      if (!Number.isFinite(timestampNumber) || timestampNumber <= 0) {
+        return res.status(400).json({ error: 'Invalid timestamp' });
+      }
+
+      if (!verifyTonSignature({ payload, signature, publicKey, address, domain, timestamp: timestampNumber, payloadMeta })) {
+        return res.status(401).json({ error: 'Signature validation failed' });
+      }
+
+      const token = buildTonJwt(address);
+      return res.json({ token, address });
+    } catch (error: any) {
+      console.error('[AUTH TON] Verification failed', error);
+      return res.status(500).json({ error: error.message || 'Ton verification failed' });
+    }
+  });
+
   // Validate token route - for internal services
   router.post('/validate', async (req: Request, res: Response) => {
-    try {
-      console.log('🔍 [AUTH VALIDATE] Token validation request received');
+    const { token, sessionId } = req.body;
+    console.log('🔍 [AUTH VALIDATE] Token validation request received');
+    console.log('📝 [AUTH VALIDATE] Token and sessionId received:', {
+      tokenPresent: !!token,
+      sessionIdPresent: !!sessionId,
+    });
 
+    if (!token) {
+      console.log('❌ [AUTH VALIDATE] Token not provided');
+      return res.status(400).json({ error: 'Token not provided' });
+    }
+
+    const tonPayload = decodeTonJwt(token);
+    if (tonPayload) {
+      console.log('✅ [AUTH VALIDATE] TON JWT token validated');
+      return res.json({
+        isValid: true,
+        payload: tonPayload,
+      });
+    }
+
+    try {
       if (!isAuthConfigured()) {
         console.log('❌ [AUTH VALIDATE] Auth service not configured');
         return res
@@ -193,23 +424,10 @@ export default function authRoutes(redisClient: RedisClientType) {
           .json({ error: 'Auth service not configured: missing AUTH_PRIVATE_KEY' });
       }
 
-      const { token, sessionId } = req.body;
-      console.log('📝 [AUTH VALIDATE] Token and sessionId received:', {
-        tokenPresent: !!token,
-        sessionIdPresent: !!sessionId,
-      });
-
-      if (!token) {
-        console.log('❌ [AUTH VALIDATE] Token not provided');
-        return res.status(400).json({ error: 'Token not provided' });
-      }
-
-      // Validate the JWT token and extract user/session info
       console.log('🔐 [AUTH VALIDATE] Validating JWT token...');
       const authData = await validateToken(token);
       console.log('✅ [AUTH VALIDATE] JWT token validated successfully');
 
-      // If sessionId is provided, check if session is valid
       if (sessionId) {
         console.log('💾 [AUTH VALIDATE] Checking session validity:', sessionId);
         const sessionData = await redisClient.get(`session:${sessionId}`);
@@ -271,11 +489,11 @@ export default function authRoutes(redisClient: RedisClientType) {
         return res.status(404).json({ error: 'Session not found' });
       }
 
-      const session = JSON.parse(sessionData);
-      session.isValid = false;
-      session.updatedAt = new Date().toISOString();
+  const session = JSON.parse(sessionData);
+  session.isValid = false;
+  session.updatedAt = new Date().toISOString();
 
-      console.log('🔄 [AUTH LOGOUT] Invalidating session:', refreshSessionId);
+  console.log('🔄 [AUTH LOGOUT] Invalidating session:', refreshSessionId);
       await redisClient.set(`session:${refreshSessionId}`, JSON.stringify(session), {
         KEEPTTL: true, // Keep the original TTL
       });

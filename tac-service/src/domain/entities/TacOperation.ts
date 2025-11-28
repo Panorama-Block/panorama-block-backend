@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 
 export type TacOperationStatus =
   | 'initiated'
+  | 'in_progress'
   | 'bridging_to_evm'
   | 'executing_protocol'
   | 'bridging_back'
@@ -103,12 +104,20 @@ export class TacOperation {
   get protocol(): string | undefined { return this.props.protocol; }
   get protocolAction(): string | undefined { return this.props.protocolAction; }
   get tacTransactionId(): string | undefined { return this.props.tacTransactionId; }
+  set tacTransactionId(value: string | undefined) {
+    this.props.tacTransactionId = value;
+    this.markAsUpdated();
+  }
   get tacOperationHash(): string | undefined { return this.props.tacOperationHash; }
   get estimatedTime(): number | undefined { return this.props.estimatedTime; }
   get actualTime(): number | undefined { return this.props.actualTime; }
   get totalFees(): string | undefined { return this.props.totalFees; }
   get steps(): TacOperationStep[] { return this.props.steps!; }
   get currentStep(): number { return this.props.currentStep!; }
+  set currentStep(index: number) {
+    this.props.currentStep = index;
+    this.markAsUpdated();
+  }
   get errorMessage(): string | undefined { return this.props.errorMessage; }
   get errorCode(): string | undefined { return this.props.errorCode; }
   get retryCount(): number { return this.props.retryCount!; }
@@ -156,15 +165,14 @@ export class TacOperation {
   }
 
   public updateStatus(status: TacOperationStatus): void {
-    const previousStatus = this.props.status;
     this.props.status = status;
 
-    // Set timestamps based on status
-    if (status === 'bridging_to_evm' && !this.props.startedAt) {
+    if (status === 'in_progress' && !this.props.startedAt) {
       this.props.startedAt = new Date();
-    } else if (status === 'completed' || status === 'failed') {
-      this.props.completedAt = new Date();
+    }
 
+    if ((status === 'completed' || status === 'failed') && !this.props.completedAt) {
+      this.props.completedAt = new Date();
       if (this.props.startedAt) {
         this.props.actualTime = this.props.completedAt.getTime() - this.props.startedAt.getTime();
       }
@@ -178,6 +186,40 @@ export class TacOperation {
     this.props.errorCode = errorCode;
     this.props.status = 'failed';
     this.props.completedAt = new Date();
+    this.markAsUpdated();
+  }
+
+  public start(): void {
+    this.updateStatus('in_progress');
+  }
+
+  public complete(outputToken?: string, outputAmount?: string): void {
+    if (outputToken) this.props.outputToken = outputToken;
+    if (outputAmount) this.props.outputAmount = outputAmount;
+    this.updateStatus('completed');
+  }
+
+  public fail(reason: string, code?: string): void {
+    this.setError(reason, code);
+  }
+
+  public resetForRetry(): void {
+    this.props.status = 'initiated';
+    this.props.errorMessage = undefined;
+    this.props.errorCode = undefined;
+    this.props.currentStep = 0;
+    this.props.startedAt = undefined;
+    this.props.completedAt = undefined;
+    this.props.actualTime = undefined;
+    this.props.steps = this.props.steps!.map(step => ({
+      ...step,
+      status: 'pending',
+      errorMessage: undefined,
+      errorCode: undefined,
+      startedAt: new Date(),
+      completedAt: undefined,
+      duration: undefined
+    }));
     this.markAsUpdated();
   }
 
@@ -197,11 +239,43 @@ export class TacOperation {
     return this.props.steps![this.props.currentStep!];
   }
 
+  public getSteps(): TacOperationStep[] {
+    return [...this.props.steps!];
+  }
+
+  public markStepInProgress(stepId: string): void {
+    this.updateStep(stepId, {
+      status: 'in_progress',
+      startedAt: new Date()
+    });
+  }
+
+  public markStepCompleted(stepId: string, updates: Partial<TacOperationStep> = {}): void {
+    this.updateStep(stepId, {
+      status: 'completed',
+      completedAt: new Date(),
+      ...updates
+    });
+  }
+
+  public markStepFailed(stepId: string, errorMessage: string, errorCode?: string): void {
+    this.updateStep(stepId, {
+      status: 'failed',
+      errorMessage,
+      errorCode,
+      completedAt: new Date()
+    });
+  }
+
   public getProgressPercentage(): number {
     if (this.props.steps!.length === 0) return 0;
 
     const completedSteps = this.props.steps!.filter(step => step.status === 'completed').length;
     return Math.round((completedSteps / this.props.steps!.length) * 100);
+  }
+
+  public canBeCancelled(): boolean {
+    return !['completed', 'failed'].includes(this.props.status);
   }
 
   public getEstimatedCompletion(): Date | undefined {

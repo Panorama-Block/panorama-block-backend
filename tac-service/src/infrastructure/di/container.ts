@@ -24,6 +24,7 @@ import { TacQuoteService } from '../../application/services/TacQuoteService';
 import { TacBalanceService } from '../../application/services/TacBalanceService';
 import { TacConfigurationService } from '../../application/services/TacConfigurationService';
 import { TacEventService } from '../../application/services/TacEventService';
+import { TacStatusMonitor } from '../services/TacStatusMonitor';
 
 // Use cases
 import { InitiateCrossChainOperationUseCase } from '../../application/usecases/InitiateCrossChainOperationUseCase';
@@ -76,15 +77,21 @@ export interface DIContainer {
   analyticsAggregator: AnalyticsAggregatorService;
   notificationProcessor: NotificationProcessorService;
   cleanupScheduler: DataCleanupScheduler;
+  statusMonitor: TacStatusMonitor;
 }
 
 export async function createDIContainer(): Promise<DIContainer> {
   // Load and validate configuration
   const config = validateEnvironment();
 
+  // Control Prisma log noise: allow query logs only when explicitly enabled
+  const prismaLogLevels: ('query' | 'info' | 'warn' | 'error')[] = ['warn', 'error'];
+  if (config.DEBUG) prismaLogLevels.push('info');
+  if (process.env.PRISMA_LOG_QUERIES === 'true') prismaLogLevels.unshift('query');
+
   // Initialize database connection
   const database = new PrismaClient({
-    log: config.DEBUG ? ['query', 'info', 'warn', 'error'] : ['warn', 'error'],
+    log: prismaLogLevels,
     datasources: {
       db: {
         url: config.DATABASE_URL
@@ -100,15 +107,18 @@ export async function createDIContainer(): Promise<DIContainer> {
 
   // Initialize external services
   const tacSdkService = new TacSdkAdapter(
-    config.TAC_SDK_ENDPOINT,
-    config.TAC_API_KEY,
     {
       supportedChains: config.TAC_SUPPORTED_CHAINS.split(',').map(chain => chain.trim()),
       defaultTimeout: config.TAC_DEFAULT_BRIDGE_TIMEOUT,
       maxRetries: config.TAC_MAX_RETRY_ATTEMPTS,
-      webhookSecret: config.TAC_WEBHOOK_SECRET
+      webhookSecret: config.TAC_WEBHOOK_SECRET,
+      network: config.TAC_NETWORK
     }
   );
+  await tacSdkService.initializeTacClient({
+    network: config.TAC_NETWORK,
+    networks: config.TAC_SUPPORTED_CHAINS.split(',').map(c => c.trim())
+  });
 
   const notificationService = new WebSocketNotificationService({
     enablePush: config.ENABLE_PUSH_NOTIFICATIONS
@@ -129,12 +139,22 @@ export async function createDIContainer(): Promise<DIContainer> {
     analyticsService
   );
 
+  // External protocol clients
+  const liquidSwapBase = config.LIQUID_SWAP_SERVICE_URL || process.env.LIQUID_SWAP_SERVICE_URL || '';
+  const lendingBase = config.AVAX_SERVICE_URL || process.env.AVAX_SERVICE_URL || '';
+  const lidoBase = config.LIDO_SERVICE_URL || process.env.LIDO_SERVICE_URL || '';
+
   // Initialize application services
   const tacOperationService = new TacOperationService(
     tacRepository,
     tacSdkService,
     notificationService,
-    analyticsService
+    analyticsService,
+    {
+      liquidSwap: liquidSwapBase ? new (require('../clients/LiquidSwapClient').LiquidSwapClient)(liquidSwapBase) : undefined,
+      lending: lendingBase ? new (require('../clients/LendingClient').LendingClient)(lendingBase) : undefined,
+      lido: lidoBase ? new (require('../clients/LidoClient').LidoClient)(lidoBase) : undefined
+    }
   );
 
   const tacQuoteService = new TacQuoteService(
@@ -235,6 +255,9 @@ export async function createDIContainer(): Promise<DIContainer> {
     }
   );
 
+  const statusMonitor = new TacStatusMonitor(database, tacSdkService);
+  statusMonitor.start();
+
   return {
     config,
     database,
@@ -258,7 +281,8 @@ export async function createDIContainer(): Promise<DIContainer> {
     operationMonitor,
     analyticsAggregator,
     notificationProcessor,
-    cleanupScheduler
+    cleanupScheduler,
+    statusMonitor
   };
 }
 

@@ -4,20 +4,27 @@ import { z } from 'zod';
 const EnvironmentSchema = z.object({
   // Server configuration
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.string().transform(Number).default(3005),
-  WEBSOCKET_PORT: z.string().transform(Number).default(3006),
+  PORT: z.string().transform(Number).default('3005'),
+  WEBSOCKET_PORT: z.string().transform(Number).default('3006'),
 
   // Database configuration
   DATABASE_URL: z.string().min(1, 'Database URL is required'),
   REDIS_URL: z.string().optional(),
 
   // TAC SDK configuration
-  TAC_SDK_ENDPOINT: z.string().url('TAC SDK endpoint must be a valid URL'),
-  TAC_API_KEY: z.string().min(1, 'TAC API key is required'),
-  TAC_WEBHOOK_SECRET: z.string().min(1, 'TAC webhook secret is required'),
+  TAC_SDK_ENDPOINT: z.string().optional().default(''),
+  TAC_API_KEY: z.string().optional().default('dev-key'),
+  TAC_WEBHOOK_SECRET: z.string().optional().default(''),
+  TAC_NETWORK: z.enum(['TESTNET', 'MAINNET']).default('TESTNET'),
   TAC_SUPPORTED_CHAINS: z.string().default('ethereum,avalanche,base,optimism'),
-  TAC_DEFAULT_BRIDGE_TIMEOUT: z.string().transform(Number).default(300000), // 5 minutes
-  TAC_MAX_RETRY_ATTEMPTS: z.string().transform(Number).default(3),
+  TAC_DEFAULT_BRIDGE_TIMEOUT: z.preprocess(
+    (v) => (typeof v === 'string' ? parseInt(v, 10) : v),
+    z.number().default(300000)
+  ), // 5 minutes
+  TAC_MAX_RETRY_ATTEMPTS: z.preprocess(
+    (v) => (typeof v === 'string' ? parseInt(v, 10) : v),
+    z.number().default(3)
+  ),
 
   // JWT configuration
   JWT_SECRET: z.string().min(32, 'JWT secret must be at least 32 characters'),
@@ -36,19 +43,25 @@ const EnvironmentSchema = z.object({
   UNISWAP_V3_FACTORY: z.string().optional(),
 
   // Feature flags
-  ENABLE_WEBSOCKET: z.string().transform(v => v === 'true').default(true),
-  ENABLE_ANALYTICS: z.string().transform(v => v === 'true').default(true),
-  ENABLE_PUSH_NOTIFICATIONS: z.string().transform(v => v === 'true').default(true),
+  ENABLE_WEBSOCKET: z.string().transform(v => v === 'true').default('true'),
+  ENABLE_ANALYTICS: z.string().transform(v => v === 'true').default('true'),
+  ENABLE_PUSH_NOTIFICATIONS: z.string().transform(v => v === 'true').default('true'),
 
   // Security configuration
   CORS_ORIGIN: z.string().default('*'),
-  RATE_LIMIT_WINDOW: z.string().transform(Number).default(60000), // 1 minute
-  RATE_LIMIT_MAX_REQUESTS: z.string().transform(Number).default(100),
+  RATE_LIMIT_WINDOW: z.preprocess(
+    (v) => (typeof v === 'string' ? parseInt(v, 10) : v),
+    z.number().default(60000)
+  ), // 1 minute
+  RATE_LIMIT_MAX_REQUESTS: z.preprocess(
+    (v) => (typeof v === 'string' ? parseInt(v, 10) : v),
+    z.number().default(100)
+  ),
 
   // Monitoring and logging
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   SENTRY_DSN: z.string().optional(),
-  DEBUG: z.string().transform(v => v === 'true').default(false),
+  DEBUG: z.string().transform(v => v === 'true').default('false'),
 
   // Testing configuration
   TEST_TIMEOUT: z.string().transform(Number).optional(),
@@ -95,11 +108,6 @@ function validateDatabaseConfig(config: EnvironmentConfig): void {
 }
 
 function validateTacConfig(config: EnvironmentConfig): void {
-  // Validate TAC API key format (assuming it has a specific format)
-  if (config.TAC_API_KEY.length < 32) {
-    throw new Error('TAC_API_KEY appears to be invalid (too short)');
-  }
-
   // Validate supported chains
   const supportedChains = config.TAC_SUPPORTED_CHAINS.split(',').map(chain => chain.trim());
   const validChains = ['ethereum', 'avalanche', 'base', 'optimism', 'polygon', 'bsc'];

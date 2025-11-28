@@ -18,6 +18,8 @@ import { createTacAnalyticsRoutes } from '../http/routes/tacAnalyticsRoutes';
 import { createHealthRoutes } from '../http/routes/healthRoutes';
 import { createWebhookRoutes } from '../http/routes/webhookRoutes';
 import { createDocsRoutes } from '../http/routes/docsRoutes';
+import { createAuthLinkRoutes } from '../http/routes/authLinkRoutes';
+import { createTonSwapRoutes } from '../http/routes/tonSwapRoutes';
 
 // Middleware
 import { authenticationMiddleware } from '../http/middleware/authenticationMiddleware';
@@ -101,12 +103,16 @@ export async function createHttpServer(app: Application, container: DIContainer)
   // Webhook routes (special authentication)
   app.use('/webhook', createWebhookRoutes(container));
 
+  // Public auth/linking routes (TonConnect, EVM wallet registration)
+  app.use('/auth', createAuthLinkRoutes(container));
+
   // Authentication middleware for protected routes
   app.use('/api', authenticationMiddleware(securityConfig.jwt));
 
   // Protected API routes
   app.use('/api/tac/operations', authorizationMiddleware(['user', 'admin']), createTacOperationRoutes(container));
   app.use('/api/tac/quotes', authorizationMiddleware(['user', 'admin']), createTacQuoteRoutes(container));
+  app.use('/api/tac/ton-swap', authorizationMiddleware(['user', 'admin']), createTonSwapRoutes(container));
   app.use('/api/tac/balances', authorizationMiddleware(['user', 'admin']), createTacBalanceRoutes(container));
   app.use('/api/tac/configuration', authorizationMiddleware(['user', 'admin']), createTacConfigurationRoutes(container));
   app.use('/api/tac/analytics', authorizationMiddleware(['admin']), createTacAnalyticsRoutes(container));

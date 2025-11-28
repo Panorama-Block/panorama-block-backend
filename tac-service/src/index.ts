@@ -32,9 +32,8 @@ async function startTacService(): Promise<void> {
     const container = await createDIContainer();
     logger.info('✅ Dependency injection container created');
 
-    // Initialize database connection
-    await container.database.initialize();
-    logger.info('✅ Database connection established');
+    // Database connection already established in DI container
+    // (container.database.$connect invoked during creation)
 
     // Create HTTP server
     const app = express();
@@ -85,7 +84,10 @@ async function startTacService(): Promise<void> {
     logger.info('✅ Background services started');
 
   } catch (error) {
-    logger.error('💥 Failed to start TAC Service:', error);
+    logger.error('💥 Failed to start TAC Service:', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     process.exit(1);
   }
 }

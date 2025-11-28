@@ -1,141 +1,25 @@
 // Logger Configuration for TAC Service
-import winston from 'winston';
-import path from 'path';
+// Minimal logger without external deps to avoid install issues in constrained environments.
+type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
-// Define log levels and colors
-const logLevels = {
-  error: 0,
-  warn: 1,
-  info: 2,
-  debug: 3
-};
-
-const logColors = {
-  error: 'red',
-  warn: 'yellow',
-  info: 'green',
-  debug: 'blue'
-};
-
-// Add colors to winston
-winston.addColors(logColors);
-
-// Custom format for structured logging
-const structuredFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-  winston.format.errors({ stack: true }),
-  winston.format.json(),
-  winston.format.printf(({ timestamp, level, message, stack, service, userId, operationId, traceId, ...meta }) => {
-    const logEntry = {
-      timestamp,
-      level,
-      message,
-      service: service || 'tac-service',
-      ...(userId && { userId }),
-      ...(operationId && { operationId }),
-      ...(traceId && { traceId }),
-      ...(stack && { stack }),
-      ...meta
-    };
-
-    return JSON.stringify(logEntry);
-  })
-);
-
-// Console format for development
-const consoleFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'HH:mm:ss' }),
-  winston.format.colorize({ all: true }),
-  winston.format.printf(({ timestamp, level, message, service, userId, operationId, traceId, ...meta }) => {
-    const serviceTag = service || 'tac-service';
-    const contextInfo = [
-      userId && `user:${userId}`,
-      operationId && `op:${operationId}`,
-      traceId && `trace:${traceId}`
-    ].filter(Boolean).join(' ');
-
-    const metaString = Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : '';
-
-    return `[${timestamp}] ${level}: [${serviceTag}] ${contextInfo ? `(${contextInfo}) ` : ''}${message}${metaString}`;
-  })
-);
-
-// Create logger instance
-const createLogger = (): winston.Logger => {
-  const logLevel = process.env.LOG_LEVEL || 'info';
-  const nodeEnv = process.env.NODE_ENV || 'development';
-
-  const transports: winston.transport[] = [];
-
-  // Console transport for all environments
-  transports.push(
-    new winston.transports.Console({
-      level: logLevel,
-      format: nodeEnv === 'production' ? structuredFormat : consoleFormat,
-      handleExceptions: true,
-      handleRejections: true
-    })
-  );
-
-  // File transports for production and test
-  if (nodeEnv === 'production' || nodeEnv === 'test') {
-    const logDir = path.resolve(process.cwd(), 'logs');
-
-    // Error log file
-    transports.push(
-      new winston.transports.File({
-        filename: path.join(logDir, 'error.log'),
-        level: 'error',
-        format: structuredFormat,
-        handleExceptions: true,
-        maxsize: 10 * 1024 * 1024, // 10MB
-        maxFiles: 5
-      })
-    );
-
-    // Combined log file
-    transports.push(
-      new winston.transports.File({
-        filename: path.join(logDir, 'combined.log'),
-        level: logLevel,
-        format: structuredFormat,
-        maxsize: 10 * 1024 * 1024, // 10MB
-        maxFiles: 5
-      })
-    );
-
-    // TAC-specific operations log
-    transports.push(
-      new winston.transports.File({
-        filename: path.join(logDir, 'tac-operations.log'),
-        level: 'info',
-        format: winston.format.combine(
-          winston.format((info) => {
-            // Only log TAC operation related messages
-            return info.operationId || info.message.includes('TAC') || info.message.includes('Operation')
-              ? info
-              : false;
-          })(),
-          structuredFormat
-        ),
-        maxsize: 10 * 1024 * 1024, // 10MB
-        maxFiles: 10
-      })
-    );
+function log(level: LogLevel, message: string, meta: Record<string, any> = {}) {
+  const entry = { ts: new Date().toISOString(), level, message, ...meta };
+  if (level === 'error') console.error(JSON.stringify(entry));
+  else if (level === 'warn') console.warn(JSON.stringify(entry));
+  else if (level === 'debug') {
+    if ((process.env.LOG_LEVEL || '').toLowerCase() === 'debug') console.debug(JSON.stringify(entry));
+  } else {
+    console.log(JSON.stringify(entry));
   }
+}
 
-  return winston.createLogger({
-    levels: logLevels,
-    level: logLevel,
-    format: structuredFormat,
-    transports,
-    exitOnError: false,
-    silent: nodeEnv === 'test' && process.env.DISABLE_LOGGING === 'true'
-  });
+export const logger = {
+  error: (msg: string, meta?: any) => log('error', msg, meta),
+  warn: (msg: string, meta?: any) => log('warn', msg, meta),
+  info: (msg: string, meta?: any) => log('info', msg, meta),
+  debug: (msg: string, meta?: any) => log('debug', msg, meta),
+  log: (level: LogLevel, msg: string, meta?: any) => log(level, msg, meta),
 };
-
-// Create and export logger instance
-export const logger = createLogger();
 
 // Context-aware logging helpers
 export class ContextLogger {

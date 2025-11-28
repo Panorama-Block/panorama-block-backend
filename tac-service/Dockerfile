@@ -1,13 +1,18 @@
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:18-bullseye-slim AS builder
+
+# Add OpenSSL for Prisma + CA certs
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies (use npm install to avoid lock mismatches in envs without updated lockfile)
+RUN npm install --only=production
 
 # Copy source code
 COPY . .
@@ -16,7 +21,12 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine AS production
+FROM node:18-bullseye-slim AS production
+
+# Add OpenSSL for Prisma + CA certs
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 # Create app user
 RUN addgroup --system --gid 1001 nodejs
@@ -49,13 +59,18 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 CMD ["node", "dist/index.js"]
 
 # Development stage
-FROM node:18-alpine AS development
+FROM node:18-bullseye-slim AS development
+
+# Add OpenSSL for Prisma + CA certs
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Install development dependencies
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY . .

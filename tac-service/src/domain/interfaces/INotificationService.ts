@@ -79,6 +79,12 @@ export interface INotificationService {
   sendNotification(notification: NotificationMessage): Promise<void>;
   sendToUser(userId: string, message: NotificationMessage): Promise<void>;
   sendBulk(notifications: NotificationMessage[]): Promise<void>;
+  sendOperationNotification(
+    userId: string,
+    type: string,
+    operation: any,
+    metadata?: Record<string, any>
+  ): Promise<void>;
 
   // Real-time WebSocket notifications
   subscribeToUserUpdates(userId: string, callback: (update: WebSocketUpdate) => void): Promise<void>;

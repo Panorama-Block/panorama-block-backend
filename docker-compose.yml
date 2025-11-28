@@ -21,11 +21,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
-    # Porta externa opcional (5433) para evitar conflitos
+    # Porta externa opcional (5433) para não dar conflito
     ports:
       - "5433:5432"
     volumes:
       - engine_pgdata:/var/lib/postgresql/data
+      - ./tac-service/database/tac-bootstrap.sql:/docker-entrypoint-initdb.d/10-tac-bootstrap.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
       interval: 10s
@@ -78,6 +79,7 @@ services:
       - AUTH_DOMAIN=${AUTH_DOMAIN}
       - AUTH_PRIVATE_KEY=${AUTH_PRIVATE_KEY}
       - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
+      - TON_JWT_SECRET=${TON_JWT_SECRET}
     env_file:
       - .env
     depends_on:

@@ -39,7 +39,12 @@ export class TacOperationService {
     private tacRepository: ITacRepository,
     private tacSdkService: ITacSdkBridgeService,
     private notificationService: INotificationService,
-    private analyticsService: ITacAnalyticsService
+    private analyticsService: ITacAnalyticsService,
+    private clients?: {
+      liquidSwap?: { prepareSwap: (req: any) => Promise<any> };
+      lending?: { act: (req: any) => Promise<any> };
+      lido?: { stake: (amount: string, token?: string) => Promise<any> };
+    }
   ) {}
 
   async createOperation(request: CreateOperationRequest): Promise<TacOperation> {
@@ -299,10 +304,14 @@ export class TacOperationService {
         await this.tacRepository.updateOperation(operation);
 
         // Execute the step
-        await this.executeStep(operation, step);
+        const result = await this.executeStep(operation, step);
 
         // Mark step as completed
-        step.complete();
+        operation.markStepCompleted(step.id, {
+          transactionHash: result?.transactionHash,
+          outputAmount: result?.outputAmount,
+          gasCost: result?.gasCost
+        });
         operation.updateStatus('in_progress');
         await this.tacRepository.updateOperation(operation);
 
@@ -320,7 +329,7 @@ export class TacOperationService {
         operationLogger.error(`Step ${i + 1} failed: ${step.stepType}`, { error: error.message });
 
         // Mark step as failed
-        step.fail(error.message);
+        operation.markStepFailed(step.id, error.message);
         operation.fail(`Step ${step.stepType} failed: ${error.message}`);
         await this.tacRepository.updateOperation(operation);
 
@@ -343,7 +352,7 @@ export class TacOperationService {
     await this.analyticsService.trackOperationCompleted(operation);
   }
 
-  private async executeStep(operation: TacOperation, step: any): Promise<void> {
+  private async executeStep(operation: TacOperation, step: any): Promise<{ transactionHash?: string; outputAmount?: string; gasCost?: string } | void> {
     const bridgeRequest: BridgeRequest = {
       fromChain: operation.sourceChain,
       toChain: operation.targetChain,
@@ -362,16 +371,24 @@ export class TacOperationService {
     switch (step.stepType) {
       case 'bridge_to_evm':
         const bridgeResponse = await this.tacSdkService.bridgeFromTon(bridgeRequest);
-        operation.tacTransactionId = bridgeResponse.transactionId;
-        break;
+        operation.tacTransactionId = bridgeResponse.bridgeId;
+        return {
+          transactionHash: bridgeResponse.txHash,
+          outputAmount: bridgeResponse.outputAmount,
+          gasCost: bridgeResponse.fees.gas
+        };
 
       case 'protocol_execution':
         await this.executeProtocolAction(operation, step);
-        break;
+        return;
 
       case 'bridge_to_ton':
-        await this.tacSdkService.bridgeToTon(bridgeRequest);
-        break;
+        const toTonResponse = await this.tacSdkService.bridgeToTon(bridgeRequest);
+        return {
+          transactionHash: toTonResponse.txHash,
+          outputAmount: toTonResponse.outputAmount,
+          gasCost: toTonResponse.fees.gas
+        };
 
       default:
         throw new Error(`Unknown step type: ${step.stepType}`);
@@ -379,21 +396,77 @@ export class TacOperationService {
   }
 
   private async executeProtocolAction(operation: TacOperation, step: any): Promise<void> {
-    // This would integrate with specific protocol adapters
-    // For now, we'll use the TAC SDK's protocol execution
-    const protocolRequest = {
-      protocol: operation.protocol!,
-      action: operation.protocolAction!,
+    const protocol = (operation.protocol || '').toLowerCase();
+    const action = (operation.protocolAction || '').toLowerCase();
+
+    if (protocol === 'uniswap' || protocol === 'swap' || action === 'swap') {
+      if (!this.clients?.liquidSwap) {
+        await this.tacSdkService.executeProtocolOperation({
+          protocol,
+          action,
+          token: operation.inputToken,
+          amount: operation.inputAmount,
+          userAddress: `user_${operation.userId}`,
+          metadata: { operationId: operation.id, stepMetadata: step.metadata }
+        });
+        return;
+      }
+      await this.clients.liquidSwap.prepareSwap({
+        fromChain: operation.sourceChain,
+        toChain: operation.targetChain,
+        fromToken: operation.inputToken,
+        toToken: operation.outputToken || operation.inputToken,
+        amount: operation.inputAmount,
+        slippage: step.metadata?.slippage || 0.5
+      });
+      return;
+    }
+
+    if (protocol === 'benqi' || protocol === 'lending' || action === 'supply' || action === 'borrow') {
+      if (!this.clients?.lending) {
+        await this.tacSdkService.executeProtocolOperation({
+          protocol,
+          action,
+          token: operation.inputToken,
+          amount: operation.inputAmount,
+          userAddress: `user_${operation.userId}`,
+          metadata: { operationId: operation.id, stepMetadata: step.metadata }
+        });
+        return;
+      }
+      await this.clients.lending.act({
+        action: action as any,
+        token: operation.inputToken,
+        amount: operation.inputAmount
+      });
+      return;
+    }
+
+    if (protocol === 'lido' || action === 'stake') {
+      if (!this.clients?.lido) {
+        await this.tacSdkService.executeProtocolOperation({
+          protocol,
+          action,
+          token: operation.inputToken,
+          amount: operation.inputAmount,
+          userAddress: `user_${operation.userId}`,
+          metadata: { operationId: operation.id, stepMetadata: step.metadata }
+        });
+        return;
+      }
+      await this.clients.lido.stake(operation.inputAmount, operation.inputToken);
+      return;
+    }
+
+    // default to TAC SDK
+    await this.tacSdkService.executeProtocolOperation({
+      protocol,
+      action,
       token: operation.inputToken,
       amount: operation.inputAmount,
       userAddress: `user_${operation.userId}`,
-      metadata: {
-        operationId: operation.id,
-        stepMetadata: step.metadata
-      }
-    };
-
-    await this.tacSdkService.executeProtocol(protocolRequest);
+      metadata: { operationId: operation.id, stepMetadata: step.metadata }
+    });
   }
 
   private estimateTimeRemaining(operation: TacOperation): number | undefined {

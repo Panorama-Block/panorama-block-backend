@@ -82,6 +82,7 @@ export interface ITacBridgeService {
   // Bridge operations
   initiateBridge(request: BridgeRequest): Promise<BridgeResponse>;
   getBridgeStatus(bridgeId: string): Promise<BridgeStatus>;
+  cancelBridge(bridgeId: string): Promise<void>;
   getBridgeQuote(request: BridgeRequest): Promise<BridgeQuote[]>;
   getBestQuote(request: BridgeRequest, preferences?: {
     prioritizeSpeed?: boolean;
@@ -135,6 +136,23 @@ export interface ITacSdkBridgeService extends ITacBridgeService {
     networks: string[];
   }): Promise<void>;
 
+  // High-level quote helper used by TAC quote service
+  getQuote(request: {
+    fromChain: string;
+    toChain: string;
+    fromToken: string;
+    toToken: string;
+    amount: number;
+    slippage?: number;
+  }): Promise<{
+    estimatedOutput: number;
+    priceImpact?: number;
+    fees: number;
+    estimatedTime: number;
+    transactionId?: string;
+    metadata?: Record<string, any>;
+  }>;
+
   // TON-specific operations
   bridgeFromTon(request: {
     tonWallet: string;
@@ -152,6 +170,18 @@ export interface ITacSdkBridgeService extends ITacBridgeService {
     amount: string;
     slippage?: number;
   }): Promise<BridgeResponse>;
+
+  // Cross-chain execution to TAC proxy (single TON signature)
+  sendCrossChainTransaction(params: {
+    evmProxyMsg: any;
+    senderTon: string;
+    assets: {
+      chain: string;
+      token: string;
+      amount: string;
+    };
+    metadata?: Record<string, any>;
+  }): Promise<{ operationId: string; txHashTon?: string }>;
 
   // TAC transaction monitoring
   trackTacTransaction(tacTxId: string, operation: TacOperation): Promise<void>;

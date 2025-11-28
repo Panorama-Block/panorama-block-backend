@@ -91,34 +91,7 @@ BEGIN
 END;
 $$ language plpgsql;
 
--- Create a materialized view for analytics (will be refreshed periodically)
-CREATE MATERIALIZED VIEW IF NOT EXISTS operation_analytics_daily AS
-SELECT
-    DATE("createdAt") as date,
-    "operationType",
-    "sourceChain",
-    "targetChain",
-    "protocol",
-    COUNT(*) as total_operations,
-    COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_operations,
-    COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_operations,
-    ROUND(AVG(CASE WHEN "actualTime" IS NOT NULL THEN "actualTime" END), 2) as avg_duration_ms,
-    SUM(CASE WHEN "inputAmount" IS NOT NULL THEN "inputAmount" ELSE 0 END) as total_volume
-FROM "TacOperation"
-GROUP BY DATE("createdAt"), "operationType", "sourceChain", "targetChain", "protocol"
-ORDER BY date DESC;
-
--- Create index on the materialized view
-CREATE INDEX IF NOT EXISTS idx_operation_analytics_daily_date ON operation_analytics_daily(date);
-CREATE INDEX IF NOT EXISTS idx_operation_analytics_daily_type ON operation_analytics_daily("operationType");
-
--- Create a function to refresh analytics
-CREATE OR REPLACE FUNCTION refresh_operation_analytics()
-RETURNS void AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW operation_analytics_daily;
-END;
-$$ language plpgsql;
+-- Analytics views are created after Prisma migrations; skipped during init to avoid missing tables.
 
 -- Create indexes for better query performance (complementing Prisma indexes)
 -- Note: These will be created after Prisma tables are generated
@@ -176,10 +149,4 @@ $$ language plpgsql;
 -- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO tac_service_user;
 -- GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO tac_service_user;
 
--- Initialize configuration data
-INSERT INTO "TacBridgeProvider" ("id", "name", "displayName", "endpoint", "isActive", "supportedChains", "supportedTokens")
-VALUES
-    (uuid_generate_v4(), 'tac', 'TAC Bridge', 'https://api.tac.build', true, '["ethereum", "avalanche", "base", "optimism"]', '["USDT", "USDC", "ETH", "AVAX"]'),
-    (uuid_generate_v4(), 'layerzero', 'LayerZero', 'https://api.layerzero.network', false, '["ethereum", "avalanche", "base", "optimism"]', '["USDT", "USDC", "ETH"]'),
-    (uuid_generate_v4(), 'axelar', 'Axelar Network', 'https://api.axelar.dev', false, '["ethereum", "avalanche", "base"]', '["USDT", "USDC", "ETH", "AVAX"]')
-ON CONFLICT DO NOTHING;
+-- Seed bridge providers AFTER Prisma migrations create tables.

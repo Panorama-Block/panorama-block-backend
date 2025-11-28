@@ -8,6 +8,85 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Basic user + wallet mappings for TON-first flows
+model User {
+  id              String       @id @default(uuid())
+  telegramUserId  String?      @unique
+  createdAt       DateTime     @default(now())
+  tonWallets      TonWallet[]
+  evmWallets      EvmWallet[]
+
+  @@index([createdAt])
+}
+
+model TonWallet {
+  id                 String   @id @default(uuid())
+  userId             String
+  tonAddressRaw      String   @unique
+  tonAddressFriendly String?
+  publicKey          String
+  connectedAt        DateTime @default(now())
+
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model EvmWallet {
+  id        String   @id @default(uuid())
+  userId    String
+  chainId   String
+  address   String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, chainId])
+  @@unique([chainId, address])
+  @@index([userId, chainId])
+}
+
+// Lightweight TON -> TAC swap quote tracking
+model TonSwapQuote {
+  id            String   @id @default(uuid())
+  userId        String
+  tonAddress    String
+  evmReceiver   String
+  toToken       String
+  amountIn      Decimal
+  slippageBps   Int
+  expectedOut   Decimal
+  status        String   @default("active") // active, executed, expired
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  executedAt    DateTime?
+
+  @@index([userId, tonAddress])
+  @@index([status, expiresAt])
+}
+
+model TonSwapOperation {
+  id            String   @id @default(uuid())
+  quoteId       String
+  userId        String
+  tonAddress    String
+  evmReceiver   String
+  toToken       String
+  amountIn      Decimal
+  expectedOut   Decimal
+  slippageBps   Int
+  operationId   String   @unique
+  status        String   @default("pending") // pending, bridging, swapping, success, failed
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  txHashTon     String?
+  txHashTac     String?
+  error         String?
+
+  @@index([userId, status])
+  @@index([tonAddress])
+}
+
 // TAC Operations - Main cross-chain operations
 model TacOperation {
   id              String   @id @default(uuid())

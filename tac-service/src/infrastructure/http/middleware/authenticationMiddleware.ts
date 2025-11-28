@@ -9,6 +9,7 @@ export interface JwtSecurityConfig {
 }
 
 type DecodedUser = JwtPayload & {
+  type?: string;
   role?: string;
   permissions?: string[];
   sub?: string;
@@ -39,11 +40,39 @@ export function authenticationMiddleware(config: JwtSecurityConfig): RequestHand
     }
 
     try {
-      const decoded = jwt.verify(token, config.secret, {
-        algorithms: ['HS256', 'HS512'],
-        issuer: config.issuer,
-        audience: config.audience
-      }) as DecodedUser;
+      let decoded: DecodedUser | null = null;
+      let lastError: any = null;
+
+      // First try TON JWT (TonConnect flow)
+      const tonSecret = process.env.TON_JWT_SECRET;
+      if (tonSecret) {
+        try {
+          decoded = jwt.verify(token, tonSecret, {
+            algorithms: ['HS256', 'HS512'],
+            issuer: process.env.TON_JWT_ISSUER || 'panoramablock-ton',
+            audience: process.env.TON_JWT_AUDIENCE || 'panoramablock'
+          }) as DecodedUser;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      // Fallback to default TAC JWT
+      if (!decoded) {
+        try {
+          decoded = jwt.verify(token, config.secret, {
+            algorithms: ['HS256', 'HS512'],
+            issuer: config.issuer,
+            audience: config.audience
+          }) as DecodedUser;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (!decoded) {
+        throw lastError || new Error('Token verification failed');
+      }
 
       const userId = decoded.sub || decoded.userId || decoded.id;
       if (!userId) {
