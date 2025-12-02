@@ -11,7 +11,7 @@ export const LIDO_CONTRACTS = {
 
 // stETH ABI - Essential functions for staking
 export const STETH_ABI = [
-  'function submit() payable returns (uint256)',
+  'function submit(address _referral) payable returns (uint256)',
   'function balanceOf(address) view returns (uint256)',
   'function totalSupply() view returns (uint256)',
   'function getTotalPooledEther() view returns (uint256)',
@@ -51,8 +51,8 @@ export const WSTETH_ABI = [
 
 // Withdrawal Queue ABI
 export const WITHDRAWAL_QUEUE_ABI = [
-  'function requestWithdrawals(uint256[] amounts, address owner) returns (uint256)',
-  'function getWithdrawalStatus(uint256[] requestIds) view returns (uint256[] statuses)',
+  'function requestWithdrawals(uint256[] amounts, address owner) returns (uint256[])',
+  'function getWithdrawalStatus(uint256[] requestIds) view returns (tuple(uint256 amountOfStETH, uint256 amountOfShares, address owner, uint256 timestamp, bool isFinalized, bool isClaimed)[] statuses)',
   'function getWithdrawalRequests(address owner) view returns (uint256[] requestIds)',
   'function claimWithdrawals(uint256[] requestIds, uint256[] hints)',
   'function getLastFinalizedRequestId() view returns (uint256)',
