@@ -17,7 +17,7 @@ const benqiValidationRoutes = require('./routes/benqiValidationRoutes');
 const { NETWORKS, RATE_LIMIT, SECURITY } = require('./config/constants');
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 3301;
 
 // Middleware de segurança
 app.use(helmet({

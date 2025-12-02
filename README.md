@@ -113,14 +113,14 @@ panoramablock/
 
 ## Endpoints
 
-### Auth Service (porta 3001)
+### Auth Service (porta 3301)
 - `GET /health`: Verificação de saúde do serviço
 - `POST /auth/login`: Gerar payload para assinatura SIWE
 - `POST /auth/verify`: Verificar assinatura e gerar token JWT
 - `POST /auth/validate`: Validar token JWT (uso interno)
 - `POST /auth/logout`: Invalidar sessão
 
-### Wallet Tracker Service (porta 3002)
+### Wallet Tracker Service (porta 3302)
 - `GET /health`: Verificação de saúde do serviço
 - `POST /wallets/track`: Iniciar rastreamento de carteira
 - `GET /wallets/{address}`: Obter informações da carteira

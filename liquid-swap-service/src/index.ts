@@ -22,7 +22,7 @@ import { createErrorResponder } from "./infrastructure/http/middlewares/error.re
 import { SwapError, SwapErrorCode } from "./domain/entities/errors";
 import { DIContainer } from "./infrastructure/di/container";
 
-const PORT = process.env.PORT || process.env.LIQUID_SWAP_PORT || 3002;
+const PORT = process.env.PORT || process.env.LIQUID_SWAP_PORT || 3302;
 
 try {
   console.log(

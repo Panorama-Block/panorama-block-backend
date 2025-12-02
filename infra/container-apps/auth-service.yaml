@@ -6,7 +6,7 @@ properties:
   configuration:
     ingress:
       external: true
-      targetPort: 3001
+      targetPort: 3301
     registries:
       - server: ghcr.io
         username: ${GHCR_USERNAME}
@@ -32,7 +32,7 @@ properties:
         image: ghcr.io/${GHCR_NAMESPACE}/auth-service:${IMAGE_TAG}
         env:
           - name: PORT
-            value: "3001"
+            value: "3301"
           - name: NODE_ENV
             value: "production"
           - name: REDIS_HOST

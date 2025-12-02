@@ -89,9 +89,9 @@ stop_existing_services() {
     popd > /dev/null
     
     # Kill any processes on the ports we need
-    kill_port 3001  # Auth Service
+    kill_port 3301  # Auth Service
     kill_port 3000  # Wallet Tracker
-    kill_port 3002  # Liquid Swap
+    kill_port 3302  # Liquid Swap
     
     print_success "Existing services stopped"
 }

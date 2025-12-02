@@ -40,7 +40,7 @@ func LoadConfig() *Config {
 	if authServiceURL == "" {
 		authPort := os.Getenv("AUTH_PORT")
 		if authPort == "" {
-			authPort = "3001"
+			authPort = "3301"
 		}
 		authServiceURL = fmt.Sprintf("http://auth_service:%s", authPort)
 	}

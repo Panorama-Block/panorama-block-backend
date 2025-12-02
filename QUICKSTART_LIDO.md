@@ -14,8 +14,8 @@ docker-compose up --build -d
 - ✅ Redis (Port 6380)
 - ✅ PostgreSQL (Port 5433)
 - ✅ ThirdWeb Engine (Port 3005)
-- ✅ Auth Service (Port 3001)
-- ✅ Liquid Swap Service (Port 3002)
+- ✅ Auth Service (Port 3301)
+- ✅ Liquid Swap Service (Port 3302)
 - ✅ **Lido Service (Port 3004)** 🆕
 
 ---
@@ -25,7 +25,7 @@ docker-compose up --build -d
 ### 1️⃣ Obter payload SIWE
 
 ```bash
-curl -X POST http://localhost:3001/auth/login \
+curl -X POST http://localhost:3301/auth/login \
   -H "Content-Type: application/json" \
   -d '{"address":"0xSuaCarteiraAqui"}'
 ```
@@ -42,7 +42,7 @@ const signature = await signer.signMessage(payloadString);
 ### 3️⃣ Verificar assinatura e obter JWT
 
 ```bash
-curl -X POST http://localhost:3001/auth/verify \
+curl -X POST http://localhost:3301/auth/verify \
   -H "Content-Type: application/json" \
   -d '{
     "payload": {...},
@@ -132,7 +132,7 @@ curl http://localhost:3004/health
 
 ```bash
 # 1. Autenticar
-RESPONSE=$(curl -s -X POST http://localhost:3001/auth/login \
+RESPONSE=$(curl -s -X POST http://localhost:3301/auth/login \
   -H "Content-Type: application/json" \
   -d '{"address":"0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"}')
 
@@ -141,7 +141,7 @@ echo $RESPONSE
 # 2. [Assinar payload com wallet no frontend]
 
 # 3. Verificar e obter JWT
-JWT=$(curl -s -X POST http://localhost:3001/auth/verify \
+JWT=$(curl -s -X POST http://localhost:3301/auth/verify \
   -H "Content-Type: application/json" \
   -d '{
     "payload": {...},

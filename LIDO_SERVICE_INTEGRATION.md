@@ -33,8 +33,8 @@ Todos os serviços subirão automaticamente:
 - ✅ Redis (Port 6380)
 - ✅ PostgreSQL Engine (Port 5433)
 - ✅ ThirdWeb Engine (Port 3005)
-- ✅ Auth Service (Port 3001)
-- ✅ Liquid Swap Service (Port 3002)
+- ✅ Auth Service (Port 3301)
+- ✅ Liquid Swap Service (Port 3302)
 - ✅ **Lido Service (Port 3004)** ← NOVO!
 
 ### 2. Autenticar (SIWE - Sign-In With Ethereum)
@@ -43,7 +43,7 @@ O fluxo de autenticação é **exatamente igual** para todos os serviços:
 
 #### Passo 1: Obter payload para assinatura
 ```bash
-curl -X POST http://localhost:3001/auth/login \
+curl -X POST http://localhost:3301/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "address": "0xYourWalletAddress"
@@ -75,7 +75,7 @@ const signature = await signer.signMessage(payloadString);
 
 #### Passo 3: Verificar assinatura e obter JWT
 ```bash
-curl -X POST http://localhost:3001/auth/verify \
+curl -X POST http://localhost:3301/auth/verify \
   -H "Content-Type: application/json" \
   -d '{
     "payload": { ... },
@@ -129,7 +129,7 @@ curl -X GET http://localhost:3004/api/lido/position/0xYourWalletAddress \
        │    { address: "0x..." }
        ▼
 ┌──────────────────────────┐
-│   Auth Service (3001)    │
+│   Auth Service (3301)    │
 │                          │
 │  - Gera payload SIWE     │
 │  - ThirdWeb Auth SDK     │
@@ -150,7 +150,7 @@ curl -X GET http://localhost:3004/api/lido/position/0xYourWalletAddress \
        │    { payload, signature }
        ▼
 ┌──────────────────────────┐
-│   Auth Service (3001)    │
+│   Auth Service (3301)    │
 │                          │
 │  - Valida assinatura     │
 │  - Gera JWT              │
@@ -173,7 +173,7 @@ curl -X GET http://localhost:3004/api/lido/position/0xYourWalletAddress \
        ▼                                 ▼                          ▼
 ┌─────────────────┐            ┌─────────────────┐      ┌─────────────────┐
 │  Liquid Swap    │            │  Lido Service   │      │  Outros         │
-│  Service (3002) │            │  (3004)         │      │  Services       │
+│  Service (3302) │            │  (3004)         │      │  Services       │
 │                 │            │                 │      │                 │
 │  - Recebe JWT   │            │  - Recebe JWT   │      │  - Recebe JWT   │
 │  - Valida via   │            │  - Valida via   │      │  - Valida via   │
@@ -185,7 +185,7 @@ curl -X GET http://localhost:3004/api/lido/position/0xYourWalletAddress \
           └──────────────┬───────────────┴────────────────────────┘
                          ▼
                   ┌──────────────────────────┐
-                  │   Auth Service (3001)    │
+                  │   Auth Service (3301)    │
                   │                          │
                   │  - Verifica JWT          │
                   │  - Checa Redis           │
@@ -195,7 +195,7 @@ curl -X GET http://localhost:3004/api/lido/position/0xYourWalletAddress \
                              │ 7. { isValid: true, payload: {...} }
                              ▼
                   ┌──────────────────────────┐
-                  │   Serviços (3002, 3004)  │
+                  │   Serviços (3302, 3004)  │
                   │                          │
                   │  - req.user = payload    │
                   │  - Executa ação          │
@@ -218,7 +218,7 @@ export class AuthMiddleware {
     const token = req.headers.authorization?.split(' ')[1];
 
     // 2. Valida com auth-service centralizado
-    const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+    const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3301';
     const response = await axios.post(`${authServiceUrl}/auth/validate`, { token });
 
     // 3. Se válido, adiciona user ao request
@@ -279,7 +279,7 @@ lido_service:
     - "${LIDO_PORT:-3004}:3004"
   environment:
     - PORT=3004
-    - AUTH_SERVICE_URL=http://auth_service:3001  # ← Comunicação interna
+    - AUTH_SERVICE_URL=http://auth_service:3301  # ← Comunicação interna
     - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
     - ENGINE_URL=http://engine:3005
     - ENGINE_ENABLED=${ENGINE_ENABLED}
@@ -302,7 +302,7 @@ lido_service:
   ports:
     - "${LIDO_PORT:-3004}:3004"
   environment:
-    - AUTH_SERVICE_URL=https://auth_service:3001  # ← HTTPS em produção
+    - AUTH_SERVICE_URL=https://auth_service:3301  # ← HTTPS em produção
     - FULLCHAIN=${FULLCHAIN}
     - PRIVKEY=${PRIVKEY}
     - FORCE_HTTPS=${FORCE_HTTPS}
@@ -355,8 +355,8 @@ lido_service:
 LIDO_PORT=3004
 
 # Auth Service (usado para validação JWT)
-AUTH_SERVICE_URL=http://auth_service:3001  # Dev
-# AUTH_SERVICE_URL=https://auth_service:3001  # Prod
+AUTH_SERVICE_URL=http://auth_service:3301  # Dev
+# AUTH_SERVICE_URL=https://auth_service:3301  # Prod
 
 # ThirdWeb
 THIRDWEB_CLIENT_ID=841b9035bb273fee8d50a503f5b09fd0
@@ -390,7 +390,7 @@ curl http://localhost:3004/health
   "service": "lido-service",
   "timestamp": "2024-11-07T12:00:00.000Z",
   "version": "1.0.0",
-  "authServiceUrl": "http://auth_service:3001",
+  "authServiceUrl": "http://auth_service:3301",
   "features": {
     "authentication": "centralized (auth-service)",
     "staking": true,
@@ -403,14 +403,14 @@ curl http://localhost:3004/health
 
 ```bash
 # 1. Login (obter payload)
-curl -X POST http://localhost:3001/auth/login \
+curl -X POST http://localhost:3301/auth/login \
   -H "Content-Type: application/json" \
   -d '{"address":"0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"}'
 
 # 2. [Assinar payload com wallet]
 
 # 3. Verify (obter JWT)
-curl -X POST http://localhost:3001/auth/verify \
+curl -X POST http://localhost:3301/auth/verify \
   -H "Content-Type: application/json" \
   -d '{
     "payload": {...},
@@ -438,7 +438,7 @@ docker-compose logs -f auth_service
 ```
 🚀 Lido Service running on port 3004
 🌍 Environment: development
-🔐 Authentication: Centralized (auth-service at http://auth_service:3001)
+🔐 Authentication: Centralized (auth-service at http://auth_service:3301)
 📋 Available endpoints:
   - POST /api/lido/stake (requires JWT)
   - GET  /api/lido/position/:userAddress (optional JWT)
@@ -555,7 +555,7 @@ docker-compose exec lido_service env | grep AUTH_SERVICE_URL
 **Solução:**
 ```bash
 # Gerar novo JWT
-curl -X POST http://localhost:3001/auth/login ...
+curl -X POST http://localhost:3301/auth/login ...
 # [Assinar e verificar novamente]
 ```
 

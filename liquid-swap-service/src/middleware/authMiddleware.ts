@@ -30,7 +30,7 @@ export const verifyJwtMiddleware = async (req: Request, res: Response, next: Nex
     
     // Validate token with Auth service
     try {
-      const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+      const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3301';
       const response: AxiosResponse<TokenValidationResponse> = 
         await axios.post(`${authServiceUrl}/auth/validate`, { token }, {
           httpsAgent: new (require('https').Agent)({

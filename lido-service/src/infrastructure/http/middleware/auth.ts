@@ -50,7 +50,7 @@ export class AuthMiddleware {
 
       // Validate token with centralized Auth Service
       try {
-        const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+        const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3301';
         AuthMiddleware.logger.info(`🔗 [Lido Service] Validating token with Auth Service: ${authServiceUrl}`);
 
         const response: AxiosResponse<TokenValidationResponse> =
@@ -108,7 +108,7 @@ export class AuthMiddleware {
       if (authHeader && authHeader.startsWith('Bearer ')) {
         try {
           const token = authHeader.split(' ')[1];
-          const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+          const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3301';
 
           const response: AxiosResponse<TokenValidationResponse> =
             await axios.post(`${authServiceUrl}/auth/validate`, { token }, {

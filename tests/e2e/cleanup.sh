@@ -28,9 +28,9 @@ stop_all_services() {
     popd > /dev/null
     
     # Kill any remaining processes on ports
-    kill_port 3001  # Auth Service
+    kill_port 3301  # Auth Service
     kill_port 3000  # Wallet Tracker
-    kill_port 3002  # Liquid Swap
+    kill_port 3302  # Liquid Swap
     kill_port 27017 # MongoDB
     kill_port 6379  # Redis
     

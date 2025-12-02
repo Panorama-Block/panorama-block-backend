@@ -70,7 +70,7 @@ node test-validation.js
 npm start
 ```
 
-A API estará disponível em `http://localhost:3001`
+A API estará disponível em `http://localhost:3301`
 
 ## 📚 Endpoints Disponíveis
 
@@ -414,7 +414,7 @@ addToken('NOVO_TOKEN', '0x1234567890abcdef1234567890abcdef12345678');
 **3. Listar tokens disponíveis:**
 ```bash
 # Via API
-curl http://localhost:3001/dex/tokens
+curl http://localhost:3301/dex/tokens
 
 # Via código
 const { listTokens } = require('./config/constants');
@@ -444,7 +444,7 @@ node test.js
 npm start
 
 # Testar endpoint
-curl "http://localhost:3001/getprice?dexId=traderjoe&path=WAVAX,USDT&amountIn=1000000000000000"
+curl "http://localhost:3301/getprice?dexId=traderjoe&path=WAVAX,USDT&amountIn=1000000000000000"
 ```
 
 ## 🌐 Links Úteis

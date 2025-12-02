@@ -13,7 +13,7 @@ dotenv.config();
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.PORT || process.env.AUTH_PORT || 3001;
+const PORT = process.env.PORT || process.env.AUTH_PORT || 3301;
 
 app.set('trust proxy', 1);
 

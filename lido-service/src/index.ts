@@ -27,7 +27,7 @@ app.get('/health', (req, res) => {
     service: 'lido-service',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    authServiceUrl: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
+    authServiceUrl: process.env.AUTH_SERVICE_URL || 'http://localhost:3301',
     features: {
       authentication: 'centralized (auth-service)',
       staking: true,
@@ -44,9 +44,9 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     authentication: 'Uses centralized auth-service (same as liquid-swap-service)',
     authEndpoints: {
-      login: 'POST http://auth-service:3001/auth/login',
-      verify: 'POST http://auth-service:3001/auth/verify',
-      validate: 'POST http://auth-service:3001/auth/validate'
+      login: 'POST http://auth-service:3301/auth/login',
+      verify: 'POST http://auth-service:3301/auth/verify',
+      validate: 'POST http://auth-service:3301/auth/validate'
     },
     endpoints: {
       '/health': 'Health check',
@@ -66,7 +66,7 @@ app.use(ErrorHandler.handle);
 app.listen(port, () => {
   logger.info(`🚀 Lido Service running on port ${port}`);
   logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`🔐 Authentication: Centralized (auth-service at ${process.env.AUTH_SERVICE_URL || 'http://localhost:3001'})`);
+  logger.info(`🔐 Authentication: Centralized (auth-service at ${process.env.AUTH_SERVICE_URL || 'http://localhost:3301'})`);
   logger.info('📋 Available endpoints:');
   logger.info('  - GET  /health');
   logger.info('  - GET  /');

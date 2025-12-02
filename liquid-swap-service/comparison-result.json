@@ -187,7 +187,7 @@
           ],
           "estimatedDuration": 15,
           "metadata": {
-            "quote": "0.000150656228530029",
+            "quote": "0.000150656228533029",
             "estimatedGasUsed": "97000",
             "gasPriceWei": "108877573",
             "slippageTolerance": "10%",

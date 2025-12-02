@@ -183,12 +183,12 @@ GET /swap/status/:transactionHash?chainId={originChainId}  (JWT)
 
 Use the helper script:
 ```bash
-AUTH_TOKEN=eyJ... ./test-api.sh 3002
+AUTH_TOKEN=eyJ... ./test-api.sh 3302
 ```
 
 To test Engine execution:
 ```bash
-ENGINE_ENABLED=true SMART_ACCOUNT=0x... SESSION_KEY=0x... AUTH_TOKEN=eyJ... ./test-api.sh 3002
+ENGINE_ENABLED=true SMART_ACCOUNT=0x... SESSION_KEY=0x... AUTH_TOKEN=eyJ... ./test-api.sh 3302
 ```
 
 ## 🔧 Domain Logic

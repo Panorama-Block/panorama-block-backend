@@ -11,9 +11,9 @@ This test suite validates a complete microservices architecture with:
 - **Redis** (port 6379): Cache and session management
 
 ### Application Services
-- **Auth Service** (port 3001): ThirdWeb authentication service for all platform services
+- **Auth Service** (port 3301): ThirdWeb authentication service for all platform services
 - **Wallet Tracker Service** (port 3000): Go service with Rango API integration, depends on auth service
-- **Liquid Swap Service** (port 3002): ThirdWeb SDK swap service, receives authentication from auth service
+- **Liquid Swap Service** (port 3302): ThirdWeb SDK swap service, receives authentication from auth service
 
 ## 📁 Test Suite Structure
 
@@ -92,8 +92,8 @@ Ensure you have a `.env` file in the project root with:
 ```bash
 # Service Ports
 WALLET_TRACKER_PORT=3000
-AUTH_PORT=3001
-LIQUID_SWAP_PORT=3002
+AUTH_PORT=3301
+LIQUID_SWAP_PORT=3302
 
 # Database Configuration
 MONGO_DB_NAME=rango
@@ -109,7 +109,7 @@ REDIS_PASS=your-redis-password
 
 # Authentication
 AUTH_PRIVATE_KEY=your-auth-private-key
-AUTH_DOMAIN=localhost:3001
+AUTH_DOMAIN=localhost:3301
 
 # External Services
 X_RANGO_ID=your-rango-api-key
@@ -179,12 +179,12 @@ docker-compose logs liquid_swap_service
 #### Port Conflicts
 ```bash
 # Check which processes are using ports
-sudo netstat -tulpn | grep :3001
+sudo netstat -tulpn | grep :3301
 sudo netstat -tulpn | grep :3000
-sudo netstat -tulpn | grep :3002
+sudo netstat -tulpn | grep :3302
 
 # Kill processes on specific ports
-sudo kill $(sudo lsof -t -i:3001)
+sudo kill $(sudo lsof -t -i:3301)
 ```
 
 #### Environment Variable Issues
@@ -222,12 +222,12 @@ For manual verification:
 
 ```bash
 # Check service health
-curl http://localhost:3001/health
+curl http://localhost:3301/health
 curl http://localhost:3000/health
-curl http://localhost:3002/health
+curl http://localhost:3302/health
 
 # Test authentication flow
-curl -X POST http://localhost:3001/auth/login \
+curl -X POST http://localhost:3301/auth/login \
   -H "Content-Type: application/json" \
   -d '{"address":"0x1234..."}'
 ```
@@ -243,9 +243,9 @@ TIMEOUT=30  # seconds
 ### Custom Service URLs
 Override default service URLs:
 ```bash
-export AUTH_SERVICE_URL="http://localhost:3001"
+export AUTH_SERVICE_URL="http://localhost:3301"
 export WALLET_TRACKER_URL="http://localhost:3000"
-export LIQUID_SWAP_URL="http://localhost:3002"
+export LIQUID_SWAP_URL="http://localhost:3302"
 ```
 
 ### Test Data Management

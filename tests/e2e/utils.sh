@@ -11,9 +11,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Service URLs (can be overridden by environment variables)
-AUTH_SERVICE_URL="${AUTH_SERVICE_URL:-http://localhost:3001}"
+AUTH_SERVICE_URL="${AUTH_SERVICE_URL:-http://localhost:3301}"
 WALLET_TRACKER_URL="${WALLET_TRACKER_URL:-http://localhost:3000}"
-LIQUID_SWAP_URL="${LIQUID_SWAP_URL:-http://localhost:3002}"
+LIQUID_SWAP_URL="${LIQUID_SWAP_URL:-http://localhost:3302}"
 
 # Default test wallet address for authentication testing
 TEST_ADDRESS="0xB5Cc5765a722B0ce3dFA7950cEC033D2Eb90aac5"

@@ -28,7 +28,7 @@ async function verifySignature(req, res, next) {
 
       try {
         console.log('🔐 Tentando autenticação via JWT...');
-        const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+        const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://localhost:3301';
         const response = await axios.post(`${authServiceUrl}/auth/validate`,
           { token },
           {

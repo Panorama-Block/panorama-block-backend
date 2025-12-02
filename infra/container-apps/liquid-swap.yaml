@@ -6,7 +6,7 @@ properties:
   configuration:
     ingress:
       external: false
-      targetPort: 3002
+      targetPort: 3302
     registries:
       - server: ghcr.io
         username: ${GHCR_USERNAME}
@@ -42,7 +42,7 @@ properties:
         image: ghcr.io/${GHCR_NAMESPACE}/liquid-swap:${IMAGE_TAG}
         env:
           - name: PORT
-            value: "3002"
+            value: "3302"
           - name: NODE_ENV
             value: "production"
           - name: DEBUG
