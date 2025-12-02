@@ -68,7 +68,9 @@ export class LidoRepository implements ILidoRepository {
         );
         
         // Submit ETH to Lido staking contract
-        const tx = await stETHContract.submit({
+        // _referral address is set to zero address (no referral)
+        const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+        const tx = await stETHContract.submit(ZERO_ADDRESS, {
           value: amountWei,
           gasLimit: 200000 // Estimated gas limit for submit
         });
@@ -103,7 +105,9 @@ export class LidoRepository implements ILidoRepository {
         );
         
         // Get transaction data for frontend to sign
-        const txData = await stETHContract.populateTransaction.submit({
+        // _referral address is set to zero address (no referral)
+        const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+        const txData = await stETHContract.populateTransaction.submit(ZERO_ADDRESS, {
           value: amountWei
         });
         
@@ -137,40 +141,62 @@ export class LidoRepository implements ILidoRepository {
   async unstake(userAddress: string, amount: string, privateKey?: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Creating unstake transaction for ${userAddress} with amount ${amount}`);
-      
+
       const transactionId = this.generateTransactionId();
       const amountWei = ethers.utils.parseEther(amount);
-      
+
+      // Normalize address
+      const normalizedAddress = ethers.utils.getAddress(userAddress);
+
       let transaction: StakingTransaction;
-      
+
       if (privateKey) {
         // Execute real transaction with private key
         this.logger.info('Executing real unstake transaction with private key');
-        
+
         const signer = this.ethereumConfig.getSigner(privateKey);
+
+        // First, check and handle stETH approval
+        const stETHContract = new ethers.Contract(
+          LIDO_CONTRACTS.STETH,
+          STETH_ABI,
+          signer
+        );
+
+        const currentAllowance = await stETHContract.allowance(normalizedAddress, LIDO_CONTRACTS.WITHDRAWAL_QUEUE);
+
+        if (currentAllowance.lt(amountWei)) {
+          this.logger.info('Approving stETH for withdrawal queue...');
+          const approveTx = await stETHContract.approve(LIDO_CONTRACTS.WITHDRAWAL_QUEUE, amountWei, {
+            gasLimit: 100000
+          });
+          await approveTx.wait();
+          this.logger.info(`Approval transaction confirmed: ${approveTx.hash}`);
+        }
+
         const withdrawalQueueContract = new ethers.Contract(
           LIDO_CONTRACTS.WITHDRAWAL_QUEUE,
           WITHDRAWAL_QUEUE_ABI,
           signer
         );
-        
+
         // Request withdrawal from Lido
         const tx = await withdrawalQueueContract.requestWithdrawals(
           [amountWei],
-          userAddress,
+          normalizedAddress,
           {
             gasLimit: 300000 // Estimated gas limit for withdrawal request
           }
         );
-        
+
         this.logger.info(`Unstake transaction submitted: ${tx.hash}`);
-        
+
         // Wait for transaction confirmation
         const receipt = await tx.wait();
-        
+
         transaction = {
           id: transactionId,
-          userAddress,
+          userAddress: normalizedAddress,
           type: 'unstake',
           amount,
           token: 'stETH',
@@ -180,42 +206,107 @@ export class LidoRepository implements ILidoRepository {
           gasUsed: receipt.gasUsed.toString(),
           timestamp: new Date()
         };
-        
+
         this.logger.info(`Unstake transaction completed: ${tx.hash}`);
       } else {
         // Return transaction data for frontend signing (smart wallet)
         this.logger.info('Preparing unstake transaction for frontend signing');
-        
-        const withdrawalQueueContract = new ethers.Contract(
-          LIDO_CONTRACTS.WITHDRAWAL_QUEUE,
-          WITHDRAWAL_QUEUE_ABI,
-          this.ethereumConfig.getProvider()
-        );
-        
-        // Get transaction data for frontend to sign
-        const txData = await withdrawalQueueContract.populateTransaction.requestWithdrawals(
-          [amountWei],
-          userAddress
-        );
-        
-        transaction = {
-          id: transactionId,
-          userAddress,
-          type: 'unstake',
-          amount,
-          token: 'stETH',
-          status: 'pending',
-          transactionData: {
-            to: txData.to || LIDO_CONTRACTS.WITHDRAWAL_QUEUE,
-            data: txData.data || '0x',
-            value: '0',
-            gasLimit: '300000',
-            chainId: this.ethereumConfig.getChainId()
-          },
-          timestamp: new Date()
-        };
-        
-        this.logger.info(`Unstake transaction prepared for signing: ${transactionId}`);
+
+        // Check current stETH allowance for the withdrawal queue
+        const currentAllowance = await this.stETHContract.allowance(normalizedAddress, LIDO_CONTRACTS.WITHDRAWAL_QUEUE);
+        const needsApproval = currentAllowance.lt(amountWei);
+
+        this.logger.info(`Current allowance: ${ethers.utils.formatEther(currentAllowance)}, Needs approval: ${needsApproval}`);
+
+        if (needsApproval) {
+          // Return approval transaction first
+          this.logger.info('Preparing stETH approval transaction for withdrawal queue');
+          this.logger.info(`Approval details: user=${normalizedAddress}, spender=${LIDO_CONTRACTS.WITHDRAWAL_QUEUE}, amount=${amountWei.toString()}`);
+
+          const stETHContract = new ethers.Contract(
+            LIDO_CONTRACTS.STETH,
+            STETH_ABI,
+            this.ethereumConfig.getProvider()
+          );
+
+          // Check user's stETH balance first
+          const userBalance = await this.stETHContract.balanceOf(normalizedAddress);
+          this.logger.info(`User stETH balance: ${ethers.utils.formatEther(userBalance)} stETH (${userBalance.toString()} wei)`);
+
+          if (userBalance.lt(amountWei)) {
+            throw new Error(`Insufficient stETH balance. You have ${ethers.utils.formatEther(userBalance)} stETH but trying to unstake ${amount} stETH`);
+          }
+
+          const approveTxData = await stETHContract.populateTransaction.approve(
+            LIDO_CONTRACTS.WITHDRAWAL_QUEUE,
+            amountWei
+          );
+
+          this.logger.info(`Approval transaction data generated:`);
+          this.logger.info(`  to: ${approveTxData.to}`);
+          this.logger.info(`  data: ${approveTxData.data}`);
+          this.logger.info(`  data length: ${approveTxData.data?.length}`);
+
+          // Verify the function selector (first 4 bytes after 0x should be 0x095ea7b3 for approve)
+          const functionSelector = approveTxData.data?.slice(0, 10);
+          this.logger.info(`  function selector: ${functionSelector}`);
+          if (functionSelector !== '0x095ea7b3') {
+            this.logger.warn(`Unexpected function selector! Expected 0x095ea7b3 for approve(address,uint256)`);
+          }
+
+          transaction = {
+            id: transactionId,
+            userAddress: normalizedAddress,
+            type: 'unstake_approval',
+            amount,
+            token: 'stETH',
+            status: 'pending',
+            transactionData: {
+              to: approveTxData.to || LIDO_CONTRACTS.STETH,
+              data: approveTxData.data || '0x',
+              value: '0',
+              gasLimit: '100000',
+              chainId: this.ethereumConfig.getChainId()
+            },
+            timestamp: new Date(),
+            requiresFollowUp: true,
+            followUpAction: 'unstake'
+          };
+
+          this.logger.info(`Approval transaction prepared for signing: ${transactionId}`);
+        } else {
+          // Allowance is sufficient, prepare withdrawal request
+          const withdrawalQueueContract = new ethers.Contract(
+            LIDO_CONTRACTS.WITHDRAWAL_QUEUE,
+            WITHDRAWAL_QUEUE_ABI,
+            this.ethereumConfig.getProvider()
+          );
+
+          // Get transaction data for frontend to sign
+          const txData = await withdrawalQueueContract.populateTransaction.requestWithdrawals(
+            [amountWei],
+            normalizedAddress
+          );
+
+          transaction = {
+            id: transactionId,
+            userAddress: normalizedAddress,
+            type: 'unstake',
+            amount,
+            token: 'stETH',
+            status: 'pending',
+            transactionData: {
+              to: txData.to || LIDO_CONTRACTS.WITHDRAWAL_QUEUE,
+              data: txData.data || '0x',
+              value: '0',
+              gasLimit: '300000',
+              chainId: this.ethereumConfig.getChainId()
+            },
+            timestamp: new Date()
+          };
+
+          this.logger.info(`Unstake transaction prepared for signing: ${transactionId}`);
+        }
       }
 
       return transaction;

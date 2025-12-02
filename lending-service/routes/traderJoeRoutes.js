@@ -128,6 +128,99 @@ router.get('/getprice',
 );
 
 /**
+ * @route POST /getprice
+ * @desc Retorna a cotação de swap para um par de tokens específico (versão POST para autenticação)
+ * @access Public (com autenticação)
+ */
+router.post('/getprice',
+  verifySignature,
+  traderJoeRateLimiter,
+  async (req, res) => {
+    console.log('🎯 POST /dex/getprice chamado!');
+    try {
+      // Aceita parâmetros via body (para POST)
+      const { rpc, dexId, path, amountIn } = req.body;
+
+      // Validação dos parâmetros obrigatórios
+      if (!dexId || !path || !amountIn) {
+        return res.status(400).json({
+          status: 400,
+          msg: 'error',
+          data: {
+            error: 'dexId, path e amountIn são obrigatórios'
+          }
+        });
+      }
+
+      // Validação do dexId (deve ser 2100 para Trader Joe)
+      if (dexId !== '2100') {
+        return res.status(400).json({
+          status: 400,
+          msg: 'error',
+          data: {
+            error: 'dexId deve ser 2100 para Trader Joe'
+          }
+        });
+      }
+
+      // Parse do path (comma separated values ou array)
+      const tokenPath = typeof path === 'string'
+        ? path.split(',').map(addr => addr.trim())
+        : path;
+
+      if (tokenPath.length < 2) {
+        return res.status(400).json({
+          status: 400,
+          msg: 'error',
+          data: {
+            error: 'path deve conter pelo menos 2 endereços de token'
+          }
+        });
+      }
+
+      // Usa RPC fornecido ou padrão
+      const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
+      const provider = new ethers.JsonRpcProvider(rpcUrl, {
+        name: 'avalanche',
+        chainId: 43114
+      }, {
+        staticNetwork: true
+      });
+
+      // Usa o endereço verificado pela assinatura
+      const traderJoeService = new TraderJoeService(provider, req.verifiedAddress);
+
+      // Obtém o preço usando o primeiro e último token do path
+      const tokenIn = tokenPath[0];
+      const tokenOut = tokenPath[tokenPath.length - 1];
+
+      console.log('📊 Obtendo preço:', { tokenIn, tokenOut, amountIn });
+      const price = await traderJoeService.getPrice(tokenIn, tokenOut, amountIn);
+
+      res.json({
+        status: 200,
+        msg: 'success',
+        data: {
+          amountIn: price.amountIn,
+          path: tokenPath,
+          amountsOut: price.amountOut
+        }
+      });
+    } catch (error) {
+      console.error('❌ Erro ao obter preço:', error);
+      res.status(500).json({
+        status: 500,
+        msg: 'error',
+        data: {
+          error: 'Erro ao obter preço',
+          details: error.message
+        }
+      });
+    }
+  }
+);
+
+/**
  * @route GET /getuserliquidity
  * @desc Retorna o saldo de liquidez de um par de tokens específico para uma conta
  * @access Public (com autenticação)

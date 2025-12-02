@@ -240,20 +240,28 @@ class BenqiService {
   async prepareSupply(qTokenAddress, amount) {
     try {
       const qToken = new ethers.Contract(qTokenAddress, BENQI_QTOKEN_ABI, this.provider);
-      
-      const transactionData = await qToken.mint.populateTransaction(amount, {
-        gasLimit: 300000
-      });
+
+      // Para qAVAX (AVAX nativo), enviar o amount como value
+      // Para outros qTokens (ERC20), value é 0
+      const isNativeAVAX = qTokenAddress.toLowerCase() === BENQI.QAVAX.toLowerCase();
+
+      const transactionData = await qToken.mint.populateTransaction(
+        isNativeAVAX ? amount : amount,
+        {
+          gasLimit: 300000,
+          ...(isNativeAVAX && { value: amount })
+        }
+      );
 
       return {
         chainId: 43114,
         to: qTokenAddress,
-        value: '0',
+        value: isNativeAVAX ? amount.toString() : '0',
         gas: '300000',
         data: transactionData.data,
         referenceId: this.generateReferenceId(),
         status: 'ready_for_signature',
-        note: 'Transação de supply preparada para assinatura no frontend'
+        note: `Transação de supply preparada para assinatura no frontend${isNativeAVAX ? ' (AVAX nativo)' : ''}`
       };
     } catch (error) {
       throw new Error(`Erro ao preparar supply: ${error.message}`);

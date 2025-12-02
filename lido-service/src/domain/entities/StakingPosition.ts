@@ -13,7 +13,7 @@ export interface StakingPosition {
 export interface StakingTransaction {
   id: string;
   userAddress: string;
-  type: 'stake' | 'unstake' | 'claim_rewards';
+  type: 'stake' | 'unstake' | 'unstake_approval' | 'claim_rewards';
   amount: string;
   token: 'ETH' | 'stETH' | 'wstETH';
   transactionHash?: string;
@@ -29,6 +29,9 @@ export interface StakingTransaction {
     gasLimit: string;
     chainId: number;
   };
+  // For multi-step transactions (like unstake which requires approval first)
+  requiresFollowUp?: boolean;
+  followUpAction?: 'unstake';
 }
 
 export interface LidoProtocolInfo {

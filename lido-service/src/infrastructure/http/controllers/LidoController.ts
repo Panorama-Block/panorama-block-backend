@@ -80,9 +80,13 @@ export class LidoController {
 
   async unstake(req: Request, res: Response): Promise<void> {
     try {
+      this.logger.info('🎯 Unstake Controller - Request received:');
+      this.logger.info(`   Body: ${JSON.stringify(req.body, null, 2)}`);
+
       const { userAddress, amount, privateKey } = req.body;
 
       if (!userAddress || !amount) {
+        this.logger.error('❌ Missing required parameters');
         res.status(400).json({
           success: false,
           error: 'User address and amount are required'
@@ -90,21 +94,32 @@ export class LidoController {
         return;
       }
 
+      this.logger.info(`✅ Parameters validated - userAddress: ${userAddress}, amount: ${amount}`);
+
       const result = await this.unstakeUseCase.execute({ userAddress, amount, privateKey });
 
+      this.logger.info(`📊 Unstake UseCase result:`);
+      this.logger.info(`   success: ${result.success}`);
+      this.logger.info(`   transaction type: ${result.transaction?.type}`);
+      this.logger.info(`   transaction data: ${JSON.stringify(result.transaction?.transactionData, null, 2)}`);
+      this.logger.info(`   requiresFollowUp: ${result.transaction?.requiresFollowUp}`);
+
       if (result.success) {
+        this.logger.info('✅ Unstake successful, returning transaction data');
         res.status(200).json({
           success: true,
           data: result.transaction
         });
       } else {
+        this.logger.error(`❌ Unstake failed: ${result.error}`);
         res.status(400).json({
           success: false,
           error: result.error
         });
       }
     } catch (error) {
-      this.logger.error(`Error in unstake controller: ${error}`);
+      this.logger.error(`❌ Error in unstake controller: ${error}`);
+      this.logger.error(`   Error stack: ${error instanceof Error ? error.stack : 'No stack trace'}`);
       res.status(500).json({
         success: false,
         error: 'Internal server error'
