@@ -6,7 +6,7 @@
 import { Router, Response } from 'express';
 import { TransactionService } from '../services/transaction.service';
 import { SmartAccountService } from '../services/smartAccount.service';
-import { AuthenticatedRequest, verifyTelegramAuth, devBypassAuth } from '../middleware/auth.middleware';
+import { AuthenticatedRequest, verifyJwtAuth } from '../middleware/auth.middleware';
 import { transactionLimiter, generalLimiter } from '../middleware/rateLimit.middleware';
 
 export function createTransactionRoutes(): Router {
@@ -30,8 +30,7 @@ export function createTransactionRoutes(): Router {
    */
   router.post('/sign-and-execute',
     transactionLimiter, // Rate limit: 20 per 5 minutes
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     console.log('[POST /transaction/sign-and-execute] Request received');
 
@@ -48,7 +47,7 @@ export function createTransactionRoutes(): Router {
       }
 
       // 🔒 SECURITY: Verify ownership
-      if (req.user && req.user.id !== userId) {
+      if (req.user && req.user.address.toLowerCase() !== userId.toLowerCase()) {
         console.warn(`[POST /transaction/sign-and-execute] User ${req.user.id} tried to sign transaction for ${userId}`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -101,8 +100,7 @@ export function createTransactionRoutes(): Router {
    */
   router.post('/withdraw-token',
     transactionLimiter, // Rate limit: 20 per 5 minutes
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     console.log('[POST /transaction/withdraw-token] ERC20 withdrawal request');
 
@@ -117,7 +115,7 @@ export function createTransactionRoutes(): Router {
       }
 
       // 🔒 SECURITY: Verify ownership
-      if (req.user && req.user.id !== userId) {
+      if (req.user && req.user.address.toLowerCase() !== userId.toLowerCase()) {
         console.warn(`[POST /transaction/withdraw-token] User ${req.user.id} tried to withdraw from ${userId}'s account`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -224,8 +222,7 @@ export function createTransactionRoutes(): Router {
    */
   router.post('/validate',
     generalLimiter,
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     console.log('[POST /transaction/validate] Validating permissions');
 

@@ -183,6 +183,48 @@ services:
         condition: service_started
     restart: always
 
+  dca_service:
+    build:
+      context: ./dca-service
+      dockerfile: Dockerfile
+    container_name: panorama-dca-service
+    ports:
+      - "${DCA_PORT:-3007}:3007"
+    environment:
+      - DCA_PORT=3007
+      - PORT=3007
+      - NODE_ENV=${NODE_ENV}
+      - DEBUG=${DEBUG}
+      # PostgreSQL (using existing engine_postgres)
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@engine_postgres:5432/panorama_dca
+      - DB_HOST=engine_postgres
+      - DB_PORT=5432
+      - DB_NAME=panorama_dca
+      - DB_USER=${POSTGRES_USER:-postgres}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASS=${REDIS_PASS}
+      # Thirdweb
+      - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
+      - THIRDWEB_SECRET_KEY=${THIRDWEB_SECRET_KEY}
+      # Security
+      - ENCRYPTION_PASSWORD=${ENCRYPTION_PASSWORD}
+      # Engine (optional)
+      - ENGINE_URL=http://engine:3005
+      - ENGINE_ACCESS_TOKEN=${ENGINE_ACCESS_TOKEN}
+    env_file:
+      - .env
+    depends_on:
+      engine_postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      engine:
+        condition: service_started
+    restart: always
+
 volumes:
   redis_data:
   engine_pgdata:

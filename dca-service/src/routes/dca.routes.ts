@@ -3,7 +3,7 @@ import { SmartAccountService } from '../services/smartAccount.service';
 import { DCAService } from '../services/dca.service';
 import { QuoteService } from '../services/quote.service';
 import { CreateSmartAccountRequest, CreateStrategyRequest } from '../types';
-import { AuthenticatedRequest, verifyTelegramAuth, requireOwnership, devBypassAuth } from '../middleware/auth.middleware';
+import { AuthenticatedRequest, verifyJwtAuth, requireOwnership } from '../middleware/auth.middleware';
 import {
   createAccountLimiter,
   createStrategyLimiter,
@@ -23,12 +23,11 @@ export function dcaRoutes() {
   /**
    * POST /dca/create-account
    * Create a new smart account with session keys
-   * 🔒 PROTECTED: Requires Telegram authentication
+   * 🔒 PROTECTED: Requires Bearer JWT (wallet)
    */
   router.post('/create-account',
     createAccountLimiter, // Rate limit: 5 per hour
-    devBypassAuth, // Allow dev bypass in development
-    verifyTelegramAuth, // Validate Telegram initData
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[POST /create-account] Request received');
@@ -40,7 +39,7 @@ export function dcaRoutes() {
       }
 
       // 🔒 SECURITY: Verify user can only create accounts for themselves
-      if (req.user && req.user.id !== request.userId) {
+      if (req.user && req.user.address.toLowerCase() !== request.userId.toLowerCase()) {
         console.warn(`[POST /create-account] User ${req.user.id} tried to create account for ${request.userId}`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -61,12 +60,11 @@ export function dcaRoutes() {
   /**
    * GET /dca/accounts/:userId
    * Get all smart accounts for a user
-   * 🔒 PROTECTED: Requires Telegram authentication + ownership
+   * 🔒 PROTECTED: Requires Bearer JWT + ownership
    */
   router.get('/accounts/:userId',
     readLimiter, // Rate limit: 200 per 15min
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     requireOwnership('userId'), // Ensure user can only access their own accounts
     async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -87,12 +85,11 @@ export function dcaRoutes() {
   /**
    * GET /dca/account/:address
    * Get single smart account details
-   * 🔒 PROTECTED: Requires Telegram authentication
+   * 🔒 PROTECTED: Requires Bearer JWT
    */
   router.get('/account/:address',
     readLimiter,
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       const account = await smartAccountService.getSmartAccount(req.params.address);
@@ -102,7 +99,7 @@ export function dcaRoutes() {
       }
 
       // 🔒 SECURITY: Verify ownership
-      if (req.user && req.user.id !== account.userId) {
+      if (req.user && req.user.address.toLowerCase() !== account.userId.toLowerCase()) {
         console.warn(`[GET /account/:address] User ${req.user.id} tried to access ${account.userId}'s account`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -120,12 +117,11 @@ export function dcaRoutes() {
   /**
    * DELETE /dca/account/:address
    * Delete a smart account
-   * 🔒 PROTECTED: Requires Telegram authentication + ownership
+   * 🔒 PROTECTED: Requires Bearer JWT + ownership
    */
   router.delete('/account/:address',
     generalLimiter,
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[DELETE /account/:address] Deleting account:', req.params.address);
@@ -137,7 +133,7 @@ export function dcaRoutes() {
       }
 
       // 🔒 SECURITY: Verify ownership
-      if (req.user && req.user.id !== userId) {
+      if (req.user && req.user.address.toLowerCase() !== userId.toLowerCase()) {
         console.warn(`[DELETE /account/:address] User ${req.user.id} tried to delete ${userId}'s account`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -159,12 +155,11 @@ export function dcaRoutes() {
   /**
    * POST /dca/create-strategy
    * Create a new DCA strategy
-   * 🔒 PROTECTED: Requires Telegram authentication
+   * 🔒 PROTECTED: Requires Bearer JWT
    */
   router.post('/create-strategy',
     createStrategyLimiter, // Rate limit: 10 per 15min
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       console.log('[POST /create-strategy] Request received');
@@ -180,7 +175,7 @@ export function dcaRoutes() {
       if (!account) {
         return res.status(404).json({ error: 'Smart account not found' });
       }
-      if (req.user && req.user.id !== account.userId) {
+      if (req.user && req.user.address.toLowerCase() !== account.userId.toLowerCase()) {
         console.warn(`[POST /create-strategy] User ${req.user.id} tried to create strategy for ${account.userId}'s account`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -201,12 +196,11 @@ export function dcaRoutes() {
   /**
    * GET /dca/strategies/:smartAccountId
    * Get all strategies for a smart account
-   * 🔒 PROTECTED: Requires Telegram authentication
+   * 🔒 PROTECTED: Requires Bearer JWT
    */
   router.get('/strategies/:smartAccountId',
     readLimiter,
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       // 🔒 SECURITY: Verify ownership
@@ -214,7 +208,7 @@ export function dcaRoutes() {
       if (!account) {
         return res.status(404).json({ error: 'Smart account not found' });
       }
-      if (req.user && req.user.id !== account.userId) {
+      if (req.user && req.user.address.toLowerCase() !== account.userId.toLowerCase()) {
         console.warn(`[GET /strategies/:smartAccountId] User ${req.user.id} tried to access ${account.userId}'s strategies`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -234,12 +228,11 @@ export function dcaRoutes() {
   /**
    * PATCH /dca/strategy/:strategyId/toggle
    * Activate or deactivate a strategy
-   * 🔒 PROTECTED: Requires Telegram authentication
+   * 🔒 PROTECTED: Requires Bearer JWT
    */
   router.patch('/strategy/:strategyId/toggle',
     generalLimiter,
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { isActive } = req.body;
@@ -257,7 +250,7 @@ export function dcaRoutes() {
       if (!account) {
         return res.status(404).json({ error: 'Smart account not found' });
       }
-      if (req.user && req.user.id !== account.userId) {
+      if (req.user && req.user.address.toLowerCase() !== account.userId.toLowerCase()) {
         console.warn(`[PATCH /strategy/:strategyId/toggle] User ${req.user.id} tried to toggle ${account.userId}'s strategy`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -277,12 +270,11 @@ export function dcaRoutes() {
   /**
    * DELETE /dca/strategy/:strategyId
    * Delete a strategy
-   * 🔒 PROTECTED: Requires Telegram authentication
+   * 🔒 PROTECTED: Requires Bearer JWT
    */
   router.delete('/strategy/:strategyId',
     generalLimiter,
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       // 🔒 SECURITY: Verify ownership
@@ -294,7 +286,7 @@ export function dcaRoutes() {
       if (!account) {
         return res.status(404).json({ error: 'Smart account not found' });
       }
-      if (req.user && req.user.id !== account.userId) {
+      if (req.user && req.user.address.toLowerCase() !== account.userId.toLowerCase()) {
         console.warn(`[DELETE /strategy/:strategyId] User ${req.user.id} tried to delete ${account.userId}'s strategy`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -314,12 +306,11 @@ export function dcaRoutes() {
   /**
    * GET /dca/history/:smartAccountId
    * Get execution history for a smart account
-   * 🔒 PROTECTED: Requires Telegram authentication
+   * 🔒 PROTECTED: Requires Bearer JWT
    */
   router.get('/history/:smartAccountId',
     readLimiter,
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       // 🔒 SECURITY: Verify ownership
@@ -327,7 +318,7 @@ export function dcaRoutes() {
       if (!account) {
         return res.status(404).json({ error: 'Smart account not found' });
       }
-      if (req.user && req.user.id !== account.userId) {
+      if (req.user && req.user.address.toLowerCase() !== account.userId.toLowerCase()) {
         console.warn(`[GET /history/:smartAccountId] User ${req.user.id} tried to access ${account.userId}'s history`);
         return res.status(403).json({
           error: 'Forbidden',
@@ -359,8 +350,7 @@ export function dcaRoutes() {
    */
   router.post('/debug/execute/:strategyId',
     debugLimiter,
-    devBypassAuth,
-    verifyTelegramAuth,
+    verifyJwtAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { strategyId } = req.params;
