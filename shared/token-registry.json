@@ -963,7 +963,8 @@
             "uniswap",
             "thirdweb"
           ],
-          "icon": "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
+          "icon": "../../telegram/apps/miniapp/public/public/icons/mcw.png"
+          
         }
       ]
     }
