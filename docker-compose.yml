@@ -112,6 +112,9 @@ services:
       - ENGINE_URL=http://engine:3005
       - ENGINE_ENABLED=${ENGINE_ENABLED}
       - TOKEN_REGISTRY_PATH=/app/shared/token-registry.json
+      # >>> Database for Protocol Fee Config
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@engine_postgres:5432/postgres?schema=public
+      - ADMIN_WALLET_ADDRESS=${ADMIN_WALLET_ADDRESS}
     env_file:
       - .env
     depends_on:
@@ -119,6 +122,8 @@ services:
         condition: service_started
       engine:
         condition: service_started
+      engine_postgres:
+        condition: service_healthy
     restart: always
     volumes:
       - ./shared/token-registry.json:/app/shared/token-registry.json:ro

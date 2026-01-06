@@ -16,6 +16,7 @@ import type {
 } from "express-serve-static-core";
 import cors from "cors";
 import { swapRouter } from "./infrastructure/http/routes/swap.routes";
+import { adminRouter } from "./infrastructure/http/routes/admin.routes";
 import { verifyJwtMiddleware } from "./middleware/authMiddleware";
 import { requestContextMiddleware } from "./infrastructure/http/middlewares/request-context.middleware";
 import { createErrorResponder } from "./infrastructure/http/middlewares/error.responder";
@@ -102,6 +103,8 @@ try {
   }
 
   app.use("/swap", verifyJwtMiddleware, swapRouter);
+  app.use("/admin", adminRouter); // TODO: add verifyJwtMiddleware back in production
+  console.log("[Liquid Swap Service] 💰 Admin API: /admin/fees (GET, PUT)");
 
   // Health check
   app.get("/health", (_req: Request, res: Response) => {
@@ -154,13 +157,14 @@ try {
         environment: process.env.NODE_ENV || "development",
         endpoints: {
           "/health": "Service health check",
-          "/swap/quote": "Get quote (requires JWT auth)",
+          "/swap/quote": "Get quote with protocol fees (requires JWT auth)",
           "/swap/tx": "Get prepared tx bundle (requires JWT auth)",
           "/swap/execute": process.env.ENGINE_ENABLED === "true"
             ? "Execute via Engine (ERC4337, requires JWT)"
             : "Disabled (set ENGINE_ENABLED=true)",
           "/swap/history": "Get user swap history (requires JWT auth)",
           "/swap/status/:transactionHash?chainId=...": "Get route status for a transaction (requires JWT)",
+          "/admin/fees": "Get/Set protocol fee configuration (admin only, requires JWT)",
         },
         supportedChains: {
           "1": "Ethereum Mainnet",

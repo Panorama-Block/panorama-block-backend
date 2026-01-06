@@ -1,6 +1,7 @@
 // Application Use Cases
 import { SwapRequest } from "../../domain/entities/swap";
 import { ProviderSelectorService } from "../services/provider-selector.service";
+import { ProtocolFeeService } from "../services/protocol-fee.service";
 import { getTokenSpotUsdPrice } from "../services/price.service";
 import { getTokenDecimals, toWei } from "../../utils/token.utils";
 import { normalizeToNative } from "../../utils/native.utils";
@@ -30,6 +31,8 @@ export interface GetQuoteUseCaseResponse {
   fees: {
     bridgeFee: string;
     gasFee: string;
+    protocolFee: string;           // Protocol fee (Panorama)
+    protocolFeePercentage: number; // Fee percentage
     totalFee: string;
     totalFeeUsd?: string;
   };
@@ -37,7 +40,10 @@ export interface GetQuoteUseCaseResponse {
 }
 
 export class GetQuoteUseCase {
-  constructor(private readonly providerSelectorService: ProviderSelectorService) {}
+  constructor(
+    private readonly providerSelectorService: ProviderSelectorService,
+    private readonly protocolFeeService?: ProtocolFeeService
+  ) {}
 
   public async execute(request: GetQuoteUseCaseRequest): Promise<GetQuoteUseCaseResponse> {
     try {
@@ -66,6 +72,18 @@ export class GetQuoteUseCase {
 
       console.log(`[GetQuoteUseCase] Quote obtained from provider: ${provider}`);
 
+      // Calculate protocol fee (Panorama fee)
+      let protocolFee = 0n;
+      let protocolFeePercentage = 0;
+      if (this.protocolFeeService) {
+        protocolFee = await this.protocolFeeService.calculateFee(provider, amountWei);
+        protocolFeePercentage = await this.protocolFeeService.getFeePercentage(provider);
+        console.log(`[GetQuoteUseCase] Protocol fee: ${protocolFee.toString()} (${protocolFeePercentage}%)`);
+      }
+
+      // Create quote with protocol fee included
+      const quoteWithFee = quote.withProtocolFee(protocolFee);
+
       // Enriquecimento USD via thirdweb
       const fromUsd = await getTokenSpotUsdPrice(request.fromChainId, fromTok);
       const toUsd = await getTokenSpotUsdPrice(request.toChainId, toTok);
@@ -74,13 +92,13 @@ export class GetQuoteUseCase {
 
       const estimatedReceiveAmountUsd = (() => {
         if (!toUsd) return undefined;
-        const n = Number(quote.estimatedReceiveAmount.toString()) / 10 ** toDecimals;
+        const n = Number(quoteWithFee.estimatedReceiveAmount.toString()) / 10 ** toDecimals;
         return (n * toUsd).toFixed(2);
       })();
 
       const totalFeeUsd = (() => {
         if (!fromUsd) return undefined;
-        const n = Number(quote.getTotalFees().toString()) / 10 ** fromDecimals;
+        const n = Number(quoteWithFee.getTotalFees().toString()) / 10 ** fromDecimals;
         return (n * fromUsd).toFixed(2);
       })();
 
@@ -92,14 +110,16 @@ export class GetQuoteUseCase {
         amount: amountWei.toString(),
         amountHuman,
         amountUsd,
-        estimatedReceiveAmount: quote.estimatedReceiveAmount.toString(),
+        estimatedReceiveAmount: quoteWithFee.estimatedReceiveAmount.toString(),
         estimatedReceiveAmountUsd,
-        estimatedDuration: quote.estimatedDuration,
-        exchangeRate: quote.exchangeRate,
+        estimatedDuration: quoteWithFee.estimatedDuration,
+        exchangeRate: quoteWithFee.exchangeRate,
         fees: {
-          bridgeFee: quote.bridgeFee.toString(),
-          gasFee: quote.gasFee.toString(),
-          totalFee: quote.getTotalFees().toString(),
+          bridgeFee: quoteWithFee.bridgeFee.toString(),
+          gasFee: quoteWithFee.gasFee.toString(),
+          protocolFee: quoteWithFee.protocolFee.toString(),
+          protocolFeePercentage,
+          totalFee: quoteWithFee.getTotalFees().toString(),
           totalFeeUsd
         },
         provider

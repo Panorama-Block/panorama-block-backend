@@ -81,6 +81,7 @@ export class SwapQuote {
   private readonly _estimatedReceiveAmount: bigint;
   private readonly _bridgeFee: bigint;
   private readonly _gasFee: bigint;
+  private readonly _protocolFee: bigint;
   private readonly _exchangeRate: number;
   private readonly _estimatedDuration: number; // in seconds
 
@@ -89,11 +90,13 @@ export class SwapQuote {
     bridgeFee: bigint,
     gasFee: bigint,
     exchangeRate: number,
-    estimatedDuration: number
+    estimatedDuration: number,
+    protocolFee: bigint = 0n // Optional for backwards compatibility
   ) {
     this._estimatedReceiveAmount = estimatedReceiveAmount;
     this._bridgeFee = bridgeFee;
     this._gasFee = gasFee;
+    this._protocolFee = protocolFee;
     this._exchangeRate = exchangeRate;
     this._estimatedDuration = estimatedDuration;
   }
@@ -101,11 +104,26 @@ export class SwapQuote {
   get estimatedReceiveAmount(): bigint { return this._estimatedReceiveAmount; }
   get bridgeFee(): bigint { return this._bridgeFee; }
   get gasFee(): bigint { return this._gasFee; }
+  get protocolFee(): bigint { return this._protocolFee; }
   get exchangeRate(): number { return this._exchangeRate; }
   get estimatedDuration(): number { return this._estimatedDuration; }
 
   public getTotalFees(): bigint {
-    return this._bridgeFee + this._gasFee;
+    return this._bridgeFee + this._gasFee + this._protocolFee;
+  }
+
+  /**
+   * Create a new SwapQuote with protocol fee added
+   */
+  public withProtocolFee(protocolFee: bigint): SwapQuote {
+    return new SwapQuote(
+      this._estimatedReceiveAmount,
+      this._bridgeFee,
+      this._gasFee,
+      this._exchangeRate,
+      this._estimatedDuration,
+      protocolFee
+    );
   }
 }
 

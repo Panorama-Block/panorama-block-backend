@@ -7,14 +7,19 @@ import {
 } from "../../application/usecases/execute.swap.usecase";
 import { GetQuoteUseCase } from "../../application/usecases/get.quote.usecase";
 import { PrepareSwapUseCase } from "../../application/usecases/prepare.swap.usecase";
+import { GetProtocolFeeUseCase } from "../../application/usecases/get.protocol-fee.usecase";
+import { SetProtocolFeeUseCase } from "../../application/usecases/set.protocol-fee.usecase";
 import { ProviderSelectorService } from "../../application/services/provider-selector.service";
+import { ProtocolFeeService } from "../../application/services/protocol-fee.service";
 import { ThirdwebSwapAdapter } from "../adapters/thirdweb.swap.adapter";
 import { ThirdwebProviderAdapter } from "../adapters/thirdweb.provider.adapter";
 import { UniswapTradingApiAdapter } from "../adapters/uniswap.tradingapi.adapter";
 import { UniswapSmartRouterAdapter } from "../adapters/uniswap.smartrouter.adapter";
 import { ChainProviderAdapter } from "../adapters/chain.provider.adapter";
 import { SwapRepositoryAdapter } from "../adapters/swap.repository.adapter";
+import { ProtocolFeeRepositoryAdapter } from "../adapters/protocol-fee.repository.adapter";
 import { SwapController } from "../http/controllers/swap.controller";
+import { ProtocolFeeController } from "../http/controllers/protocol-fee.controller";
 import { GetSwapStatusUseCase } from "../../application/usecases/get.status.usecase";
 import { EngineExecutionAdapter } from "../adapters/engine.execution.adapter";
 import { IExecutionPort } from "../../domain/ports/execution.port";
@@ -30,6 +35,7 @@ export class DIContainer {
   private readonly _thirdwebSwapAdapter: ThirdwebSwapAdapter; // Legacy adapter for backwards compatibility
   private readonly _chainProviderAdapter: ChainProviderAdapter;
   private readonly _swapRepositoryAdapter: SwapRepositoryAdapter;
+  private readonly _protocolFeeRepositoryAdapter: ProtocolFeeRepositoryAdapter;
 
   // Domain
   private readonly _routerDomainService: RouterDomainService;
@@ -37,14 +43,18 @@ export class DIContainer {
 
   // Application
   private readonly _providerSelectorService: ProviderSelectorService;
+  private readonly _protocolFeeService: ProtocolFeeService;
   private readonly _getQuoteUseCase: GetQuoteUseCase;
   private readonly _prepareSwapUseCase: PrepareSwapUseCase;
   private readonly _executeSwapUseCase: ExecuteSwapUseCase;
   private readonly _getSwapHistoryUseCase: GetSwapHistoryUseCase;
   private readonly _getSwapStatusUseCase: GetSwapStatusUseCase;
+  private readonly _getProtocolFeeUseCase: GetProtocolFeeUseCase;
+  private readonly _setProtocolFeeUseCase: SetProtocolFeeUseCase;
 
   // Controllers
   private readonly _swapController: SwapController;
+  private readonly _protocolFeeController: ProtocolFeeController;
 
   private constructor() {
     console.log("[DIContainer] Initializing dependency injection container");
@@ -56,6 +66,7 @@ export class DIContainer {
     this._thirdwebSwapAdapter = new ThirdwebSwapAdapter(); // Legacy
     this._chainProviderAdapter = new ChainProviderAdapter();
     this._swapRepositoryAdapter = new SwapRepositoryAdapter();
+    this._protocolFeeRepositoryAdapter = new ProtocolFeeRepositoryAdapter();
 
     // Build provider registry for new multi-provider system
     // Priority order: Trading API REST > Smart Router SDK > Thirdweb
@@ -74,10 +85,13 @@ export class DIContainer {
 
     // Initialize application services
     this._providerSelectorService = new ProviderSelectorService(this._routerDomainService);
+    this._protocolFeeService = new ProtocolFeeService(this._protocolFeeRepositoryAdapter);
 
     // Initialize use cases (now using ProviderSelectorService for multi-provider support)
-    this._getQuoteUseCase = new GetQuoteUseCase(this._providerSelectorService);
+    this._getQuoteUseCase = new GetQuoteUseCase(this._providerSelectorService, this._protocolFeeService);
     this._prepareSwapUseCase = new PrepareSwapUseCase(this._providerSelectorService);
+    this._getProtocolFeeUseCase = new GetProtocolFeeUseCase(this._protocolFeeRepositoryAdapter);
+    this._setProtocolFeeUseCase = new SetProtocolFeeUseCase(this._protocolFeeRepositoryAdapter);
     // Execution port (conditionally enabled)
     const engineEnabled = process.env.ENGINE_ENABLED === "true";
     let executionPort: IExecutionPort;
@@ -107,13 +121,18 @@ export class DIContainer {
     );
     this._getSwapStatusUseCase = new GetSwapStatusUseCase(this._swapDomainService);
 
-    // Initialize controller
+    // Initialize controllers
     this._swapController = new SwapController(
       this._getQuoteUseCase,
       this._prepareSwapUseCase,
       this._executeSwapUseCase,
       this._getSwapHistoryUseCase,
       this._getSwapStatusUseCase
+    );
+
+    this._protocolFeeController = new ProtocolFeeController(
+      this._getProtocolFeeUseCase,
+      this._setProtocolFeeUseCase
     );
 
     console.log(
@@ -162,5 +181,13 @@ export class DIContainer {
 
   public get routerDomainService(): RouterDomainService {
     return this._routerDomainService;
+  }
+
+  public get protocolFeeController(): ProtocolFeeController {
+    return this._protocolFeeController;
+  }
+
+  public get protocolFeeService(): ProtocolFeeService {
+    return this._protocolFeeService;
   }
 }
