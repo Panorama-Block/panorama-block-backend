@@ -130,17 +130,13 @@ export class RouterDomainService {
   /**
    * Select provider for same-chain swap
    *
-   * Priority: Uniswap Smart Router > Uniswap Trading API > Thirdweb
+   * Priority: Universal Router (with fee) > Trading API > Smart Router > Thirdweb
    *
    * Rationale:
-   * - Smart Router is Priority 1: Now fixed to ALWAYS include approval with MaxUint256,
-   *   can route through both V2 and V3 pools for best pricing
-   * - Trading API is Priority 2: Official Uniswap API (V3 only) with MaxUint256 approvals
+   * - Universal Router is Priority 0: Has native fee collection support via PAY_PORTION
+   * - Trading API is Priority 1: Official Uniswap API (V3 only) with MaxUint256 approvals
+   * - Smart Router is Priority 2: Can route through V2 and V3 pools
    * - Thirdweb is Priority 3: Uses exact amount approvals which can cause issues
-   *
-   * CRITICAL FIX: Thirdweb approves exact swap amount instead of MaxUint256, causing
-   * "insufficient allowance" errors when the actual swap needs slightly more due to
-   * fees/slippage. Uniswap providers now always use MaxUint256 approvals.
    */
   private async selectForSameChain(
     supportedProviders: ISwapProvider[],
@@ -150,33 +146,32 @@ export class RouterDomainService {
 
     const errors: string[] = [];
 
-    // Priority 1: Try Uniswap Smart Router first (V2/V3 routing + MaxUint256 approval)
-    // TEMPORARILY DISABLED: Smart Router has V4 subgraph issues causing process crashes
-    // const uniswapSmartRouter = supportedProviders.find((p) => p.name === "uniswap-smart-router");
-    // if (uniswapSmartRouter) {
-    //   console.log("[RouterDomainService] ✅ Attempting Uniswap Smart Router (Priority 1 - V2/V3 + MaxUint256 approval)");
-    //   try {
-    //     const quote = await this.getQuoteWithTimeout(
-    //       uniswapSmartRouter,
-    //       request,
-    //       this.smartRouterQuoteTimeoutMs
-    //     );
-    //     console.log(
-    //       "[RouterDomainService] ✅ Uniswap Smart Router quote successful:",
-    //       quote.estimatedReceiveAmount.toString()
-    //     );
-    //     return { provider: uniswapSmartRouter, quote };
-    //   } catch (error) {
-    //     console.warn(
-    //       "[RouterDomainService] ⚠️ Uniswap Smart Router failed, trying Trading API:",
-    //       (error as Error).message
-    //     );
-    //     errors.push(`smart-router: ${(error as Error).message}`);
-    //     // Continue to fallback
-    //   }
-    // }
+    // Priority 0: Try Uniswap Universal Router first (has native fee support)
+    const uniswapUniversalRouter = supportedProviders.find((p) => p.name === "uniswap-universal-router");
+    if (uniswapUniversalRouter) {
+      console.log("[RouterDomainService] ✅ Attempting Uniswap Universal Router (Priority 0 - Fee Support)");
+      try {
+        const quote = await this.getQuoteWithTimeout(
+          uniswapUniversalRouter,
+          request,
+          this.smartRouterQuoteTimeoutMs
+        );
+        console.log(
+          "[RouterDomainService] ✅ Uniswap Universal Router quote successful:",
+          quote.estimatedReceiveAmount.toString()
+        );
+        return { provider: uniswapUniversalRouter, quote };
+      } catch (error) {
+        console.warn(
+          "[RouterDomainService] ⚠️ Uniswap Universal Router failed, trying Trading API:",
+          (error as Error).message
+        );
+        errors.push(`universal-router: ${(error as Error).message}`);
+        // Continue to fallback
+      }
+    }
 
-    // Priority 2: Try Uniswap Trading API (V3 only + MaxUint256 approval)
+    // Priority 1: Try Uniswap Trading API (V3 only + MaxUint256 approval)
     const uniswapTradingApi = supportedProviders.find(
       (p) => p.name === "uniswap-trading-api" || p.name === "uniswap"
     );
@@ -225,7 +220,7 @@ export class RouterDomainService {
       return await this.tryFallbackProviders(
         supportedProviders,
         request,
-        ["uniswap-smart-router", "uniswap-trading-api", "uniswap", "thirdweb"]
+        ["uniswap-universal-router", "uniswap-smart-router", "uniswap-trading-api", "uniswap", "thirdweb"]
       );
     } catch (fallbackError) {
       if (fallbackError instanceof Error) {
@@ -410,27 +405,26 @@ export class RouterDomainService {
 
     // 4. Return provider based on priority (WITHOUT calling getQuote)
     if (isSameChain) {
-      // Priority 1: Uniswap Smart Router (V2/V3 + MaxUint256 approval)
-      // TEMPORARILY DISABLED: Smart Router has V4 subgraph issues causing process crashes
-      // const uniswapSmartRouter = supportedProviders.find((p) => p.name === "uniswap-smart-router");
-      // if (uniswapSmartRouter) {
-      //   console.log(`[RouterDomainService] Selected: ${uniswapSmartRouter.name} (Priority 1 - Uniswap V2/V3)`);
-      //   return uniswapSmartRouter;
-      // }
+      // Priority 0: Uniswap Universal Router (has native fee support)
+      const uniswapUniversalRouter = supportedProviders.find((p) => p.name === "uniswap-universal-router");
+      if (uniswapUniversalRouter) {
+        console.log(`[RouterDomainService] Selected: ${uniswapUniversalRouter.name} (Priority 0 - Fee Support)`);
+        return uniswapUniversalRouter;
+      }
 
-      // Priority 1 (was 2): Uniswap Trading API (V3 + MaxUint256 approval)
+      // Priority 1: Uniswap Trading API (V3 + MaxUint256 approval)
       const uniswapTradingApi = supportedProviders.find(
         (p) => p.name === "uniswap-trading-api" || p.name === "uniswap"
       );
       if (uniswapTradingApi) {
-        console.log(`[RouterDomainService] Selected: ${uniswapTradingApi.name} (Priority 2 - Uniswap V3)`);
+        console.log(`[RouterDomainService] Selected: ${uniswapTradingApi.name} (Priority 1 - Uniswap V3)`);
         return uniswapTradingApi;
       }
 
-      // Priority 3: Thirdweb (fallback only)
+      // Priority 2: Thirdweb (fallback only)
       const thirdweb = supportedProviders.find((p) => p.name === "thirdweb");
       if (thirdweb) {
-        console.log(`[RouterDomainService] Selected: ${thirdweb.name} (Priority 3 - Fallback)`);
+        console.log(`[RouterDomainService] Selected: ${thirdweb.name} (Priority 2 - Fallback)`);
         return thirdweb;
       }
 

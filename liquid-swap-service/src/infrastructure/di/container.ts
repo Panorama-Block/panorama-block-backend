@@ -15,6 +15,7 @@ import { ThirdwebSwapAdapter } from "../adapters/thirdweb.swap.adapter";
 import { ThirdwebProviderAdapter } from "../adapters/thirdweb.provider.adapter";
 import { UniswapTradingApiAdapter } from "../adapters/uniswap.tradingapi.adapter";
 import { UniswapSmartRouterAdapter } from "../adapters/uniswap.smartrouter.adapter";
+import { UniswapUniversalRouterAdapter } from "../adapters/uniswap.universalrouter.adapter";
 import { ChainProviderAdapter } from "../adapters/chain.provider.adapter";
 import { SwapRepositoryAdapter } from "../adapters/swap.repository.adapter";
 import { ProtocolFeeRepositoryAdapter } from "../adapters/protocol-fee.repository.adapter";
@@ -29,6 +30,7 @@ export class DIContainer {
   private static instance: DIContainer;
 
   // Infrastructure - Swap Providers
+  private readonly _uniswapUniversalRouter: UniswapUniversalRouterAdapter; // Universal Router with Fee (Priority 0 - Preferred)
   private readonly _uniswapTradingApi: UniswapTradingApiAdapter; // Trading API REST (Priority 1)
   private readonly _uniswapSmartRouter: UniswapSmartRouterAdapter; // Smart Order Router SDK (Priority 2 - Fallback)
   private readonly _thirdwebProvider: ThirdwebProviderAdapter;
@@ -60,6 +62,7 @@ export class DIContainer {
     console.log("[DIContainer] Initializing dependency injection container");
 
     // Initialize infrastructure adapters
+    this._uniswapUniversalRouter = new UniswapUniversalRouterAdapter(); // Priority 0: Universal Router with Fee
     this._uniswapTradingApi = new UniswapTradingApiAdapter(); // Priority 1: Trading API REST
     this._uniswapSmartRouter = new UniswapSmartRouterAdapter(); // Priority 2: Smart Router SDK (Fallback)
     this._thirdwebProvider = new ThirdwebProviderAdapter();
@@ -69,8 +72,9 @@ export class DIContainer {
     this._protocolFeeRepositoryAdapter = new ProtocolFeeRepositoryAdapter();
 
     // Build provider registry for new multi-provider system
-    // Priority order: Trading API REST > Smart Router SDK > Thirdweb
+    // Priority order: Universal Router (with fee) > Trading API REST > Smart Router SDK > Thirdweb
     const providerMap = new Map<string, ISwapProvider>();
+    providerMap.set(this._uniswapUniversalRouter.name, this._uniswapUniversalRouter); // Priority 0 (preferred - has fee support)
     providerMap.set(this._uniswapTradingApi.name, this._uniswapTradingApi);   // Priority 1
     providerMap.set(this._uniswapSmartRouter.name, this._uniswapSmartRouter); // Priority 2
     providerMap.set(this._thirdwebProvider.name, this._thirdwebProvider);      // Priority 3
