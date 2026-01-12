@@ -12,11 +12,22 @@ import {
 } from '../utils/thirdwebAuth';
 
 const TON_PROOF_TTL_SECONDS = Number(process.env.TON_PROOF_TTL_SECONDS ?? 5 * 60);
-const TON_JWT_SECRET = process.env.TON_JWT_SECRET || process.env.AUTH_PRIVATE_KEY || '';
-const TON_JWT_ISSUER = process.env.TON_JWT_ISSUER || 'panoramablock-ton';
-const TON_JWT_AUDIENCE = process.env.TON_JWT_AUDIENCE || 'panoramablock';
+const TON_JWT_SECRET = process.env.TON_JWT_SECRET || process.env.JWT_SECRET || process.env.AUTH_PRIVATE_KEY || '';
+const TON_JWT_ISSUER = process.env.TON_JWT_ISSUER || process.env.JWT_ISSUER || 'panoramablock-ton';
+const TON_JWT_AUDIENCE = process.env.TON_JWT_AUDIENCE || process.env.JWT_AUDIENCE || 'panoramablock';
 const TON_JWT_EXPIRATION = process.env.TON_JWT_EXPIRATION || '24h';
 const TON_PROOF_KEY_PREFIX = 'tonproof:';
+
+// Debug log for JWT configuration (hashed secret to avoid leaking)
+(() => {
+  const hashSecret = (value: string) => createHash('sha256').update(value || '').digest('hex').slice(0, 8);
+  console.log('[AUTH] TON JWT config', {
+    issuer: TON_JWT_ISSUER,
+    audience: TON_JWT_AUDIENCE,
+    expiration: TON_JWT_EXPIRATION,
+    secretHash: hashSecret(TON_JWT_SECRET)
+  });
+})();
 
 function tonProofKey(payload: string) {
   return `${TON_PROOF_KEY_PREFIX}${payload}`;
