@@ -1,0 +1,106 @@
+name: bridge-service
+type: containerapp
+location: brazilsouth
+properties:
+  environmentId: ${ACA_ENV_ID}
+  configuration:
+    ingress:
+      external: true
+      targetPort: 3005
+    registries:
+      - server: ghcr.io
+        username: ${GHCR_USERNAME}
+        passwordSecretRef: ghcr-password
+    secrets:
+      - name: ghcr-password
+        value: ${GHCR_PASSWORD}
+      - name: database-url
+        value: ${DATABASE_URL}
+      - name: jwt-secret
+        value: ${JWT_SECRET}
+      - name: layerswap-api-key
+        value: ${LAYERSWAP_API_KEY}
+      - name: layerswap-ton-vault
+        value: ${LAYERSWAP_TON_VAULT}
+      - name: tac-sdk-endpoint
+        value: ${TAC_SDK_ENDPOINT}
+      - name: tac-api-key
+        value: ${TAC_API_KEY}
+      - name: tac-webhook-secret
+        value: ${TAC_WEBHOOK_SECRET}
+      - name: auth-service-url
+        value: ${AUTH_SERVICE_URL}
+      - name: liquid-swap-service-url
+        value: ${LIQUID_SWAP_SERVICE_URL}
+      - name: lido-service-url
+        value: ${LIDO_SERVICE_URL}
+      - name: avax-service-url
+        value: ${AVAX_SERVICE_URL}
+      - name: ton-jwt-secret
+        value: ${TON_JWT_SECRET}
+      - name: ton-jwt-issuer
+        value: ${TON_JWT_ISSUER}
+      - name: ton-jwt-audience
+        value: ${TON_JWT_AUDIENCE}
+  template:
+    containers:
+      - name: bridge-service
+        image: ghcr.io/${GHCR_NAMESPACE}/bridge-service:${IMAGE_TAG}
+        env:
+          - name: PORT
+            value: "3005"
+          - name: NODE_ENV
+            value: "production"
+          - name: DATABASE_URL
+            secretRef: database-url
+          - name: JWT_SECRET
+            secretRef: jwt-secret
+          - name: LAYERSWAP_API_KEY
+            secretRef: layerswap-api-key
+          - name: LAYERSWAP_TON_VAULT
+            secretRef: layerswap-ton-vault
+          - name: TAC_SDK_ENDPOINT
+            secretRef: tac-sdk-endpoint
+          - name: TAC_API_KEY
+            secretRef: tac-api-key
+          - name: TAC_WEBHOOK_SECRET
+            secretRef: tac-webhook-secret
+          - name: AUTH_SERVICE_URL
+            secretRef: auth-service-url
+          - name: LIQUID_SWAP_SERVICE_URL
+            secretRef: liquid-swap-service-url
+          - name: LIDO_SERVICE_URL
+            secretRef: lido-service-url
+          - name: AVAX_SERVICE_URL
+            secretRef: avax-service-url
+          - name: TON_JWT_SECRET
+            secretRef: ton-jwt-secret
+          - name: TON_JWT_ISSUER
+            secretRef: ton-jwt-issuer
+          - name: TON_JWT_AUDIENCE
+            secretRef: ton-jwt-audience
+          - name: WEBSOCKET_PORT
+            value: "3006"
+          - name: ENABLE_WEBSOCKET
+            value: "true"
+          - name: ENABLE_ANALYTICS
+            value: "true"
+          - name: LOG_LEVEL
+            value: "info"
+          - name: CORS_ORIGIN
+            value: "*"
+          - name: RATE_LIMIT_WINDOW
+            value: "60000"
+          - name: RATE_LIMIT_MAX_REQUESTS
+            value: "100"
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+    scale:
+      minReplicas: 1
+      maxReplicas: 5
+      rules:
+        - name: http-rps
+          http:
+            metadata:
+              concurrentRequests: "60"

@@ -1,0 +1,483 @@
+// TAC Service Database Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Basic user + wallet mappings for TON-first flows
+model User {
+  id              String       @id @default(uuid())
+  telegramUserId  String?      @unique
+  createdAt       DateTime     @default(now())
+  tonWallets      TonWallet[]
+  evmWallets      EvmWallet[]
+  tonBridgeRequests TonBridgeRequest[]
+
+  @@index([createdAt])
+}
+
+model TonWallet {
+  id                 String   @id @default(uuid())
+  userId             String
+  tonAddressRaw      String   @unique
+  tonAddressFriendly String?
+  publicKey          String
+  connectedAt        DateTime @default(now())
+
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model EvmWallet {
+  id        String   @id @default(uuid())
+  userId    String
+  chainId   String
+  address   String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, chainId])
+  @@unique([chainId, address])
+  @@index([userId, chainId])
+}
+
+// Lightweight TON -> TAC swap quote tracking
+model TonSwapQuote {
+  id            String   @id @default(uuid())
+  userId        String
+  tonAddress    String
+  evmReceiver   String
+  toToken       String
+  amountIn      Decimal
+  slippageBps   Int
+  expectedOut   Decimal
+  status        String   @default("active") // active, executed, expired
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  executedAt    DateTime?
+
+  @@index([userId, tonAddress])
+  @@index([status, expiresAt])
+}
+
+model TonSwapOperation {
+  id            String   @id @default(uuid())
+  quoteId       String
+  userId        String
+  tonAddress    String
+  evmReceiver   String
+  toToken       String
+  amountIn      Decimal
+  expectedOut   Decimal
+  slippageBps   Int
+  operationId   String   @unique
+  status        String   @default("pending") // pending, bridging, swapping, success, failed
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  txHashTon     String?
+  txHashTac     String?
+  error         String?
+
+  @@index([userId, status])
+  @@index([tonAddress])
+}
+
+// TON -> EVM bridge tracking (LayerZero)
+model TonBridgeRequest {
+  id                  String   @id @default(uuid())
+  userId              String
+  tonAddress          String
+  destinationChainId  Int
+  destinationAddress  String
+  token               String
+  amount              Decimal
+  bridgeId            String   @unique
+  status              String   @default("initiated") // initiated, pending, confirmed, failed
+  txHashTon           String?
+  txHashEvm           String?
+  metadata            Json     @default("{}")
+  error               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  completedAt         DateTime?
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([bridgeId])
+}
+
+// TAC Operations - Main cross-chain operations
+model TacOperation {
+  id              String   @id @default(uuid())
+  userId          String
+  conversationId  String?
+  operationType   String   // 'cross_chain_swap', 'cross_chain_lending', 'cross_chain_staking'
+  status          String   // 'initiated', 'bridging_to_evm', 'executing_protocol', 'bridging_back', 'completed', 'failed'
+
+  // Chain and asset information
+  sourceChain     String   @default("ton")
+  targetChain     String   // 'ethereum', 'avalanche', 'base', 'optimism'
+  inputToken      String
+  inputAmount     Decimal
+  outputToken     String?
+  outputAmount    Decimal?
+
+  // Protocol-specific data
+  protocol        String?  // 'uniswap', 'lido', 'benqi', 'traderjoe'
+  protocolAction  String?  // 'swap', 'stake', 'supply', 'borrow'
+
+  // TAC transaction tracking
+  tacTransactionId String?  @unique
+  tacOperationHash String?
+  estimatedTime   Int?     // seconds
+  actualTime      Int?     // seconds
+  totalFees       Decimal?
+
+  // Steps tracking (JSON for flexibility)
+  steps          Json     @default("[]")
+  currentStep    Int      @default(0)
+
+  // Error handling and recovery
+  errorMessage   String?
+  errorCode      String?
+  retryCount     Int      @default(0)
+  lastRetryAt    DateTime?
+  canRetry       Boolean  @default(true)
+
+  // Timestamps
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  startedAt      DateTime?
+  completedAt    DateTime?
+
+  // Relations
+  tacSteps       TacStep[]
+
+  @@index([userId, status])
+  @@index([tacTransactionId])
+  @@index([createdAt])
+  @@index([status, updatedAt])
+}
+
+// TAC Steps - Individual steps within an operation
+model TacStep {
+  id              String   @id @default(uuid())
+  tacOperationId  String
+  stepType        String   // 'bridge_to_evm', 'protocol_execution', 'bridge_to_ton'
+  stepOrder       Int
+  stepName        String?  // Human-readable step name
+  status          String   // 'pending', 'in_progress', 'completed', 'failed'
+
+  // Chain-specific transaction details
+  chainId         Int?
+  transactionHash String?
+  blockNumber     BigInt?
+  gasUsed         BigInt?
+  gasCost         Decimal?
+  confirmations   Int?
+
+  // Step input/output
+  inputToken      String?
+  inputAmount     Decimal?
+  outputToken     String?
+  outputAmount    Decimal?
+
+  // Additional metadata (protocol-specific data)
+  metadata        Json     @default("{}")
+
+  // Error information
+  errorMessage    String?
+  errorCode       String?
+
+  // Timing
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  duration        Int?     // milliseconds
+
+  // Relations
+  tacOperation    TacOperation @relation(fields: [tacOperationId], references: [id], onDelete: Cascade)
+
+  @@index([tacOperationId, stepOrder])
+  @@index([transactionHash])
+  @@index([status, startedAt])
+}
+
+// Cross-Chain Quotes - Pre-execution quotes for operations
+model CrossChainQuote {
+  id              String   @id @default(uuid())
+  userId          String
+  fromChain       String
+  toChain         String
+  fromToken       String
+  toToken         String
+  amount          Decimal
+  operationType   String
+
+  // Quote details (stored as JSON for flexibility)
+  route           Json     // QuoteRoute object
+  alternatives    Json     @default("[]") // QuoteAlternative[]
+  metadata        Json     @default("{}")
+
+  // Quote lifecycle
+  isExecuted      Boolean  @default(false)
+  executedAt      DateTime?
+  operationId     String?  // Link to executed TacOperation
+
+  // Expiry
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@index([isExecuted])
+}
+
+// TAC Balances - Cross-chain token balances
+model TacBalance {
+  id              String   @id @default(uuid())
+  userId          String
+  tokenSymbol     String   // 'stETH_TON', 'qUSDC_TON', 'wstETH_TON'
+  tokenAddress    String   // TON contract address of wrapped token
+  balance         Decimal
+
+  // Source protocol information
+  sourceProtocol  String   // 'lido', 'benqi', 'uniswap'
+  sourceChain     String   // 'ethereum', 'avalanche', 'base'
+  protocolAddress String?  // Original protocol contract address
+
+  // Yield and rewards tracking
+  currentApy      Decimal?
+  estimatedYield  Decimal? // Estimated yield per year
+  rewardsEarned   Decimal  @default(0)
+  rewardsClaimed  Decimal  @default(0)
+  lastRewardCalc  DateTime @default(now())
+
+  // Underlying asset information
+  underlyingAsset String?  // The original asset (e.g., 'USDC' for 'qUSDC_TON')
+  conversionRate  Decimal? // Current conversion rate to underlying
+
+  // Position tracking
+  isActive        Boolean  @default(true)
+  canClaim        Boolean  @default(false)
+  canRedeem       Boolean  @default(true)
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastSyncAt      DateTime @default(now())
+
+  @@unique([userId, tokenSymbol])
+  @@index([userId, isActive])
+  @@index([sourceProtocol, sourceChain])
+  @@index([lastSyncAt])
+}
+
+// TAC Configuration - User preferences for TAC operations
+model TacConfiguration {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+
+  // User preferences
+  defaultSlippage Decimal  @default(0.5)
+  autoApprove     Boolean  @default(false)
+  prioritizeSpeed Boolean  @default(false)
+  maxGasPrice     Decimal?
+
+  // Notification preferences
+  notifyOnStart   Boolean  @default(true)
+  notifyOnComplete Boolean @default(true)
+  notifyOnFailure Boolean  @default(true)
+  pushNotifications Boolean @default(true)
+
+  // Protocol preferences (JSON arrays)
+  preferredProtocols Json @default("[]") // Array of preferred protocols
+  blacklistedProtocols Json @default("[]") // Array of blacklisted protocols
+
+  // Risk management
+  maxOperationSize Decimal?
+  dailyOperationLimit Decimal?
+  requireConfirmation Boolean @default(true)
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// TAC Analytics - Operation and user behavior analytics
+model TacAnalytics {
+  id              String   @id @default(uuid())
+
+  // Operation metrics
+  operationType   String
+  sourceChain     String
+  targetChain     String
+  protocol        String?
+
+  // Volume and value
+  volumeUSD       Decimal
+  feesPaidUSD     Decimal
+  success         Boolean
+  durationSeconds Int
+
+  // User data (anonymized for privacy)
+  userHash        String   // Hashed userId for privacy
+
+  // Time period
+  date            DateTime // Day of the metrics
+  hour            Int?     // Hour for hourly metrics
+
+  // Additional metrics
+  metadata        Json     @default("{}")
+
+  createdAt       DateTime @default(now())
+
+  @@index([date, operationType])
+  @@index([sourceChain, targetChain])
+  @@index([protocol])
+  @@index([userHash, date])
+  @@unique([date, hour, operationType, sourceChain, targetChain, userHash])
+}
+
+// TAC Events - Event sourcing for important events
+model TacEvent {
+  id              String   @id @default(uuid())
+  userId          String?
+  operationId     String?
+  eventType       String   // 'operation_created', 'step_completed', 'balance_updated', etc.
+  eventData       Json     // Event payload
+
+  // Event metadata
+  source          String   @default("tac-service") // Which service generated the event
+  version         String   @default("1.0")
+
+  // Timestamps
+  occurredAt      DateTime @default(now())
+  processedAt     DateTime?
+
+  // Event processing
+  processed       Boolean  @default(false)
+  retryCount      Int      @default(0)
+
+  @@index([eventType, occurredAt])
+  @@index([userId, occurredAt])
+  @@index([operationId, occurredAt])
+  @@index([processed, occurredAt])
+}
+
+// TAC Bridge Providers - Track different bridge providers and their status
+model TacBridgeProvider {
+  id              String   @id @default(uuid())
+  name            String   @unique // 'tac', 'layerzero', 'axelar'
+  displayName     String
+
+  // Provider configuration
+  endpoint        String
+  apiKey          String?
+  isActive        Boolean  @default(true)
+
+  // Supported chains and tokens (JSON arrays)
+  supportedChains Json     @default("[]")
+  supportedTokens Json     @default("[]")
+
+  // Health and performance metrics
+  lastHealthCheck DateTime @default(now())
+  isHealthy       Boolean  @default(true)
+  averageLatency  Int?     // milliseconds
+  successRate     Decimal? // 0-1
+
+  // Provider limits
+  maxTransactionSize Decimal?
+  dailyVolumeLimit   Decimal?
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  operations      TacBridgeOperation[]
+
+  @@index([isActive, isHealthy])
+  @@index([lastHealthCheck])
+}
+
+// TAC Bridge Operations - Track individual bridge operations
+model TacBridgeOperation {
+  id              String   @id @default(uuid())
+  providerId      String
+  tacOperationId  String?
+
+  // Bridge operation details
+  bridgeId        String   @unique // Provider's bridge ID
+  fromChain       String
+  toChain         String
+  fromToken       String
+  toToken         String
+  amount          Decimal
+
+  // Bridge status
+  status          String   // 'initiated', 'pending', 'completed', 'failed'
+  txHashSource    String?  // Transaction hash on source chain
+  txHashTarget    String?  // Transaction hash on target chain
+
+  // Bridge results
+  outputAmount    Decimal?
+  fees            Decimal?
+
+  // Timing
+  initiatedAt     DateTime @default(now())
+  completedAt     DateTime?
+  estimatedTime   Int?     // seconds
+  actualTime      Int?     // seconds
+
+  // Error handling
+  errorMessage    String?
+  retryCount      Int      @default(0)
+
+  // Relations
+  provider        TacBridgeProvider @relation(fields: [providerId], references: [id])
+
+  @@index([providerId, status])
+  @@index([bridgeId])
+  @@index([tacOperationId])
+  @@index([fromChain, toChain])
+}
+
+// TAC Notifications - Track sent notifications
+model TacNotification {
+  id              String   @id @default(uuid())
+  userId          String
+  operationId     String?
+
+  // Notification content
+  type            String   // 'operation_started', 'operation_completed', etc.
+  title           String
+  body            String
+  data            Json?    @default("{}")
+
+  // Delivery channels
+  channels        Json     @default("[]") // Array of channels used
+
+  // Delivery status
+  sent            Boolean  @default(false)
+  delivered       Boolean  @default(false)
+  clicked         Boolean  @default(false)
+
+  // Timestamps
+  scheduledFor    DateTime?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  clickedAt       DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([userId, type])
+  @@index([operationId])
+  @@index([sent, scheduledFor])
+}

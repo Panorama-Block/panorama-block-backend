@@ -17,18 +17,18 @@ export const getAuthInstance = (): any => {
     try {
       const privateKey = process.env.AUTH_PRIVATE_KEY;
       const domain = process.env.AUTH_DOMAIN || 'panoramablock.com';
-      
+
       if (!privateKey || privateKey.trim() === '') {
         // Não tente inicializar com chave vazia para evitar crash (invalid hexlify value)
         throw new Error('AUTH_PRIVATE_KEY is not set');
       }
-      
+
       // Create wallet from private key
       const wallet = new PrivateKeyWallet(privateKey);
-      
+
       // Initialize ThirdwebAuth with wallet and domain
       authInstance = new ThirdwebAuth(wallet, domain);
-      
+
       console.log('[thirdwebAuth] ThirdwebAuth instance initialized successfully with domain:', domain);
     } catch (error) {
       console.error('[thirdwebAuth] Error initializing ThirdwebAuth:', error);
@@ -42,7 +42,7 @@ export const getAuthInstance = (): any => {
 // Generate login payload with proper structure
 export const generateLoginPayload = async (address: string): Promise<any> => {
   const auth = getAuthInstance();
-  
+
   const normalizedAddress = (await import("ethers")).ethers.utils.getAddress(address);
 
   return await auth.payload({
@@ -55,7 +55,7 @@ export const generateLoginPayload = async (address: string): Promise<any> => {
 
 // Verify signature using Thirdweb v5 utils
 export const verifySignature = async (payload: any, signature: string): Promise<string> => {
-    
+
   try {
 
     const result = await thirdwebVerifySignature({
@@ -63,9 +63,9 @@ export const verifySignature = async (payload: any, signature: string): Promise<
       signature: signature,
       address: payload.address,
     });
-    
+
     console.log('[verifySignature] Verification result:', result);
-    
+
     if (result) {
       return payload.address;
     } else {
@@ -73,9 +73,9 @@ export const verifySignature = async (payload: any, signature: string): Promise<
     }
   } catch (error) {
     console.error('[verifySignature] Verification error:', error);
-    
+
     try {
-      
+
       const auth = getAuthInstance();
       const result = await auth.verify(
         { payload, signature },
@@ -99,5 +99,15 @@ export const generateToken = async (loginPayload: { payload: any; signature: str
 // Validate JWT token
 export const validateToken = async (token: string) => {
   const auth = getAuthInstance();
-  return await auth.authenticate(token, { domain: process.env.AUTH_DOMAIN || 'panoramablock.com' });
+  const domain = process.env.AUTH_DOMAIN || 'panoramablock.com';
+  try {
+    return await auth.authenticate(token, { domain });
+  } catch (error: any) {
+    // Fallback for local development where domain might be 'panoramablock'
+    if (error.message && error.message.includes("found token with domain 'panoramablock'")) {
+      console.warn('[validateToken] Domain mismatch detected, retrying with "panoramablock"');
+      return await auth.authenticate(token, { domain: 'panoramablock' });
+    }
+    throw error;
+  }
 }; 

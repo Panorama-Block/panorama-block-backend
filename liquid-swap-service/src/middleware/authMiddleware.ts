@@ -50,12 +50,15 @@ export const verifyJwtMiddleware = async (req: Request, res: Response, next: Nex
       }
     } catch (error) {
       const axiosError = error as AxiosError<ErrorResponse>;
-      console.error('[Auth] Error validating token with Auth service:', 
-        axiosError.response?.data?.message || axiosError.message);
-        
-      res.status(500).json({ 
+      const status = axiosError.response?.status || 500;
+      const message = axiosError.response?.data?.message || axiosError.response?.data?.error || axiosError.message;
+
+      console.error('[Auth] Error validating token with Auth service:', message);
+
+      // Propagate auth-service status so clients can re-authenticate on 401 instead of a generic 500
+      res.status(status).json({ 
         error: 'Authentication error', 
-        message: 'Could not validate authentication' 
+        message: message || 'Could not validate authentication' 
       });
       return;
     }
