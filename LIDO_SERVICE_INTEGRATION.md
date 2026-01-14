@@ -358,10 +358,6 @@ LIDO_PORT=3004
 AUTH_SERVICE_URL=http://auth_service:3001  # Dev
 # AUTH_SERVICE_URL=https://auth_service:3001  # Prod
 
-# ThirdWeb
-THIRDWEB_CLIENT_ID=841b9035bb273fee8d50a503f5b09fd0
-THIRDWEB_SECRET_KEY=uCnT1LraHSsz-nKprYK4OOqQ49sNTvBLHjLG2hAtsvkX...
-
 # Ethereum RPC
 ETHEREUM_RPC_URL=https://rpc.ankr.com/eth/f7bf95c709760fc...
 RPC_URL=https://rpc.ankr.com/eth/f7bf95c709760fc...
