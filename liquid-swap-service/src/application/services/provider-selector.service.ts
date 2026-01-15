@@ -185,12 +185,11 @@ export class ProviderSelectorService {
     );
 
     // Try providers in priority order with automatic fallback
-    // Priority: Uniswap first (partnership), then fallback to Thirdweb
-    // NOTE: Smart Router temporarily disabled due to V4 subgraph issues
+    // Priority: Trading API first (fee configured via Uniswap Labs API key)
     const isSameChain = request.fromChainId === request.toChainId;
     const providerPriority = isSameChain
-      ? ["uniswap-trading-api", "uniswap", "thirdweb"]
-      : ["thirdweb", "uniswap-trading-api", "uniswap"];
+      ? ["uniswap-trading-api", "uniswap-smart-router", "thirdweb"]
+      : ["thirdweb", "uniswap-trading-api", "uniswap-smart-router"];
 
     const errors: string[] = [];
 

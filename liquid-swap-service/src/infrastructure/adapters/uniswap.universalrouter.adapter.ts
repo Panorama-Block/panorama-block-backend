@@ -15,9 +15,8 @@
  */
 
 import { AlphaRouter, SwapType } from '@uniswap/smart-order-router';
-import { SwapRouter, UniversalRouterVersion } from '@uniswap/universal-router-sdk';
-import { Trade as RouterTrade } from '@uniswap/router-sdk';
-import { Token, CurrencyAmount, TradeType, Percent, Currency } from '@uniswap/sdk-core';
+import { UniversalRouterVersion, UNIVERSAL_ROUTER_ADDRESS } from '@uniswap/universal-router-sdk';
+import { Token, CurrencyAmount, TradeType, Percent, Currency, Ether } from '@uniswap/sdk-core';
 import { BigNumber, ethers } from 'ethers';
 import { ISwapProvider, RouteParams, PreparedSwap, Transaction } from '../../domain/ports/swap.provider.port';
 import { SwapQuote, SwapRequest, TransactionStatus } from '../../domain/entities/swap';
@@ -248,19 +247,19 @@ export class UniswapUniversalRouterAdapter implements ISwapProvider {
     console.log(`[${this.name}] Getting quote: ${amount.toString()} ${fromTokenAddr} -> ${toTokenAddr}`);
 
     try {
-      const tokenIn = await this.createToken(chainId, fromTokenAddr, provider, chainConfig);
-      const tokenOut = await this.createToken(chainId, toTokenAddr, provider, chainConfig);
-      const amountIn = CurrencyAmount.fromRawAmount(tokenIn, amount.toString());
+      const currencyIn = await this.createCurrency(chainId, fromTokenAddr, provider, chainConfig);
+      const currencyOut = await this.createCurrency(chainId, toTokenAddr, provider, chainConfig);
+      const amountIn = CurrencyAmount.fromRawAmount(currencyIn, amount.toString());
 
       const route = await router.route(
         amountIn,
-        tokenOut,
+        currencyOut,
         TradeType.EXACT_INPUT,
         {
           recipient: sender,
           slippageTolerance: new Percent(this.slippageBps, 10_000),
           type: SwapType.UNIVERSAL_ROUTER,
-          version: UniversalRouterVersion.V2_0,
+          version: UniversalRouterVersion.V1_2,
           deadlineOrPreviousBlockhash: Math.floor(Date.now() / 1000 + 3600),
         }
       );
@@ -324,20 +323,26 @@ export class UniswapUniversalRouterAdapter implements ISwapProvider {
     console.log(`[${this.name}] Preparing swap with fee: ${amount.toString()} ${fromTokenAddr} -> ${toTokenAddr}`);
 
     try {
-      const tokenIn = await this.createToken(chainId, fromTokenAddr, provider, chainConfig);
-      const tokenOut = await this.createToken(chainId, toTokenAddr, provider, chainConfig);
-      const amountIn = CurrencyAmount.fromRawAmount(tokenIn, amount.toString());
+      // Use createCurrency to properly handle native ETH vs ERC20 tokens
+      const currencyIn = await this.createCurrency(chainId, fromTokenAddr, provider, chainConfig);
+      const currencyOut = await this.createCurrency(chainId, toTokenAddr, provider, chainConfig);
+      const amountIn = CurrencyAmount.fromRawAmount(currencyIn, amount.toString());
+
+      console.log(`[${this.name}] Currency types:`, {
+        currencyIn: currencyIn.isNative ? 'Native ETH' : `Token ${(currencyIn as Token).address}`,
+        currencyOut: currencyOut.isNative ? 'Native ETH' : `Token ${(currencyOut as Token).address}`,
+      });
 
       // Get route from AlphaRouter
       const routeResult = await router.route(
         amountIn,
-        tokenOut,
+        currencyOut,
         TradeType.EXACT_INPUT,
         {
           recipient: sender,
           slippageTolerance: new Percent(this.slippageBps, 10_000),
           type: SwapType.UNIVERSAL_ROUTER,
-          version: UniversalRouterVersion.V2_0,
+          version: UniversalRouterVersion.V1_2,
           deadlineOrPreviousBlockhash: Math.floor(Date.now() / 1000 + 3600),
         }
       );
@@ -346,41 +351,46 @@ export class UniswapUniversalRouterAdapter implements ISwapProvider {
         throw new Error('No route found');
       }
 
-      // Build swap options with fee
-      const swapOptions = this.buildSwapOptions(sender);
+      // Use AlphaRouter's methodParameters directly (fee is handled by Uniswap Labs API key config)
+      if (!routeResult.methodParameters) {
+        throw new Error('AlphaRouter did not return methodParameters');
+      }
 
-      console.log(`[${this.name}] Swap options:`, {
-        recipient: swapOptions.recipient,
-        slippage: `${this.slippageBps / 100}%`,
-        hasFee: !!swapOptions.fee,
-        feeRecipient: swapOptions.fee?.recipient,
-        feeBips: swapOptions.fee?.bips,
-      });
+      const { calldata, value } = routeResult.methodParameters;
 
-      // Generate calldata using Universal Router SDK
-      const { calldata, value } = SwapRouter.swapCallParameters(
-        routeResult.trade as RouterTrade<Currency, Currency, TradeType>,
-        swapOptions
-      );
+      console.log(`[${this.name}] Using AlphaRouter methodParameters`);
+      console.log(`[${this.name}] Calldata length: ${calldata.length}`);
+      console.log(`[${this.name}] Value: ${value}`);
 
       // Get Universal Router address for this chain
       const universalRouterAddress = this.getUniversalRouterAddress(chainId);
 
       const transactions: Transaction[] = [];
 
-      // Add approval transaction if needed (for ERC20 tokens)
-      if (!this.isNativeToken(fromTokenAddr)) {
+      // Add approval transaction if needed (for ERC20 tokens only)
+      // Native ETH doesn't need approval, Universal Router uses Permit2 for tokens
+      if (!currencyIn.isNative) {
+        const permit2Address = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+        const tokenIn = currencyIn as Token;
         const approvalTx = this.buildApprovalTransaction(
           tokenIn.address,
-          universalRouterAddress,
+          permit2Address,
           chainId
         );
         transactions.push(approvalTx);
-        console.log(`[${this.name}] Added approval for ${tokenIn.symbol}`);
+        console.log(`[${this.name}] Added approval for ${tokenIn.symbol} to Permit2`);
+      } else {
+        console.log(`[${this.name}] No approval needed for native ETH`);
       }
 
       // Add swap transaction
       const paddedGasLimit = this.applyGasBuffer(routeResult.estimatedGasUsed);
+
+      // Get symbols for description
+      const symbolIn = currencyIn.isNative ? 'ETH' : (currencyIn as Token).symbol;
+      const symbolOut = currencyOut.isNative ? 'ETH' : (currencyOut as Token).symbol;
+
+      console.log(`[${this.name}] Transaction value: ${value} (should be non-zero for ETH input)`);
 
       transactions.push({
         chainId,
@@ -389,20 +399,12 @@ export class UniswapUniversalRouterAdapter implements ISwapProvider {
         value: value,
         gasLimit: paddedGasLimit.toString(),
         action: 'swap',
-        description: `Swap ${tokenIn.symbol} for ${tokenOut.symbol} via Universal Router`,
+        description: `Swap ${symbolIn} for ${symbolOut} via Universal Router`,
       });
-
-      // Calculate fee info for metadata
-      const grossAmount = BigInt(routeResult.quote.quotient.toString());
-      const feeAmount = this.feeConfig.enabled
-        ? (grossAmount * BigInt(this.feeConfig.bips)) / 10000n
-        : 0n;
 
       console.log(`[${this.name}] Swap prepared successfully:`, {
         transactions: transactions.length,
         universalRouter: universalRouterAddress,
-        feeCollected: feeAmount.toString(),
-        feeRecipient: this.feeConfig.recipient,
       });
 
       return {
@@ -411,10 +413,6 @@ export class UniswapUniversalRouterAdapter implements ISwapProvider {
         estimatedDuration: 15,
         metadata: {
           quote: routeResult.quote.toFixed(),
-          grossAmount: grossAmount.toString(),
-          feeAmount: feeAmount.toString(),
-          feeRecipient: this.feeConfig.recipient,
-          feeBips: this.feeConfig.bips,
           universalRouterAddress,
           slippageTolerance: `${this.slippageBps / 100}%`,
         },
@@ -451,44 +449,25 @@ export class UniswapUniversalRouterAdapter implements ISwapProvider {
   // ============================================================================
 
   /**
-   * Build swap options with fee configuration
-   */
-  private buildSwapOptions(recipient: string): any {
-    const deadline = Math.floor(Date.now() / 1000 + 3600);
-    const slippageTolerance = new Percent(this.slippageBps, 10_000);
-
-    const baseOptions: any = {
-      recipient,
-      slippageTolerance,
-      deadline,
-    };
-
-    // Add fee if configured
-    if (this.feeConfig.enabled && this.feeConfig.recipient) {
-      baseOptions.fee = {
-        recipient: this.feeConfig.recipient,
-        bips: this.feeConfig.bips,
-      };
-
-      console.log(`[${this.name}] Fee configured: ${this.feeConfig.bips} bips to ${this.feeConfig.recipient}`);
-    }
-
-    return baseOptions;
-  }
-
-  /**
    * Get Universal Router address for a chain
+   * Uses the SDK's built-in addresses for V1_2
    */
   private getUniversalRouterAddress(chainId: number): string {
-    // Universal Router V1 addresses (same across most chains)
+    // Try to get from SDK first
+    const sdkAddress = UNIVERSAL_ROUTER_ADDRESS(UniversalRouterVersion.V1_2, chainId);
+    if (sdkAddress && sdkAddress !== '0x0000000000000000000000000000000000000000') {
+      return sdkAddress;
+    }
+
+    // Fallback to hardcoded V1_2 addresses
     const addresses: Record<number, string> = {
-      1: '0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD',     // Ethereum
-      10: '0xCb1355ff08Ab38bBCE60111F1bb2B784bE25D7e8',    // Optimism
-      137: '0xec7BE89e9d109e7e3Fec59c222CF297125FEFda2',   // Polygon
-      8453: '0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD',  // Base
-      42161: '0x5E325eDA8064b456f4781070C0738d849c824258', // Arbitrum
-      43114: '0x4Dae2f939ACf50408e13d58534Ff8c2776d45265', // Avalanche
-      56: '0x4Dae2f939ACf50408e13d58534Ff8c2776d45265',    // BSC
+      1: '0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD',     // Ethereum V1.2
+      10: '0xCb1355ff08Ab38bBCE60111F1bb2B784bE25D7e8',    // Optimism V1.2
+      137: '0xec7BE89e9d109e7e3Fec59c222CF297125FEFda2',   // Polygon V1.2
+      8453: '0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD',  // Base V1.2
+      42161: '0x5E325eDA8064b456f4781070C0738d849c824258', // Arbitrum V1.2
+      43114: '0x4Dae2f939ACf50408e13d58534Ff8c2776d45265', // Avalanche V1.2
+      56: '0x4Dae2f939ACf50408e13d58534Ff8c2776d45265',    // BSC V1.2
     };
 
     const address = addresses[chainId];
@@ -517,8 +496,28 @@ export class UniswapUniversalRouterAdapter implements ISwapProvider {
       value: '0',
       gasLimit: '60000',
       action: 'approval',
-      description: `Approve Universal Router to spend tokens`,
+      description: `Approve Permit2 to spend tokens`,
     };
+  }
+
+  /**
+   * Create Currency instance from address
+   * Returns Ether for native token, Token for ERC20
+   */
+  private async createCurrency(
+    chainId: number,
+    address: string,
+    provider: ethers.providers.StaticJsonRpcProvider,
+    chainConfig: ChainConfig
+  ): Promise<Currency> {
+    // Handle native token -> return Ether (not WETH)
+    if (this.isNativeToken(address)) {
+      console.log(`[${this.name}] Creating native Ether currency for chain ${chainId}`);
+      return Ether.onChain(chainId);
+    }
+
+    // For ERC20, use createToken
+    return this.createToken(chainId, address, provider, chainConfig);
   }
 
   /**
@@ -534,7 +533,7 @@ export class UniswapUniversalRouterAdapter implements ISwapProvider {
     const cached = this.tokenCache.get(cacheKey);
     if (cached) return cached;
 
-    // Handle native token -> use wrapped
+    // Handle native token -> use wrapped (for approval checks, etc)
     if (this.isNativeToken(address)) {
       const { address: wrappedAddr, symbol, decimals, name } = chainConfig.wrappedNativeToken;
       const token = new Token(chainId, wrappedAddr, decimals, symbol, name);
