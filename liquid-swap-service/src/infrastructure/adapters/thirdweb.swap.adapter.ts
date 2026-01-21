@@ -1,5 +1,6 @@
-// Infrastructure Adapters (non-custodial V1)
+// Infrastructure Adapters (non-custodial V1) - Using REST API directly
 import { createThirdwebClient, Bridge } from "thirdweb";
+import axios from "axios";
 import {
   SwapRequest,
   SwapQuote,
@@ -10,8 +11,12 @@ import {
 import { ISwapService } from "../../domain/ports/swap.repository";
 import { resolveToken } from "../../config/tokens/registry";
 
+const BRIDGE_API = "https://bridge.thirdweb.com/v1";
+
 export class ThirdwebSwapAdapter implements ISwapService {
   private client: ReturnType<typeof createThirdwebClient>;
+  private clientId: string;
+  private secretKey?: string;
 
   constructor() {
     const clientId = process.env.THIRDWEB_CLIENT_ID;
@@ -28,13 +33,16 @@ export class ThirdwebSwapAdapter implements ISwapService {
       throw new Error("THIRDWEB_CLIENT_ID is required");
     }
 
+    this.clientId = clientId;
+    this.secretKey = secretKey;
+
     this.client = createThirdwebClient({
       clientId,
       ...(secretKey ? { secretKey } : {}),
     });
 
     console.log(
-      "[ThirdwebSwapAdapter] Initialized successfully (non-custodial mode)"
+      "[ThirdwebSwapAdapter] Initialized successfully (REST API mode)"
     );
   }
 
@@ -65,17 +73,22 @@ export class ThirdwebSwapAdapter implements ISwapService {
 
       const sellAmountWei = swapRequest.amount;
 
-      const quote = await Bridge.Sell.quote({
-        originChainId: swapRequest.fromChainId,
-        originTokenAddress: originToken.identifier,
-        destinationChainId: swapRequest.toChainId,
-        destinationTokenAddress: destinationToken.identifier,
-        amount: sellAmountWei,
-        client: this.client,
+      // Use REST API directly (SDK has bugs for certain chain pairs)
+      const response = await axios.get(`${BRIDGE_API}/sell/quote`, {
+        params: {
+          originChainId: swapRequest.fromChainId,
+          originTokenAddress: originToken.identifier,
+          destinationChainId: swapRequest.toChainId,
+          destinationTokenAddress: destinationToken.identifier,
+          amount: sellAmountWei.toString(),
+        },
+        headers: {
+          "x-client-id": this.clientId,
+          ...(this.secretKey ? { "x-secret-key": this.secretKey } : {}),
+        },
       });
 
-      // Observação: aqui não inventamos valores. Mantemos um estimate simples.
-      // Você pode enriquecer depois com price impact real quando disponível.
+      const quote = response.data.data;
       const originAmount = BigInt(quote.originAmount.toString());
       const destAmount = BigInt(quote.destinationAmount.toString());
       const estMs = quote.estimatedExecutionTimeMs ?? 60_000;
@@ -144,68 +157,28 @@ export class ThirdwebSwapAdapter implements ISwapService {
         originTokenAddress: originToken.identifier,
         destinationChainId: swapRequest.toChainId,
         destinationTokenAddress: destinationToken.identifier,
-        amount: swapRequest.amount,
+        amount: swapRequest.amount.toString(),
         sender: swapRequest.sender,
         receiver: swapRequest.receiver || swapRequest.sender,
-        client: this.client,
-      } as const;
+      };
 
-      if (process.env.DEBUG === "true") {
-        console.log("[ThirdwebSwapAdapter] Prepare payload:", {
-          originChainId: payload.originChainId,
-          originTokenAddress: payload.originTokenAddress,
-          destinationChainId: payload.destinationChainId,
-          destinationTokenAddress: payload.destinationTokenAddress,
-          amount: payload.amount.toString(),
-          sender: payload.sender,
-          receiver: payload.receiver,
-        });
-        // Optional preflight quote for debugging
-        try {
-          const q = await Bridge.Sell.quote({
-            originChainId: payload.originChainId,
-            originTokenAddress: payload.originTokenAddress,
-            destinationChainId: payload.destinationChainId,
-            destinationTokenAddress: payload.destinationTokenAddress,
-            amount: payload.amount,
-            client: this.client,
-          });
-          const qOrigin = BigInt(q.originAmount?.toString?.() ?? String(q.originAmount));
-          const qDest = BigInt(q.destinationAmount?.toString?.() ?? String(q.destinationAmount));
-          // compute normalized rate for diagnostics
-          const fDec = originToken.metadata.decimals;
-          const tDec = destinationToken.metadata.decimals;
-          const SCALE = 12n;
-          const num = qDest * (10n ** (BigInt(fDec) + SCALE));
-          const den = qOrigin * (10n ** BigInt(tDec));
-          const scaled = den === 0n ? 0n : (num / den);
-          const rate = Number(scaled) / 10 ** Number(SCALE);
-          console.log("[ThirdwebSwapAdapter] Preflight quote:", {
-            originAmount: qOrigin.toString(),
-            destinationAmount: qDest.toString(),
-            fromDecimals: fDec,
-            toDecimals: tDec,
-            normalizedRate: rate,
-            estimatedExecutionTimeMs: q.estimatedExecutionTimeMs,
-          });
-        } catch (preErr: any) {
-          console.log("[ThirdwebSwapAdapter] Preflight quote failed:", {
-            message: preErr?.message,
-            status: preErr?.statusCode || preErr?.status,
-            code: preErr?.code,
-            correlationId: preErr?.correlationId,
-          });
-        }
-      }
+      console.log("[ThirdwebSwapAdapter] Prepare payload:", payload);
 
-      const prepared = await Bridge.Sell.prepare(payload);
+      // Use REST API directly (SDK has bugs for certain chain pairs)
+      const response = await axios.post(`${BRIDGE_API}/sell/prepare`, payload, {
+        headers: {
+          "Content-Type": "application/json",
+          "x-client-id": this.clientId,
+          ...(this.secretKey ? { "x-secret-key": this.secretKey } : {}),
+        },
+      });
 
-      // `prepared` normalmente contém { steps: [{ transactions: [...] }], expiresAt, ... }
-      return prepared;
+      // Response contains { steps: [{ transactions: [...] }], expiresAt, ... }
+      return response.data.data;
     } catch (error: any) {
-      const status = error?.statusCode || error?.status || error?.response?.status;
-      const code = error?.code || error?.response?.data?.code;
-      const correlationId = error?.correlationId || error?.response?.data?.correlationId;
+      const status = error?.response?.status || error?.status;
+      const code = error?.response?.data?.code || error?.code;
+      const correlationId = error?.response?.data?.correlationId;
       console.error("[ThirdwebSwapAdapter] Error preparing swap:", {
         message: error?.message,
         status,
@@ -213,7 +186,7 @@ export class ThirdwebSwapAdapter implements ISwapService {
         correlationId,
       });
       const detail = [
-        error?.message,
+        error?.response?.data?.message || error?.message,
         status ? `status=${status}` : undefined,
         code ? `code=${code}` : undefined,
         correlationId ? `correlationId=${correlationId}` : undefined,
