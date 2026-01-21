@@ -9,6 +9,7 @@ export enum SwapErrorCode {
   // ===== VALIDATION ERRORS (400) =====
   INVALID_TOKEN_ADDRESS = 'INVALID_TOKEN_ADDRESS',
   INVALID_AMOUNT = 'INVALID_AMOUNT',
+  AMOUNT_TOO_LOW = 'AMOUNT_TOO_LOW',
   INVALID_CHAIN = 'INVALID_CHAIN',
   INVALID_SLIPPAGE = 'INVALID_SLIPPAGE',
   INVALID_DEADLINE = 'INVALID_DEADLINE',
@@ -106,6 +107,7 @@ export class SwapError extends Error {
     if ([
       SwapErrorCode.INVALID_TOKEN_ADDRESS,
       SwapErrorCode.INVALID_AMOUNT,
+      SwapErrorCode.AMOUNT_TOO_LOW,
       SwapErrorCode.INVALID_CHAIN,
       SwapErrorCode.INVALID_SLIPPAGE,
       SwapErrorCode.INVALID_DEADLINE,

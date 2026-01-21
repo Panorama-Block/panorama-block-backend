@@ -66,6 +66,12 @@ const ERROR_MAPPINGS: Partial<Record<SwapErrorCode, ErrorMappingConfig>> = {
     description:
       'O valor informado não pôde ser processado. Ajuste o montante e tente outra vez.',
   },
+  [SwapErrorCode.AMOUNT_TOO_LOW]: {
+    category: 'user-action',
+    title: 'Amount too low',
+    description:
+      'The amount is too low to cover network fees. Please increase the swap amount.',
+  },
   [SwapErrorCode.INVALID_TOKEN_ADDRESS]: {
     category: 'user-action',
     title: 'Token desconhecido',

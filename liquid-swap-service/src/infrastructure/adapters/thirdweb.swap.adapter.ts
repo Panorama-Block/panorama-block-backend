@@ -8,6 +8,7 @@ import {
   SwapTransaction,
   TransactionStatus,
 } from "../../domain/entities/swap";
+import { SwapError, SwapErrorCode } from "../../domain/entities/errors";
 import { ISwapService } from "../../domain/ports/swap.repository";
 import { resolveToken } from "../../config/tokens/registry";
 
@@ -179,14 +180,26 @@ export class ThirdwebSwapAdapter implements ISwapService {
       const status = error?.response?.status || error?.status;
       const code = error?.response?.data?.code || error?.code;
       const correlationId = error?.response?.data?.correlationId;
+      const errorMessage = error?.response?.data?.message || error?.message;
+
       console.error("[ThirdwebSwapAdapter] Error preparing swap:", {
-        message: error?.message,
+        message: errorMessage,
         status,
         code,
         correlationId,
       });
+
+      // Handle specific error codes
+      if (code === 'AMOUNT_TOO_LOW') {
+        throw new SwapError(
+          SwapErrorCode.AMOUNT_TOO_LOW,
+          'The provided amount is too low for the requested route.',
+          { correlationId, status }
+        );
+      }
+
       const detail = [
-        error?.response?.data?.message || error?.message,
+        errorMessage,
         status ? `status=${status}` : undefined,
         code ? `code=${code}` : undefined,
         correlationId ? `correlationId=${correlationId}` : undefined,
