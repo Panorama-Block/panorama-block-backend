@@ -2,6 +2,7 @@
 // Bridges the gap between domain routing logic and use cases
 import { RouterDomainService } from "../../domain/services/router.domain.service";
 import { SwapRequest, SwapQuote } from "../../domain/entities/swap";
+import { SwapError } from "../../domain/entities/errors";
 import { PreparedSwap } from "../../domain/ports/swap.provider.port";
 
 const PROVIDER_ALIAS_PRIORITY: Record<string, string[]> = {
@@ -193,6 +194,7 @@ export class ProviderSelectorService {
       : ["thirdweb", "uniswap-trading-api", "uniswap"];
 
     const errors: string[] = [];
+    let lastSwapError: SwapError | null = null;
 
     for (const providerName of providerPriority) {
       const provider = this.router.getProviderByName(providerName);
@@ -221,6 +223,9 @@ export class ProviderSelectorService {
           (error as Error).message
         );
         errors.push(`${providerName}: ${(error as Error).message}`);
+        if (error instanceof SwapError) {
+          lastSwapError = error;
+        }
         continue;
       }
 
@@ -245,11 +250,18 @@ export class ProviderSelectorService {
           (error as Error).message
         );
         errors.push(`${providerName}: ${(error as Error).message}`);
+        if (error instanceof SwapError) {
+          lastSwapError = error;
+        }
         // Continue to next provider
       }
     }
 
-    // All providers failed
+    // All providers failed - if we have a SwapError, throw it directly for proper handling
+    if (lastSwapError) {
+      throw lastSwapError;
+    }
+
     const detail = errors.length ? `Reasons: ${errors.join("; ")}` : "No providers available";
     throw new Error(`Failed to prepare swap with all providers. ${detail}`);
   }
