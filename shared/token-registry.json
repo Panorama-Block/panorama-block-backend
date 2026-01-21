@@ -831,11 +831,12 @@
           "icon": "https://assets.coingecko.com/coins/images/26115/small/btcb.png"
         },
         {
-          "address": "0x8EbAF22B6F053dFfEaf46F4dDE9EfA95d89ba8580",
+          "address": "0x8eBAf22B6F053dFFeaf46f4Dd9eFA95D89ba8580",
           "symbol": "UNI.e",
           "name": "Uniswap (Bridged)",
           "decimals": 18,
           "providers": [
+            "uniswap",
             "thirdweb"
           ],
           "icon": "https://assets.coingecko.com/coins/images/12504/small/uni.jpg"
