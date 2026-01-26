@@ -162,6 +162,7 @@ services:
       - .env
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./shared:/app/shared:ro
     depends_on:
       auth_service:
         condition: service_started

@@ -8,11 +8,76 @@ import {
   SwapTransaction,
   TransactionStatus,
 } from "../../domain/entities/swap";
-import { SwapError, SwapErrorCode } from "../../domain/entities/errors";
 import { ISwapService } from "../../domain/ports/swap.repository";
 import { resolveToken } from "../../config/tokens/registry";
+import { mapThirdwebError, mapThirdwebStatusError } from "./thirdweb.error.mapper";
 
 const BRIDGE_API = "https://bridge.thirdweb.com/v1";
+
+/**
+ * Fix EIP-1559 gas parameters if they are invalid.
+ * ThirdWeb sometimes returns maxPriorityFeePerGas > maxFeePerGas which is invalid.
+ * This function ensures maxFeePerGas >= maxPriorityFeePerGas.
+ */
+function fixGasParams(tx: any): any {
+  if (!tx || typeof tx !== 'object') return tx;
+
+  const maxFeePerGas = tx.maxFeePerGas;
+  const maxPriorityFeePerGas = tx.maxPriorityFeePerGas;
+
+  // Only fix if both are present and maxPriorityFeePerGas > maxFeePerGas
+  if (maxFeePerGas !== undefined && maxPriorityFeePerGas !== undefined) {
+    const maxFee = BigInt(maxFeePerGas);
+    const priorityFee = BigInt(maxPriorityFeePerGas);
+
+    if (priorityFee > maxFee) {
+      console.warn(
+        `[ThirdwebSwapAdapter] Fixing invalid gas params: maxFeePerGas (${maxFee}) < maxPriorityFeePerGas (${priorityFee})`
+      );
+      // Set maxFeePerGas to priorityFee + 20% buffer for base fee fluctuation
+      const fixedMaxFee = priorityFee + (priorityFee / 5n);
+      return {
+        ...tx,
+        maxFeePerGas: fixedMaxFee.toString(),
+      };
+    }
+  }
+
+  return tx;
+}
+
+/**
+ * Fix gas parameters for all transactions in the prepare response
+ */
+function fixPrepareResponseGasParams(data: any): any {
+  if (!data) return data;
+
+  // Handle steps array (ThirdWeb prepare response structure)
+  if (data.steps && Array.isArray(data.steps)) {
+    return {
+      ...data,
+      steps: data.steps.map((step: any) => {
+        if (step.transactions && Array.isArray(step.transactions)) {
+          return {
+            ...step,
+            transactions: step.transactions.map(fixGasParams),
+          };
+        }
+        return step;
+      }),
+    };
+  }
+
+  // Handle direct transactions array
+  if (data.transactions && Array.isArray(data.transactions)) {
+    return {
+      ...data,
+      transactions: data.transactions.map(fixGasParams),
+    };
+  }
+
+  return data;
+}
 
 export class ThirdwebSwapAdapter implements ISwapService {
   private client: ReturnType<typeof createThirdwebClient>;
@@ -125,25 +190,8 @@ export class ThirdwebSwapAdapter implements ISwapService {
         exchangeRate,
         Math.floor(estMs / 1000)
       );
-    } catch (error: any) {
-      const status = error?.statusCode || error?.status || error?.response?.status;
-      const code = error?.code || error?.response?.data?.code;
-      const correlationId = error?.correlationId || error?.response?.data?.correlationId;
-      console.error("[ThirdwebSwapAdapter] Error getting quote:", {
-        message: error?.message,
-        status,
-        code,
-        correlationId,
-      });
-      const detail = [
-        error?.message,
-        status ? `status=${status}` : undefined,
-        code ? `code=${code}` : undefined,
-        correlationId ? `correlationId=${correlationId}` : undefined,
-      ]
-        .filter(Boolean)
-        .join(", ");
-      throw new Error(`Failed to get quote: ${detail}`);
+    } catch (error: unknown) {
+      throw mapThirdwebError(error, 'getQuote');
     }
   }
 
@@ -175,38 +223,13 @@ export class ThirdwebSwapAdapter implements ISwapService {
       });
 
       // Response contains { steps: [{ transactions: [...] }], expiresAt, ... }
-      return response.data.data;
-    } catch (error: any) {
-      const status = error?.response?.status || error?.status;
-      const code = error?.response?.data?.code || error?.code;
-      const correlationId = error?.response?.data?.correlationId;
-      const errorMessage = error?.response?.data?.message || error?.message;
-
-      console.error("[ThirdwebSwapAdapter] Error preparing swap:", {
-        message: errorMessage,
-        status,
-        code,
-        correlationId,
-      });
-
-      // Handle specific error codes
-      if (code === 'AMOUNT_TOO_LOW') {
-        throw new SwapError(
-          SwapErrorCode.AMOUNT_TOO_LOW,
-          'The provided amount is too low for the requested route.',
-          { correlationId, status }
-        );
-      }
-
-      const detail = [
-        errorMessage,
-        status ? `status=${status}` : undefined,
-        code ? `code=${code}` : undefined,
-        correlationId ? `correlationId=${correlationId}` : undefined,
-      ]
-        .filter(Boolean)
-        .join(", ");
-      throw new Error(`Failed to prepare swap: ${detail}`);
+      // Fix invalid gas parameters before returning (ThirdWeb bug workaround)
+      console.log("[ThirdwebSwapAdapter] Raw response from ThirdWeb:", JSON.stringify(response.data.data, null, 2));
+      const fixedData = fixPrepareResponseGasParams(response.data.data);
+      console.log("[ThirdwebSwapAdapter] Fixed response:", JSON.stringify(fixedData, null, 2));
+      return fixedData;
+    } catch (error: unknown) {
+      throw mapThirdwebError(error, 'prepareSwap');
     }
   }
 
@@ -241,8 +264,8 @@ export class ThirdwebSwapAdapter implements ISwapService {
         default:
           return TransactionStatus.PENDING;
       }
-    } catch (error: any) {
-      throw new Error(`Failed to monitor transaction: ${error.message}`);
+    } catch (error: unknown) {
+      throw mapThirdwebStatusError(error, transactionHash);
     }
   }
 

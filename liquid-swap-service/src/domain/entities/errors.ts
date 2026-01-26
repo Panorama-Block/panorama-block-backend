@@ -10,6 +10,7 @@ export enum SwapErrorCode {
   INVALID_TOKEN_ADDRESS = 'INVALID_TOKEN_ADDRESS',
   INVALID_AMOUNT = 'INVALID_AMOUNT',
   AMOUNT_TOO_LOW = 'AMOUNT_TOO_LOW',
+  AMOUNT_TOO_HIGH = 'AMOUNT_TOO_HIGH',
   INVALID_CHAIN = 'INVALID_CHAIN',
   INVALID_SLIPPAGE = 'INVALID_SLIPPAGE',
   INVALID_DEADLINE = 'INVALID_DEADLINE',
@@ -27,6 +28,7 @@ export enum SwapErrorCode {
   SLIPPAGE_TOO_HIGH = 'SLIPPAGE_TOO_HIGH',
   APPROVAL_REQUIRED = 'APPROVAL_REQUIRED',
   INSUFFICIENT_BALANCE = 'INSUFFICIENT_BALANCE',
+  INVALID_GAS_PARAMS = 'INVALID_GAS_PARAMS',
 
   // ===== RATE LIMITING (429) =====
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
@@ -108,6 +110,7 @@ export class SwapError extends Error {
       SwapErrorCode.INVALID_TOKEN_ADDRESS,
       SwapErrorCode.INVALID_AMOUNT,
       SwapErrorCode.AMOUNT_TOO_LOW,
+      SwapErrorCode.AMOUNT_TOO_HIGH,
       SwapErrorCode.INVALID_CHAIN,
       SwapErrorCode.INVALID_SLIPPAGE,
       SwapErrorCode.INVALID_DEADLINE,
@@ -133,6 +136,7 @@ export class SwapError extends Error {
       SwapErrorCode.SLIPPAGE_TOO_HIGH,
       SwapErrorCode.APPROVAL_REQUIRED,
       SwapErrorCode.INSUFFICIENT_BALANCE,
+      SwapErrorCode.INVALID_GAS_PARAMS,
     ].includes(code)) {
       return 422;
     }

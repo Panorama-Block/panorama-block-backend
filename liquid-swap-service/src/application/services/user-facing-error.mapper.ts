@@ -72,6 +72,12 @@ const ERROR_MAPPINGS: Partial<Record<SwapErrorCode, ErrorMappingConfig>> = {
     description:
       'The amount is too low to cover network fees. Please increase the swap amount.',
   },
+  [SwapErrorCode.AMOUNT_TOO_HIGH]: {
+    category: 'user-action',
+    title: 'Amount too high',
+    description:
+      'The amount exceeds the maximum allowed for this route. Please reduce the swap amount or try a different token pair.',
+  },
   [SwapErrorCode.INVALID_TOKEN_ADDRESS]: {
     category: 'user-action',
     title: 'Token desconhecido',
@@ -131,6 +137,12 @@ const ERROR_MAPPINGS: Partial<Record<SwapErrorCode, ErrorMappingConfig>> = {
     title: 'Saldo insuficiente',
     description:
       'Seu saldo não cobre essa operação. Refaça o cálculo ou adicione fundos.',
+  },
+  [SwapErrorCode.INVALID_GAS_PARAMS]: {
+    category: 'temporary',
+    title: 'Parâmetros de gas inválidos',
+    description:
+      'O provedor retornou parâmetros de gas inconsistentes. Tente novamente ou escolha outra rota.',
   },
   [SwapErrorCode.RATE_LIMIT_EXCEEDED]: {
     category: 'temporary',
