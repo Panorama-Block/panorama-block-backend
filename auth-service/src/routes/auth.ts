@@ -2,7 +2,6 @@ import { Router, Request, Response, CookieOptions } from 'express';
 import { RedisClientType } from 'redis';
 import { randomBytes, createHash } from 'crypto';
 import jwt from 'jsonwebtoken';
-import nacl from 'tweetnacl';
 import {
   verifySignature,
   generateToken,
@@ -10,6 +9,8 @@ import {
   generateLoginPayload,
   isAuthConfigured,
 } from '../utils/thirdwebAuth';
+import { verifyTonSignature, type SignDataPayloadVariant } from '../ton/signData';
+import { verifyTonProofSignature, type TonProofInput } from '../ton/tonProof';
 
 const TON_PROOF_TTL_SECONDS = Number(process.env.TON_PROOF_TTL_SECONDS ?? 5 * 60);
 const TON_JWT_SECRET = process.env.TON_JWT_SECRET || process.env.JWT_SECRET || process.env.AUTH_PRIVATE_KEY || '';
@@ -33,7 +34,7 @@ function tonProofKey(payload: string) {
   return `${TON_PROOF_KEY_PREFIX}${payload}`;
 }
 
-async function storeTonProof(redisClient: RedisClientType, payload: string, address: string) {
+async function storeTonProof(redisClient: RedisClientType, payload: string, address?: string) {
   const expiresAt = new Date(Date.now() + TON_PROOF_TTL_SECONDS * 1000).toISOString();
   const key = tonProofKey(payload);
   await redisClient.set(
@@ -54,98 +55,6 @@ async function consumeTonProof(redisClient: RedisClientType, payload: string) {
   } catch {
     return null;
   }
-}
-
-function parseRawTonAddress(address: string) {
-  const [workchainRaw, hashHex] = address.split(':');
-  if (!workchainRaw || !hashHex) {
-    throw new Error('Invalid TON address');
-  }
-  const workchain = Number(workchainRaw);
-  const hash = Buffer.from(hashHex, 'hex');
-  if (!Number.isInteger(workchain) || hash.length !== 32) {
-    throw new Error('Invalid TON address');
-  }
-  const wcBuffer = Buffer.alloc(4);
-  wcBuffer.writeInt32BE(workchain);
-  return { workchain, hash, wcBuffer };
-}
-
-type SignDataPayloadVariant =
-  | { type: 'text'; text: string }
-  | { type: 'binary'; bytes: string }
-  | { type: 'cell'; schema: string; cell: string };
-
-function createTonSignDataHash(options: {
-  address: string;
-  payload: string;
-  domain: string;
-  timestamp: number;
-  payloadMeta?: SignDataPayloadVariant;
-}) {
-  const { address, payload, domain, timestamp, payloadMeta } = options;
-  const { hash, wcBuffer } = parseRawTonAddress(address);
-
-  const domainBuffer = Buffer.from(domain, 'utf8');
-  const domainLenBuffer = Buffer.alloc(4);
-  domainLenBuffer.writeUInt32BE(domainBuffer.length);
-
-  const tsBuffer = Buffer.alloc(8);
-  tsBuffer.writeBigUInt64BE(BigInt(timestamp));
-
-  const payloadType = payloadMeta?.type || 'text';
-  let payloadPrefix: Buffer;
-  let payloadBuffer: Buffer;
-
-  if (payloadMeta && payloadMeta.type === 'binary') {
-    payloadPrefix = Buffer.from('bin');
-    payloadBuffer = Buffer.from(payloadMeta.bytes || '', 'base64');
-  } else {
-    payloadPrefix = Buffer.from('txt');
-    const textToUse =
-      payloadMeta && payloadMeta.type === 'text'
-        ? payloadMeta.text
-        : payload;
-    payloadBuffer = Buffer.from(textToUse, 'utf8');
-  }
-  const payloadLenBuffer = Buffer.alloc(4);
-  payloadLenBuffer.writeUInt32BE(payloadBuffer.length);
-
-  const message = Buffer.concat([
-    Buffer.from([0xff, 0xff]),
-    Buffer.from('ton-connect/sign-data/'),
-    wcBuffer,
-    hash,
-    domainLenBuffer,
-    domainBuffer,
-    tsBuffer,
-    payloadPrefix,
-    payloadLenBuffer,
-    payloadBuffer,
-  ]);
-
-  return createHash('sha256').update(message).digest();
-}
-
-function verifyTonSignature(options: {
-  payload: string;
-  signature: string;
-  publicKey: string;
-  address: string;
-  domain: string;
-  timestamp: number;
-  payloadMeta?: SignDataPayloadVariant;
-}) {
-  const { payload, signature, publicKey, address, domain, timestamp, payloadMeta } = options;
-  const signatureBytes = Buffer.from(signature, 'base64');
-  const cleanedPublicKey = publicKey.startsWith('0x') ? publicKey.slice(2) : publicKey;
-  const publicKeyBytes = Buffer.from(cleanedPublicKey, 'hex');
-  if (publicKeyBytes.length !== 32 || signatureBytes.length !== 64) {
-    return false;
-  }
-
-  const hash = createTonSignDataHash({ address, payload, domain, timestamp, payloadMeta });
-  return nacl.sign.detached.verify(hash, signatureBytes, publicKeyBytes);
 }
 
 function buildTonJwt(address: string) {
@@ -359,9 +268,6 @@ export default function authRoutes(redisClient: RedisClientType) {
   router.post('/ton/payload', async (req: Request, res: Response) => {
     try {
       const { address } = req.body;
-      if (!address) {
-        return res.status(400).json({ error: 'Address is required' });
-      }
 
       const payload = randomBytes(32).toString('hex');
       const stored = await storeTonProof(redisClient, payload, address);
@@ -377,13 +283,72 @@ export default function authRoutes(redisClient: RedisClientType) {
 
   router.post('/ton/verify', async (req: Request, res: Response) => {
     try {
-      const { address, payload, signature, publicKey, timestamp, domain, payloadMeta } = req.body;
+      const {
+        address,
+        payload,
+        signature,
+        publicKey,
+        timestamp,
+        domain,
+        payloadMeta,
+        proof,
+        public_key,
+      } = req.body;
+
+      // New flow: TonConnect proof verification
+      if (proof) {
+        const typedProof = proof as TonProofInput;
+        if (!address || !public_key || !typedProof?.payload || !typedProof?.signature || !typedProof?.domain?.value || !typedProof?.timestamp) {
+          return res.status(400).json({ error: 'Missing ton_proof verification arguments' });
+        }
+
+        const stored = await consumeTonProof(redisClient, typedProof.payload);
+        if (!stored || (stored.address && stored.address !== address)) {
+          return res.status(400).json({ error: 'Proof expired or mismatched' });
+        }
+
+        const timestampNumber = Number(typedProof.timestamp);
+        if (!Number.isFinite(timestampNumber) || timestampNumber <= 0) {
+          return res.status(400).json({ error: 'Invalid timestamp' });
+        }
+
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const skew = Math.abs(nowSeconds - timestampNumber);
+        if (skew > TON_PROOF_TTL_SECONDS) {
+          return res.status(400).json({ error: 'Proof timestamp expired' });
+        }
+
+        const domainValue = typedProof.domain.value;
+        const expectedDomain = process.env.TON_PROOF_DOMAIN;
+        if (expectedDomain && domainValue !== expectedDomain) {
+          return res.status(400).json({ error: 'Domain mismatch' });
+        }
+        if (typedProof.domain.lengthBytes !== Buffer.from(domainValue, 'utf8').length) {
+          return res.status(400).json({ error: 'Invalid domain length' });
+        }
+
+        if (!verifyTonProofSignature({
+          payload: typedProof.payload,
+          signature: typedProof.signature,
+          publicKey: public_key,
+          address,
+          domain: domainValue,
+          timestamp: timestampNumber,
+        })) {
+          return res.status(401).json({ error: 'Signature validation failed' });
+        }
+
+        const token = buildTonJwt(address);
+        return res.json({ token, address });
+      }
+
+      // Legacy flow: signData verification
       if (!address || !payload || !signature || !publicKey || !timestamp || !domain) {
         return res.status(400).json({ error: 'Missing verification arguments' });
       }
 
       const stored = await consumeTonProof(redisClient, payload);
-      if (!stored || stored.address !== address) {
+      if (!stored || (stored.address && stored.address !== address)) {
         return res.status(400).json({ error: 'Proof expired or mismatched' });
       }
 
