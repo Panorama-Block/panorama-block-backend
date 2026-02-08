@@ -80,11 +80,20 @@ export class AuthMiddleware {
         AuthMiddleware.logger.error('[Lido Service] ❌ Error validating token with Auth service:',
           axiosError.response?.data?.message || axiosError.message);
 
-        res.status(500).json({
-          success: false,
-          error: 'Authentication error',
-          message: 'Could not validate authentication with auth service'
-        });
+        const status = axiosError.response?.status;
+        if (status === 401 || status === 400) {
+          res.status(401).json({
+            success: false,
+            error: 'Invalid token',
+            message: axiosError.response?.data?.message || 'Token validation failed'
+          });
+        } else {
+          res.status(503).json({
+            success: false,
+            error: 'Authentication service unavailable',
+            message: 'Could not validate authentication with auth service'
+          });
+        }
         return;
       }
     } catch (error) {
@@ -165,6 +174,51 @@ export class AuthMiddleware {
         error: 'Internal server error'
       });
     }
+  }
+
+  /**
+   * Require body userAddress to match the authenticated user
+   * Useful for POST routes where the resource owner is provided in JSON body.
+   */
+  static requireBodyUserAddress(fieldName: string = 'userAddress') {
+    return (req: AuthRequest, res: Response, next: NextFunction): void => {
+      try {
+        if (!req.user || !req.user.address) {
+          res.status(401).json({
+            success: false,
+            error: 'User authentication required'
+          });
+          return;
+        }
+
+        const bodyAddress = (req.body as any)?.[fieldName];
+        if (!bodyAddress || typeof bodyAddress !== 'string') {
+          res.status(400).json({
+            success: false,
+            error: `${fieldName} is required`
+          });
+          return;
+        }
+
+        if (bodyAddress.toLowerCase() !== String(req.user.address).toLowerCase()) {
+          res.status(403).json({
+            success: false,
+            error: 'Access denied: token user does not match requested user'
+          });
+          return;
+        }
+
+        next();
+      } catch (error) {
+        AuthMiddleware.logger.error(
+          `❌ [Lido Service] Body user address validation error: ${(error as Error).message}`
+        );
+        res.status(500).json({
+          success: false,
+          error: 'Internal server error'
+        });
+      }
+    };
   }
 }
 

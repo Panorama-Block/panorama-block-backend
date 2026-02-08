@@ -202,7 +202,6 @@ class LidoServiceClient {
         console.log('✅ Protocol info retrieved!');
         console.log(`Total Staked: ${response.data.data.totalStaked} ETH`);
         console.log(`Current APY: ${response.data.data.currentAPY}%`);
-        console.log(`stETH Price: $${response.data.data.stETHPrice}`);
         return response.data.data;
       } else {
         throw new Error(response.data.error);

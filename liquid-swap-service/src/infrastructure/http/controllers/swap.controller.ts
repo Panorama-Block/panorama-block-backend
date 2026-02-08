@@ -46,13 +46,14 @@ export class SwapController {
     try {
       console.log("[SwapController] Getting swap quote");
 
-      const { fromChainId, toChainId, fromToken, toToken, amount, smartAccountAddress } =
+      const { fromChainId, toChainId, fromToken, toToken, amount, unit, smartAccountAddress } =
         (req.body ?? {}) as {
           fromChainId?: number;
           toChainId?: number;
           fromToken?: string;
           toToken?: string;
           amount?: string;
+          unit?: "token" | "wei";
           smartAccountAddress?: string;
         };
 
@@ -80,6 +81,7 @@ export class SwapController {
         fromToken,
         toToken,
         amount,
+        unit,
         sender,
       });
 

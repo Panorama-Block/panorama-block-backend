@@ -134,7 +134,7 @@ Content-Type: application/json
   "fromToken": "native",
   "toToken": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
   "amount": "1000000000000000",
-  "unit": "wei"
+  "unit": "wei" // recommended: always send unit ("token" or "wei")
 }
 ```
 

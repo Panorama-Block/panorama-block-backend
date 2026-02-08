@@ -91,7 +91,7 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-bridge-service
     ports:
-      - "${BRIDGE_PORT:-3006}:3005"
+      - "${BRIDGE_PORT:-3003}:3005"
     environment:
       - PORT=3005
       - NODE_ENV=${NODE_ENV}
@@ -162,6 +162,10 @@ services:
       - THIRDWEB_SECRET_KEY=${THIRDWEB_SECRET_KEY}
       - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
       - RPC_URL=${RPC_URL}
+      # Persistence (optional): store positions/tx/history in Postgres
+      - DATABASE_URL=${LIDO_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@engine_postgres:5432/${POSTGRES_DB:-postgres}}
+      # Optional: isolate Lido tables in a dedicated schema in the same database
+      - LIDO_DB_SCHEMA=${LIDO_DB_SCHEMA:-lido}
       # Engine configuration (for ERC-4337 execution)
       - ENGINE_URL=http://engine:3005
       - ENGINE_ENABLED=${ENGINE_ENABLED}

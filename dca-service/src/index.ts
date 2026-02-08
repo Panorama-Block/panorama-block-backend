@@ -83,6 +83,14 @@ async function initializeDatabase() {
   try {
     console.log('[DCA Service] 🔌 Connecting to PostgreSQL...');
 
+    // Ensure the target database exists (Compose sets DATABASE_URL to panorama_dca)
+    // This is safe to run on every startup (it no-ops if DB already exists).
+    try {
+      await DatabaseService.createDatabaseIfNotExists();
+    } catch (e) {
+      console.warn('[DCA Service] ⚠️  Failed to auto-create DB (will still try to connect):', e);
+    }
+
     // Get database instance
     const db = DatabaseService.getInstance();
 

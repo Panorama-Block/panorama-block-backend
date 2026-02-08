@@ -10,7 +10,6 @@ This service provides a REST API for interacting with the Lido protocol for Ethe
 
 - **Staking Operations**: Stake ETH to receive stETH tokens
 - **Unstaking Operations**: Convert stETH back to ETH
-- **Rewards Management**: Claim staking rewards
 - **Position Tracking**: Monitor staking positions and balances
 - **Protocol Information**: Get real-time Lido protocol data
 - **Transaction Status**: Track transaction status and history
@@ -25,55 +24,16 @@ The service follows hexagonal architecture (ports and adapters) with the followi
 
 ## API Endpoints
 
-### Authentication
+### Authentication (Centralized)
 
-#### POST /api/lido/auth/login
-Login with user address to get JWT tokens.
+This service uses the centralized `auth-service` (same as `liquid-swap-service`):
 
-**Request Body:**
-```json
-{
-  "userAddress": "0x..."
-}
-```
+1. `POST {AUTH_SERVICE_URL}/auth/login` → get SIWE payload
+2. Sign payload with wallet
+3. `POST {AUTH_SERVICE_URL}/auth/verify` → receive JWT (`token`)
+4. Call Lido endpoints with `Authorization: Bearer <token>`
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "userAddress": "0x...",
-    "accessToken": "eyJ...",
-    "refreshToken": "eyJ...",
-    "expiresIn": 900,
-    "tokenType": "Bearer"
-  }
-}
-```
-
-#### POST /api/lido/auth/refresh
-Refresh access token using refresh token.
-
-**Request Body:**
-```json
-{
-  "refreshToken": "eyJ..."
-}
-```
-
-#### GET /api/lido/auth/verify
-Verify access token validity.
-
-**Headers:**
-```
-Authorization: Bearer <accessToken>
-```
-
-#### GET /api/lido/auth/token-info
-Get token information without verification.
-
-#### POST /api/lido/auth/logout
-Logout (client-side token invalidation).
+**Important:** protected endpoints require `userAddress` in the body to match the authenticated JWT address.
 
 ### Staking Operations
 
@@ -116,7 +76,9 @@ Convert stETH back to ETH.
 ```
 
 #### POST /api/lido/claim-rewards
-Claim accumulated staking rewards.
+Legacy/no-op endpoint.
+
+> Note: Lido stETH is rebasing; there is no classic “claim rewards” flow. Rewards are reflected automatically in the stETH balance.
 
 **Request Body:**
 ```json
@@ -137,10 +99,9 @@ Get staking position for a user.
   "data": {
     "id": "pos_...",
     "userAddress": "0x...",
-    "stakedAmount": "5.0",
-    "stETHBalance": "5.0",
-    "wstETHBalance": "0.0",
-    "rewards": "0.1",
+    "stakedAmount": "5000000000000000000",
+    "stETHBalance": "5000000000000000000",
+    "wstETHBalance": "0",
     "apy": 4.5,
     "timestamp": "2024-01-01T00:00:00.000Z",
     "status": "active"
@@ -151,21 +112,33 @@ Get staking position for a user.
 #### GET /api/lido/history/:userAddress?limit=50
 Get staking transaction history for a user.
 
+#### GET /api/lido/portfolio/:userAddress?days=30
+Get persisted portfolio snapshot:
+- `assets`: current tracked balances (stETH + wstETH)
+- `dailyMetrics`: daily time series (requires DB; otherwise empty)
+
+### Withdrawals (Lido Withdrawal Queue)
+
+#### GET /api/lido/withdrawals/:userAddress
+List withdrawal requests and their on-chain status (`isFinalized`, `isClaimed`).
+
+#### POST /api/lido/withdrawals/claim
+Prepare a `claimWithdrawals(requestIds, hints)` transaction (requires JWT).
+
 ### Protocol Information
 
 #### GET /api/lido/protocol/info
 Get current Lido protocol information.
+
+> Note: `currentAPY` can be `null` if the upstream protocol API is unavailable.
 
 **Response:**
 ```json
 {
   "success": true,
   "data": {
-    "totalStaked": "1000000.0",
-    "totalRewards": "45000.0",
-    "currentAPY": 4.5,
-    "stETHPrice": "1.0",
-    "wstETHPrice": "1.0",
+    "totalStaked": "1000000000000000000000000",
+    "currentAPY": 4.2,
     "lastUpdate": "2024-01-01T00:00:00.000Z"
   }
 }
@@ -176,35 +149,29 @@ Get current Lido protocol information.
 #### GET /api/lido/transaction/:transactionHash
 Get transaction status by hash.
 
-## Environment Variables
+#### POST /api/lido/transaction/submit
+Record the transaction hash for a previously prepared transaction (`id`) so it can show up in history (requires JWT).
 
-Create a `.env` file based on `env.example`:
+## Environment Variables
 
 ```bash
 # Server Configuration
 PORT=3004
 NODE_ENV=development
+LOG_LEVEL=info
 
-# Ethereum Network Configuration
+# Auth (centralized)
+AUTH_SERVICE_URL=http://auth_service:3001
+
+# Persistence (optional)
+DATABASE_URL=postgresql://postgres:postgres@engine_postgres:5432/postgres
+
+# Optional: isolate tables in a dedicated schema in the same database
+LIDO_DB_SCHEMA=lido
+
+# Ethereum (required)
 ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/YOUR_INFURA_KEY
 ETHEREUM_CHAIN_ID=1
-
-# Lido Protocol Configuration
-LIDO_STETH_CONTRACT=0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84
-LIDO_WSTETH_CONTRACT=0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0
-LIDO_REWARDS_CONTRACT=0x00000000219ab540356cBB839Cbe05303d7705Fa
-
-# Thirdweb Configuration
-THIRDWEB_CLIENT_ID=your_thirdweb_client_id
-THIRDWEB_SECRET_KEY=your_thirdweb_secret_key
-
-# JWT Configuration
-JWT_SECRET=your_jwt_secret_key
-JWT_REFRESH_SECRET=your_jwt_refresh_secret_key
-JWT_ISSUER=lido-service
-JWT_AUDIENCE=panorama-block
-JWT_ACCESS_EXPIRY=15m
-JWT_REFRESH_EXPIRY=7d
 ```
 
 ## Installation

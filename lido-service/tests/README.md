@@ -152,24 +152,27 @@ curl: (7) Failed to connect to localhost port 3004
 ```
 
 **Solution:**
-1. Check JWT configuration in `.env`
-2. Verify API is properly initialized
-3. Check logs for authentication errors
+1. Ensure you are using the centralized `auth-service` (SIWE) and have a valid JWT.
+2. Export the token for test scripts: `export AUTH_TOKEN='eyJ...'`
+3. Ensure `TEST_USER` matches the JWT address (protected endpoints enforce it).
+4. Check service logs (auth-service + lido-service) for validation failures.
 
 ## Test Coverage
 
 ### Endpoints Tested
 - `GET /health` - Health check
-- `POST /api/lido/auth/login` - User login
-- `GET /api/lido/auth/verify` - Token verification
-- `POST /api/lido/auth/refresh` - Token refresh
-- `POST /api/lido/auth/logout` - User logout
+- `POST {AUTH_SERVICE_URL}/auth/login` - SIWE payload
+- `POST {AUTH_SERVICE_URL}/auth/verify` - JWT token
+- `POST {AUTH_SERVICE_URL}/auth/validate` - Token validation (internal)
 - `POST /api/lido/stake` - Stake ETH
 - `POST /api/lido/unstake` - Unstake stETH
 - `POST /api/lido/claim-rewards` - Claim rewards
 - `GET /api/lido/position/:userAddress` - Get position
 - `GET /api/lido/history/:userAddress` - Get history
+- `GET /api/lido/withdrawals/:userAddress` - List withdrawal requests
+- `POST /api/lido/withdrawals/claim` - Claim finalized withdrawals (prepare tx)
 - `GET /api/lido/protocol/info` - Protocol information
+- `POST /api/lido/transaction/submit` - Record tx hash for history
 
 ### Error Cases Tested
 - Invalid user addresses

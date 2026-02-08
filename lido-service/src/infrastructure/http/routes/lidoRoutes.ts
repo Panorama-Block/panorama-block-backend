@@ -18,18 +18,21 @@ const getLidoController = () => {
 // Staking operations (require authentication)
 router.post('/stake', 
   AuthMiddleware.authenticate,
+  AuthMiddleware.requireBodyUserAddress(),
   ValidationMiddleware.validateStakeRequest,
   ErrorHandler.asyncWrapper((req, res) => getLidoController().stake(req, res))
 );
 
 router.post('/unstake', 
   AuthMiddleware.authenticate,
+  AuthMiddleware.requireBodyUserAddress(),
   ValidationMiddleware.validateUnstakeRequest,
   ErrorHandler.asyncWrapper((req, res) => getLidoController().unstake(req, res))
 );
 
 router.post('/claim-rewards', 
   AuthMiddleware.authenticate,
+  AuthMiddleware.requireBodyUserAddress(),
   ErrorHandler.asyncWrapper((req, res) => getLidoController().claimRewards(req, res))
 );
 
@@ -46,9 +49,37 @@ router.get('/history/:userAddress',
   ErrorHandler.asyncWrapper((req, res) => getLidoController().getStakingHistory(req, res))
 );
 
+router.get('/portfolio/:userAddress',
+  AuthMiddleware.optionalAuth,
+  ValidationMiddleware.validateUserAddress,
+  ErrorHandler.asyncWrapper((req, res) => getLidoController().getPortfolio(req, res))
+);
+
+// Withdrawal Queue (optional auth to read, auth required to claim)
+router.get('/withdrawals/:userAddress',
+  AuthMiddleware.optionalAuth,
+  ValidationMiddleware.validateUserAddress,
+  ErrorHandler.asyncWrapper((req, res) => getLidoController().getWithdrawals(req, res))
+);
+
+router.post('/withdrawals/claim',
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireBodyUserAddress(),
+  ValidationMiddleware.validateClaimWithdrawalsRequest,
+  ErrorHandler.asyncWrapper((req, res) => getLidoController().claimWithdrawals(req, res))
+);
+
 // Protocol information (public)
 router.get('/protocol/info', 
   ErrorHandler.asyncWrapper((req, res) => getLidoController().getProtocolInfo(req, res))
+);
+
+// Record txHash for prepared transactions (requires auth)
+router.post('/transaction/submit',
+  AuthMiddleware.authenticate,
+  AuthMiddleware.requireBodyUserAddress(),
+  ValidationMiddleware.validateTransactionSubmitRequest,
+  ErrorHandler.asyncWrapper((req, res) => getLidoController().submitTransactionHash(req, res))
 );
 
 // Transaction status (public)

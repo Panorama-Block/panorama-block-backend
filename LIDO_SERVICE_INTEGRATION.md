@@ -4,6 +4,8 @@
 
 O **Lido Service** foi integrado ao ecossistema Docker do panorama-block-backend e agora usa o **mesmo fluxo de autenticação centralizado** do `liquid-swap-service`, através do `auth-service`.
 
+> English version: `panorama-block-backend/LIDO_SERVICE_INTEGRATION_EN.md`
+
 ## 🎯 O que mudou?
 
 ### Antes ❌
@@ -105,14 +107,49 @@ curl -X POST http://localhost:3004/api/lido/stake \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
   -d '{
     "userAddress": "0xYourWalletAddress",
-    "amount": "1000000000000000000"
+    "amount": "1.0"
   }'
 ```
+
+> Nota sobre unidades:
+> - **Inputs** (`stake/unstake`): `amount` é uma string em **ETH/stETH** (ex.: `"0.01"`, `"1.5"`).
+> - **Outputs** (`position/protocol/history`): valores monetários são retornados como **wei strings** para padronização.
 
 #### Exemplo: Obter posição de staking
 ```bash
 curl -X GET http://localhost:3004/api/lido/position/0xYourWalletAddress \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+#### Exemplo: Withdrawals (Withdrawal Queue)
+Listar requests:
+```bash
+curl -X GET http://localhost:3004/api/lido/withdrawals/0xYourWalletAddress \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+Claim (quando `isFinalized=true` e `isClaimed=false`):
+```bash
+curl -X POST http://localhost:3004/api/lido/withdrawals/claim \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{
+    "userAddress": "0xYourWalletAddress",
+    "requestIds": ["123456"]
+  }'
+```
+
+#### Exemplo: Tracking de tx (non-custodial)
+Depois que o frontend envia a transação, informe o hash para o backend persistir e permitir histórico/status:
+```bash
+curl -X POST http://localhost:3004/api/lido/transaction/submit \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{
+    "id": "tx_...",
+    "userAddress": "0xYourWalletAddress",
+    "transactionHash": "0x..."
+  }'
 ```
 
 ---
@@ -335,7 +372,9 @@ lido_service:
 |--------|----------|-----------|
 | `POST` | `/api/lido/stake` | Fazer stake de ETH |
 | `POST` | `/api/lido/unstake` | Unstake de stETH |
-| `POST` | `/api/lido/claim-rewards` | Reivindicar recompensas |
+| `POST` | `/api/lido/claim-rewards` | Legacy/no-op (stETH é rebasing; não existe “claim” clássico) |
+| `POST` | `/api/lido/withdrawals/claim` | Claim de withdrawals finalizados |
+| `POST` | `/api/lido/transaction/submit` | Registrar `txHash` para histórico/status |
 
 ### Opcionais (JWT opcional)
 
@@ -343,6 +382,8 @@ lido_service:
 |--------|----------|-----------|
 | `GET` | `/api/lido/position/:userAddress` | Posição de staking do usuário |
 | `GET` | `/api/lido/history/:userAddress` | Histórico de transações |
+| `GET` | `/api/lido/portfolio/:userAddress` | Snapshot (assets + métricas diárias), `?days=30` |
+| `GET` | `/api/lido/withdrawals/:userAddress` | Withdrawal Queue requests + status |
 
 ---
 
@@ -361,6 +402,10 @@ AUTH_SERVICE_URL=http://auth_service:3001  # Dev
 # Ethereum RPC
 ETHEREUM_RPC_URL=https://rpc.ankr.com/eth/f7bf95c709760fc...
 RPC_URL=https://rpc.ankr.com/eth/f7bf95c709760fc...
+
+# Postgres (opcional; habilita persistência + portfolio)
+# DATABASE_URL=postgresql://user:pass@engine_postgres:5432/engine
+LIDO_DB_SCHEMA=lido
 
 # ThirdWeb Engine (ERC-4337)
 ENGINE_URL=http://engine:3005

@@ -31,17 +31,10 @@ export class LidoController {
 
   async stake(req: Request, res: Response): Promise<void> {
     try {
-      this.logger.info('🎯 Stake Controller - Request received:');
-      this.logger.info(`   Headers: ${JSON.stringify(req.headers, null, 2)}`);
-      this.logger.info(`   Body: ${JSON.stringify(req.body, null, 2)}`);
-      this.logger.info(`   User: ${JSON.stringify((req as any).user, null, 2)}`);
-      
-      const { userAddress, amount, privateKey } = req.body;
+      const { userAddress, amount } = req.body;
 
       if (!userAddress || !amount) {
-        this.logger.error('❌ Missing required parameters:');
-        this.logger.error(`   userAddress: ${userAddress}`);
-        this.logger.error(`   amount: ${amount}`);
+        this.logger.error('❌ Missing required parameters for stake');
         res.status(400).json({
           success: false,
           error: 'User address and amount are required'
@@ -49,9 +42,12 @@ export class LidoController {
         return;
       }
 
-      this.logger.info(`✅ Parameters validated - userAddress: ${userAddress}, amount: ${amount}, privateKey: ${privateKey ? 'provided' : 'not provided'}`);
+      this.logger.info('🎯 Stake request', {
+        userAddress,
+        amount
+      });
 
-      const result = await this.stakeUseCase.execute({ userAddress, amount, privateKey });
+      const result = await this.stakeUseCase.execute({ userAddress, amount });
 
       this.logger.info(`📊 Stake UseCase result: ${JSON.stringify(result, null, 2)}`);
 
@@ -80,10 +76,7 @@ export class LidoController {
 
   async unstake(req: Request, res: Response): Promise<void> {
     try {
-      this.logger.info('🎯 Unstake Controller - Request received:');
-      this.logger.info(`   Body: ${JSON.stringify(req.body, null, 2)}`);
-
-      const { userAddress, amount, privateKey } = req.body;
+      const { userAddress, amount } = req.body;
 
       if (!userAddress || !amount) {
         this.logger.error('❌ Missing required parameters');
@@ -94,9 +87,12 @@ export class LidoController {
         return;
       }
 
-      this.logger.info(`✅ Parameters validated - userAddress: ${userAddress}, amount: ${amount}`);
+      this.logger.info('🎯 Unstake request', {
+        userAddress,
+        amount
+      });
 
-      const result = await this.unstakeUseCase.execute({ userAddress, amount, privateKey });
+      const result = await this.unstakeUseCase.execute({ userAddress, amount });
 
       this.logger.info(`📊 Unstake UseCase result:`);
       this.logger.info(`   success: ${result.success}`);
@@ -129,7 +125,7 @@ export class LidoController {
 
   async claimRewards(req: Request, res: Response): Promise<void> {
     try {
-      const { userAddress, privateKey } = req.body;
+      const { userAddress } = req.body;
 
       if (!userAddress) {
         res.status(400).json({
@@ -139,7 +135,7 @@ export class LidoController {
         return;
       }
 
-      const transaction = await this.lidoService.claimRewards(userAddress, privateKey);
+      const transaction = await this.lidoService.claimRewards(userAddress);
 
       res.status(200).json({
         success: true,
@@ -212,6 +208,130 @@ export class LidoController {
       res.status(500).json({
         success: false,
         error: 'Internal server error'
+      });
+    }
+  }
+
+  async getPortfolio(req: Request, res: Response): Promise<void> {
+    try {
+      const { userAddress } = req.params;
+      const days = Math.max(1, Math.min(parseInt(req.query.days as string) || 30, 365));
+
+      if (!userAddress) {
+        res.status(400).json({
+          success: false,
+          error: 'User address is required',
+        });
+        return;
+      }
+
+      const [assets, dailyMetrics] = await Promise.all([
+        this.lidoService.getPortfolioAssets(userAddress),
+        this.lidoService.getPortfolioDailyMetrics(userAddress, days),
+      ]);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          userAddress,
+          assets,
+          dailyMetrics,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Error in getPortfolio controller: ${error}`);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
+    }
+  }
+
+  async getWithdrawals(req: Request, res: Response): Promise<void> {
+    try {
+      const { userAddress } = req.params;
+
+      if (!userAddress) {
+        res.status(400).json({
+          success: false,
+          error: 'User address is required',
+        });
+        return;
+      }
+
+      const requests = await this.lidoService.getWithdrawalRequests(userAddress);
+
+      res.status(200).json({
+        success: true,
+        data: requests,
+      });
+    } catch (error) {
+      this.logger.error(`Error in getWithdrawals controller: ${error}`);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
+    }
+  }
+
+  async claimWithdrawals(req: Request, res: Response): Promise<void> {
+    try {
+      const { userAddress, requestIds } = req.body as {
+        userAddress?: string;
+        requestIds?: string[];
+      };
+
+      if (!userAddress || !requestIds?.length) {
+        res.status(400).json({
+          success: false,
+          error: 'userAddress and requestIds are required',
+        });
+        return;
+      }
+
+      const transaction = await this.lidoService.claimWithdrawals(userAddress, requestIds);
+
+      res.status(200).json({
+        success: true,
+        data: transaction,
+      });
+    } catch (error) {
+      this.logger.error(`Error in claimWithdrawals controller: ${error}`);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
+    }
+  }
+
+  async submitTransactionHash(req: Request, res: Response): Promise<void> {
+    try {
+      const { id, userAddress, transactionHash } = req.body as {
+        id?: string;
+        userAddress?: string;
+        transactionHash?: string;
+      };
+
+      if (!id || !userAddress || !transactionHash) {
+        res.status(400).json({
+          success: false,
+          error: 'id, userAddress and transactionHash are required',
+        });
+        return;
+      }
+
+      await this.lidoService.submitTransactionHash(id, userAddress, transactionHash);
+
+      res.status(200).json({
+        success: true,
+        data: { id, transactionHash },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Error in submitTransactionHash controller: ${message}`);
+      res.status(message === 'Transaction not found' ? 404 : 500).json({
+        success: false,
+        error: message === 'Transaction not found' ? message : 'Internal server error',
       });
     }
   }

@@ -43,10 +43,6 @@ export class EthereumConfig {
     return this.provider;
   }
 
-  public getSigner(privateKey: string): ethers.Wallet {
-    return new ethers.Wallet(privateKey, this.provider);
-  }
-
   public getChainId(): number {
     return parseInt(process.env.ETHEREUM_CHAIN_ID || '1');
   }
