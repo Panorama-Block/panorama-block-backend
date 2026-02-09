@@ -558,6 +558,261 @@ const entityConfigs: EntityConfig[] = [
     filter: baseQuerySchema
   },
   {
+    collection: 'lending-markets',
+    model: 'LendingMarket',
+    primaryKeys: ['marketId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { updatedAt: 'desc' },
+    create: z
+      .object({
+        marketId: z.string().optional(),
+        chainId: z.number().int(),
+        protocol: z.string().optional(),
+        qTokenAddress: z.string(),
+        qTokenSymbol: z.string(),
+        underlyingAddress: z.string(),
+        underlyingSymbol: z.string(),
+        underlyingDecimals: z.number().int().optional(),
+        collateralFactorBps: z.number().int().optional(),
+        liquidationIncentiveBps: z.number().int().optional(),
+        supplyApyBps: z.number().int().optional(),
+        borrowApyBps: z.number().int().optional(),
+        isActive: z.boolean().optional(),
+        metadata: jsonRecord.optional(),
+        createdAt: isoDate.optional(),
+        updatedAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        protocol: z.string().optional(),
+        qTokenSymbol: z.string().optional(),
+        underlyingSymbol: z.string().optional(),
+        underlyingDecimals: z.number().int().optional(),
+        collateralFactorBps: z.number().int().optional(),
+        liquidationIncentiveBps: z.number().int().optional(),
+        supplyApyBps: z.number().int().optional(),
+        borrowApyBps: z.number().int().optional(),
+        isActive: z.boolean().optional(),
+        metadata: jsonRecord.optional(),
+        updatedAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'lending-positions',
+    model: 'LendingPosition',
+    primaryKeys: ['positionId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { updatedAt: 'desc' },
+    create: z
+      .object({
+        positionId: z.string().optional(),
+        userId: z.string(),
+        marketId: z.string(),
+        suppliedWei: z.string().optional(),
+        borrowedWei: z.string().optional(),
+        collateralEnabled: z.boolean().optional(),
+        createdAt: isoDate.optional(),
+        updatedAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        suppliedWei: z.string().optional(),
+        borrowedWei: z.string().optional(),
+        collateralEnabled: z.boolean().optional(),
+        updatedAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'lending-snapshots',
+    model: 'LendingSnapshotDaily',
+    primaryKeys: ['snapshotId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { date: 'desc' },
+    create: z
+      .object({
+        snapshotId: z.string().optional(),
+        userId: z.string(),
+        chainId: z.number().int(),
+        date: isoDate,
+        totalSuppliedWei: z.string().optional(),
+        totalBorrowedWei: z.string().optional(),
+        liquidityWei: z.string().optional(),
+        shortfallWei: z.string().optional(),
+        healthFactor: z.string().optional(),
+        metadata: jsonRecord.optional(),
+        createdAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        totalSuppliedWei: z.string().optional(),
+        totalBorrowedWei: z.string().optional(),
+        liquidityWei: z.string().optional(),
+        shortfallWei: z.string().optional(),
+        healthFactor: z.string().optional(),
+        metadata: jsonRecord.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'lending-txs',
+    model: 'LendingTx',
+    primaryKeys: ['txId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { createdAt: 'desc' },
+    create: z
+      .object({
+        txId: z.string().optional(),
+        userId: z.string(),
+        chainId: z.number().int(),
+        action: z.string(),
+        amountWei: z.string().optional(),
+        txHash: z.string().optional(),
+        status: z.string().optional(),
+        errorMessage: z.string().optional(),
+        metadata: jsonRecord.optional(),
+        createdAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        amountWei: z.string().optional(),
+        txHash: z.string().optional(),
+        status: z.string().optional(),
+        errorMessage: z.string().optional(),
+        metadata: jsonRecord.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'lido-positions',
+    model: 'LidoPosition',
+    primaryKeys: ['positionId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { updatedAt: 'desc' },
+    create: z
+      .object({
+        positionId: z.string().optional(),
+        userId: z.string(),
+        chainId: z.number().int().optional(),
+        stethWei: z.string().optional(),
+        wstethWei: z.string().optional(),
+        apyBps: z.number().int().optional(),
+        createdAt: isoDate.optional(),
+        updatedAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        stethWei: z.string().optional(),
+        wstethWei: z.string().optional(),
+        apyBps: z.number().int().optional(),
+        updatedAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'lido-withdrawals',
+    model: 'LidoWithdrawal',
+    primaryKeys: ['withdrawalId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { createdAt: 'desc' },
+    create: z
+      .object({
+        withdrawalId: z.string().optional(),
+        userId: z.string(),
+        chainId: z.number().int().optional(),
+        requestId: z.string(),
+        amountStEthWei: z.string(),
+        finalized: z.boolean().optional(),
+        claimed: z.boolean().optional(),
+        requestedAt: isoDate.optional(),
+        finalizedAt: isoDate.optional(),
+        claimedAt: isoDate.optional(),
+        metadata: jsonRecord.optional(),
+        createdAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        finalized: z.boolean().optional(),
+        claimed: z.boolean().optional(),
+        finalizedAt: isoDate.optional(),
+        claimedAt: isoDate.optional(),
+        metadata: jsonRecord.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'lido-txs',
+    model: 'LidoTx',
+    primaryKeys: ['txId'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { createdAt: 'desc' },
+    create: z
+      .object({
+        txId: z.string().optional(),
+        userId: z.string(),
+        chainId: z.number().int().optional(),
+        action: z.string(),
+        amountWei: z.string().optional(),
+        txHash: z.string().optional(),
+        status: z.string().optional(),
+        errorMessage: z.string().optional(),
+        metadata: jsonRecord.optional(),
+        createdAt: isoDate.optional(),
+        tenantId: z.string()
+      })
+      .strict(),
+    update: z
+      .object({
+        amountWei: z.string().optional(),
+        txHash: z.string().optional(),
+        status: z.string().optional(),
+        errorMessage: z.string().optional(),
+        metadata: jsonRecord.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
     collection: 'agent-metrics',
     model: 'AgentMetric',
     primaryKeys: ['metricId'],

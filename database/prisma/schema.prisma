@@ -248,6 +248,145 @@ model DcaRun {
   @@index([workflowId, executedAt])
 }
 
+model LendingMarket {
+  marketId             String   @id @default(uuid())
+  chainId              Int
+  protocol             String   @default("benqi")
+  qTokenAddress        String
+  qTokenSymbol         String
+  underlyingAddress    String
+  underlyingSymbol     String
+  underlyingDecimals   Int      @default(18)
+  collateralFactorBps  Int?
+  liquidationIncentiveBps Int?
+  supplyApyBps         Int?
+  borrowApyBps         Int?
+  isActive             Boolean  @default(true)
+  metadata             Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  tenantId             String
+
+  positions LendingPosition[]
+
+  @@unique([chainId, qTokenAddress, tenantId])
+  @@index([chainId, protocol])
+}
+
+model LendingPosition {
+  positionId        String   @id @default(uuid())
+  userId            String
+  marketId          String
+  suppliedWei       String   @default("0")
+  borrowedWei       String   @default("0")
+  collateralEnabled Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  tenantId          String
+
+  user   User          @relation(fields: [userId], references: [userId])
+  market LendingMarket @relation(fields: [marketId], references: [marketId])
+
+  @@unique([userId, marketId, tenantId])
+  @@index([userId, updatedAt])
+}
+
+model LendingSnapshotDaily {
+  snapshotId        String   @id @default(uuid())
+  userId            String
+  chainId           Int
+  date              DateTime
+  totalSuppliedWei  String   @default("0")
+  totalBorrowedWei  String   @default("0")
+  liquidityWei      String?  @default("0")
+  shortfallWei      String?  @default("0")
+  healthFactor      String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  tenantId          String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@unique([userId, chainId, date, tenantId])
+  @@index([userId, date])
+}
+
+model LendingTx {
+  txId       String   @id @default(uuid())
+  userId     String
+  chainId    Int
+  action     String   // supply | redeem | borrow | repay | enter | exit
+  amountWei  String?
+  txHash     String?
+  status     String   @default("pending")
+  errorMessage String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  tenantId   String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@index([userId, createdAt])
+  @@index([txHash])
+}
+
+model LidoPosition {
+  positionId String   @id @default(uuid())
+  userId     String
+  chainId    Int      @default(1)
+  stethWei   String   @default("0")
+  wstethWei  String   @default("0")
+  apyBps     Int?
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  tenantId   String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@unique([userId, chainId, tenantId])
+  @@index([userId, updatedAt])
+}
+
+model LidoWithdrawal {
+  withdrawalId   String   @id @default(uuid())
+  userId         String
+  chainId        Int      @default(1)
+  requestId      String
+  amountStEthWei String
+  finalized      Boolean  @default(false)
+  claimed        Boolean  @default(false)
+  requestedAt    DateTime?
+  finalizedAt    DateTime?
+  claimedAt      DateTime?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  tenantId       String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@unique([userId, chainId, requestId, tenantId])
+  @@index([userId, finalized, claimed])
+}
+
+model LidoTx {
+  txId        String   @id @default(uuid())
+  userId      String
+  chainId     Int      @default(1)
+  action      String   // stake | unstake | claim
+  amountWei   String?
+  txHash      String?
+  status      String   @default("pending")
+  errorMessage String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  tenantId    String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@index([userId, createdAt])
+  @@index([txHash])
+}
+
 model AgentMetric {
   metricId        String   @id @default(uuid())
   agentName       String
