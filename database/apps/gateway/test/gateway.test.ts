@@ -186,7 +186,8 @@ describe('Gateway HTTP API', () => {
     port: 8080,
     host: '127.0.0.1',
     logLevel: 'silent',
-    jwtSecret: process.env.JWT_SECRET!
+    authPrivateKey: process.env.AUTH_PRIVATE_KEY || '0x0000000000000000000000000000000000000000000000000000000000000001',
+    authDomain: process.env.AUTH_DOMAIN || 'panoramablock.com',
   };
 
   const repository = new InMemoryRepository(seedData);

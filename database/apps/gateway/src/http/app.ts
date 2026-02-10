@@ -1,4 +1,5 @@
 import Fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import { PrismaClient } from '@prisma/client';
 import { AppConfig } from '../config.js';
@@ -51,17 +52,24 @@ export const buildApp = ({
   const searchHandler = createSearchEmbeddingHandler(repository);
   const idempotencyMiddleware = createIdempotencyMiddleware(idempotencyStore);
 
+  app.register(cors, {
+    origin: true,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Id', 'Idempotency-Key'],
+    credentials: true,
+  });
   app.register(sensible);
   app.register(authPlugin, {
-    secret: config.jwtSecret,
-    audience: config.jwtAudience,
-    issuer: config.jwtIssuer
+    authPrivateKey: config.authPrivateKey,
+    authDomain: config.authDomain,
   });
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
+  const PUBLIC_ROUTES = ['/health'];
+
   app.addHook('onRequest', async (request, reply) => {
-    if (request.routerPath === '/health') {
+    if (PUBLIC_ROUTES.includes(request.url.split('?')[0])) {
       return;
     }
     await app.authenticate(request, reply);

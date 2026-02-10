@@ -655,6 +655,262 @@ const entityConfigs: EntityConfig[] = [
         message: 'At least one field is required'
       }),
     filter: baseQuerySchema
+  },
+
+  // ============================================================================
+  // WALLET & PORTFOLIO TRACKING
+  // ============================================================================
+
+  {
+    collection: 'wallets',
+    model: 'Wallet',
+    primaryKeys: ['id'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { createdAt: 'desc' },
+    create: z
+      .object({
+        id: z.string().uuid().optional(),
+        userId: z.string(),
+        chain: z.string(),
+        address: z.string(),
+        walletType: z.enum(['ton', 'evm', 'smart_wallet', 'panorama_wallet']),
+        name: z.string().optional(),
+        isPrimary: z.boolean().optional(),
+        isActive: z.boolean().optional(),
+        metadata: jsonRecord.optional(),
+        tenantId: z.string(),
+        createdAt: isoDate.optional(),
+        updatedAt: isoDate.optional()
+      })
+      .strict(),
+    update: z
+      .object({
+        name: z.string().optional(),
+        isPrimary: z.boolean().optional(),
+        isActive: z.boolean().optional(),
+        metadata: jsonRecord.optional(),
+        updatedAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'position-snapshots',
+    model: 'PositionSnapshot',
+    primaryKeys: ['id'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { snapshotTimestamp: 'desc' },
+    create: z
+      .object({
+        id: z.string().uuid().optional(),
+        userId: z.string(),
+        walletId: z.string().uuid(),
+        chain: z.string(),
+        protocol: z.string(),
+        market: z.string().optional(),
+        positionType: z.enum(['balance', 'supply', 'borrow', 'stake', 'lp', 'derivative', 'reward']),
+        assetAddress: z.string(),
+        assetSymbol: z.string(),
+        assetDecimals: z.number().int(),
+        amountRaw: z.string(),
+        amountDisplay: z.string(),
+        amountUsd: z.string().optional(),
+        priceUsd: z.string().optional(),
+        accruedRaw: z.string().optional(),
+        accruedDisplay: z.string().optional(),
+        apy: z.string().optional(),
+        healthFactor: z.string().optional(),
+        snapshotBlock: z.union([z.number(), z.bigint()]).optional(),
+        snapshotTimestamp: isoDate,
+        source: z.enum(['onchain', 'cached', 'api']),
+        metadata: jsonRecord.optional(),
+        tenantId: z.string(),
+        createdAt: isoDate.optional()
+      })
+      .strict(),
+    update: z
+      .object({
+        amountRaw: z.string().optional(),
+        amountDisplay: z.string().optional(),
+        amountUsd: z.string().optional(),
+        priceUsd: z.string().optional(),
+        accruedRaw: z.string().optional(),
+        accruedDisplay: z.string().optional(),
+        apy: z.string().optional(),
+        healthFactor: z.string().optional(),
+        metadata: jsonRecord.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'transactions',
+    model: 'Transaction',
+    primaryKeys: ['id'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { createdAt: 'desc' },
+    create: z
+      .object({
+        id: z.string().uuid().optional(),
+        userId: z.string(),
+        walletId: z.string().uuid(),
+        conversationId: z.string().optional(),
+        action: z.enum([
+          'swap',
+          'bridge',
+          'stake',
+          'unstake',
+          'supply',
+          'withdraw',
+          'borrow',
+          'repay',
+          'claim',
+          'approve'
+        ]),
+        protocol: z.string().optional(),
+        // From
+        fromChainId: z.number().int(),
+        fromAssetAddress: z.string(),
+        fromAssetSymbol: z.string(),
+        fromAssetDecimals: z.number().int(),
+        fromAmountRaw: z.string(),
+        fromAmountDisplay: z.string(),
+        fromAmountUsd: z.string().optional(),
+        // To
+        toChainId: z.number().int().optional(),
+        toAssetAddress: z.string().optional(),
+        toAssetSymbol: z.string().optional(),
+        toAssetDecimals: z.number().int().optional(),
+        toAmountRaw: z.string().optional(),
+        toAmountDisplay: z.string().optional(),
+        toAmountUsd: z.string().optional(),
+        // Execution
+        txHashes: z.array(
+          z.object({
+            hash: z.string(),
+            chainId: z.number().int(),
+            type: z.enum(['approval', 'swap', 'bridge', 'stake', 'lend', 'other']).optional(),
+            status: z.enum(['pending', 'success', 'failed']).optional()
+          })
+        ).default([]),
+        status: z
+          .enum(['created', 'submitted', 'pending', 'confirmed', 'failed', 'refunded'])
+          .default('created'),
+        provider: z.string().optional(),
+        // Fees
+        gasFee: z.string().optional(),
+        bridgeFee: z.string().optional(),
+        protocolFee: z.string().optional(),
+        totalFeeUsd: z.string().optional(),
+        // Exchange info
+        exchangeRate: z.string().optional(),
+        slippage: z.string().optional(),
+        priceImpact: z.string().optional(),
+        // Error
+        errorCode: z.string().optional(),
+        errorMessage: z.string().optional(),
+        // Bridge
+        bridgeId: z.string().optional(),
+        // Meta
+        metadata: jsonRecord.optional(),
+        tenantId: z.string(),
+        createdAt: isoDate.optional(),
+        updatedAt: isoDate.optional(),
+        confirmedAt: isoDate.optional()
+      })
+      .strict(),
+    update: z
+      .object({
+        // To (pode ser atualizado após execução com valor real)
+        toAmountRaw: z.string().optional(),
+        toAmountDisplay: z.string().optional(),
+        toAmountUsd: z.string().optional(),
+        // Execution
+        txHashes: z
+          .array(
+            z.object({
+              hash: z.string(),
+              chainId: z.number().int(),
+              type: z.enum(['approval', 'swap', 'bridge', 'stake', 'lend', 'other']).optional(),
+              status: z.enum(['pending', 'success', 'failed']).optional()
+            })
+          )
+          .optional(),
+        status: z
+          .enum(['created', 'submitted', 'pending', 'confirmed', 'failed', 'refunded'])
+          .optional(),
+        // Fees
+        gasFee: z.string().optional(),
+        bridgeFee: z.string().optional(),
+        protocolFee: z.string().optional(),
+        totalFeeUsd: z.string().optional(),
+        // Error
+        errorCode: z.string().optional(),
+        errorMessage: z.string().optional(),
+        // Bridge
+        bridgeId: z.string().optional(),
+        // Meta
+        metadata: jsonRecord.optional(),
+        updatedAt: isoDate.optional(),
+        confirmedAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
+  {
+    collection: 'notifications',
+    model: 'Notification',
+    primaryKeys: ['id'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { createdAt: 'desc' },
+    create: z
+      .object({
+        id: z.string().uuid().optional(),
+        userId: z.string(),
+        transactionId: z.string().uuid().optional(),
+        type: z.enum([
+          'tx_confirmed',
+          'tx_failed',
+          'health_warning',
+          'price_alert',
+          'dca_executed',
+          'stake_matured',
+          'welcome'
+        ]),
+        title: z.string(),
+        message: z.string(),
+        payload: jsonRecord.optional(),
+        priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
+        actionUrl: z.string().optional(),
+        actionLabel: z.string().optional(),
+        isRead: z.boolean().default(false),
+        isDismissed: z.boolean().default(false),
+        expiresAt: isoDate.optional(),
+        tenantId: z.string(),
+        createdAt: isoDate.optional(),
+        readAt: isoDate.optional()
+      })
+      .strict(),
+    update: z
+      .object({
+        isRead: z.boolean().optional(),
+        isDismissed: z.boolean().optional(),
+        readAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
   }
 ];
 

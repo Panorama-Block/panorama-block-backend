@@ -34,9 +34,10 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/panorama_db?schema=public}
       PORT: ${PORT:-8080}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      JWT_SECRET: ${JWT_SECRET:-changeme}
+      AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY}
+      AUTH_DOMAIN: ${AUTH_DOMAIN:-panoramablock.com}
     ports:
-      - "8082:8082"
+      - "8080:8080"
     command: sh -c "npm run migrate:deploy && npm run start"
 
   prisma-migrate:
