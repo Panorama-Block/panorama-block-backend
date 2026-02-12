@@ -182,7 +182,7 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-lending-service
     ports:
-      - "${LENDING_PORT:-3006}:3006"
+      - "${LENDING_PORT:-3007}:3006"
     environment:
       - PORT=3006
       - NODE_ENV=${NODE_ENV}
