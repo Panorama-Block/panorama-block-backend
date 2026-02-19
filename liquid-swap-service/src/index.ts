@@ -103,6 +103,15 @@ try {
 
   app.use("/swap", verifyJwtMiddleware, swapRouter);
 
+  // Back-compat aliases (some older clients call these without the /swap prefix).
+  // Keep JWT protection consistent with /swap/* routes.
+  {
+    const di = DIContainer.getInstance();
+    app.post("/quote", verifyJwtMiddleware, di.swapController.getQuote);
+    app.post("/tx", verifyJwtMiddleware, di.swapController.getPreparedTx);
+    app.post("/prepare", verifyJwtMiddleware, di.swapController.getPreparedTx);
+  }
+
   // Health check
   app.get("/health", (_req: Request, res: Response) => {
     try {

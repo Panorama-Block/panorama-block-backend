@@ -37,6 +37,7 @@ export class CacheAdapter {
   private client: RedisClientType;
   private isConnected: boolean = false;
   private readonly config: ResolvedCacheConfig;
+  private readonly quoteCacheEnabled: boolean;
 
   constructor(config?: CacheConfig) {
     this.config = {
@@ -45,6 +46,12 @@ export class CacheAdapter {
       defaultTTL: config?.defaultTTL || 30,
       enableLogging: config?.enableLogging !== false,
     };
+
+    // Trust-first: do not cache quotes by default. Enable explicitly if needed.
+    this.quoteCacheEnabled = String(process.env.ENABLE_QUOTE_CACHE || '').toLowerCase() === 'true';
+    if (!this.quoteCacheEnabled) {
+      this.log('info', '🧊 Quote cache disabled (set ENABLE_QUOTE_CACHE=true to enable)');
+    }
 
     // Create Redis client
     this.client = createClient({
@@ -143,6 +150,7 @@ export class CacheAdapter {
     amount: string;
     slippage: string;
   }): Promise<SwapQuote | null> {
+    if (!this.quoteCacheEnabled) return null;
     if (!this.isAvailable()) {
       this.log('warn', 'Redis not available, skipping cache lookup');
       return null;
@@ -179,6 +187,7 @@ export class CacheAdapter {
     quote: SwapQuote,
     ttl?: number
   ): Promise<void> {
+    if (!this.quoteCacheEnabled) return;
     if (!this.isAvailable()) {
       this.log('warn', 'Redis not available, skipping cache write');
       return;

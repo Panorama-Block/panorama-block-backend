@@ -16,6 +16,10 @@ export class LidoRepository implements ILidoRepository {
   private withdrawalQueueContract!: ethers.Contract;
   private db: DatabaseService | null;
 
+  // APY cache: avoid hitting Lido API on every request
+  private apyCache: { value: number; fetchedAt: number } | null = null;
+  private static readonly APY_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
   constructor() {
     this.ethereumConfig = EthereumConfig.getInstance();
     this.logger = new Logger();
@@ -231,8 +235,8 @@ export class LidoRepository implements ILidoRepository {
       this.logger.info(`Creating stake transaction for ${userAddress} with amount ${amount}`);
       
       const transactionId = this.generateTransactionId();
-      const amountWei = ethers.utils.parseEther(amount);
-      
+      const amountWei = ethers.BigNumber.from(amount);
+
       this.logger.info('Preparing stake transaction for client-side signing');
 
       const stETHContract = new ethers.Contract(
@@ -288,7 +292,7 @@ export class LidoRepository implements ILidoRepository {
       this.logger.info(`Creating unstake transaction for ${userAddress} with amount ${amount}`);
 
       const transactionId = this.generateTransactionId();
-      const amountWei = ethers.utils.parseEther(amount);
+      const amountWei = ethers.BigNumber.from(amount);
 
       // Normalize address
       const normalizedAddress = ethers.utils.getAddress(userAddress);
@@ -457,13 +461,20 @@ export class LidoRepository implements ILidoRepository {
       
       // Normalize address to proper checksum
       const normalizedAddress = ethers.utils.getAddress(userAddress);
-      
+      const cb = this.ethereumConfig.circuitBreaker;
+
       // Get stETH balance
-      const stETHBalanceWei = await this.stETHContract.balanceOf(normalizedAddress);
-      
+      const stETHBalanceWei = await cb.execute<ethers.BigNumber>(
+        () => this.stETHContract.balanceOf(normalizedAddress) as Promise<ethers.BigNumber>
+      );
+
       // Get wstETH balance
-      const wstETHBalanceWei = await this.wstETHContract.balanceOf(normalizedAddress);
-      const wstETHAsStEthWei = await this.wstETHContract.getStETHByWstETH(wstETHBalanceWei);
+      const wstETHBalanceWei = await cb.execute<ethers.BigNumber>(
+        () => this.wstETHContract.balanceOf(normalizedAddress) as Promise<ethers.BigNumber>
+      );
+      const wstETHAsStEthWei = await cb.execute<ethers.BigNumber>(
+        () => this.wstETHContract.getStETHByWstETH(wstETHBalanceWei) as Promise<ethers.BigNumber>
+      );
       
       // Get protocol info for APY
       const protocolInfo = await this.getProtocolInfo();
@@ -565,7 +576,10 @@ export class LidoRepository implements ILidoRepository {
       this.logger.info('Getting Lido protocol information');
       
       // Get total staked ETH
-      const totalPooledEther = await this.stETHContract.getTotalPooledEther();
+      const cb = this.ethereumConfig.circuitBreaker;
+      const totalPooledEther = await cb.execute<ethers.BigNumber>(
+        () => this.stETHContract.getTotalPooledEther() as Promise<ethers.BigNumber>
+      );
       const totalStakedWei = totalPooledEther.toString();
 
       // Get current APR/APY (when available)
@@ -666,8 +680,50 @@ export class LidoRepository implements ILidoRepository {
       const ids = requestIds.map((id) => ethers.BigNumber.from(id));
       const transactionId = this.generateTransactionId();
 
-      const lastCheckpointIndex = await this.withdrawalQueueContract.getLastCheckpointIndex();
-      const hints: ethers.BigNumber[] = await this.withdrawalQueueContract.findCheckpointHints(ids, 0, lastCheckpointIndex);
+      const statuses: any[] = await this.withdrawalQueueContract.getWithdrawalStatus(ids);
+      if (!Array.isArray(statuses) || statuses.length !== ids.length) {
+        throw new Error('Unable to validate withdrawal requests. Please refresh and try again.');
+      }
+
+      const notOwned = statuses.find((status) => {
+        const owner = String(status?.owner ?? status?.[2] ?? '').toLowerCase();
+        return owner !== normalizedAddress.toLowerCase();
+      });
+      if (notOwned) {
+        throw new Error('One or more withdrawal requests do not belong to this wallet.');
+      }
+
+      const notFinalized = statuses.find((status) => !(Boolean(status?.isFinalized ?? status?.[4])));
+      if (notFinalized) {
+        throw new Error('Withdrawal request is not finalized yet. Please wait and try again.');
+      }
+
+      const alreadyClaimed = statuses.find((status) => Boolean(status?.isClaimed ?? status?.[5]));
+      if (alreadyClaimed) {
+        throw new Error('One or more withdrawal requests were already claimed.');
+      }
+
+      const lastCheckpointIndex = ethers.BigNumber.from(
+        await this.withdrawalQueueContract.getLastCheckpointIndex()
+      );
+      if (lastCheckpointIndex.lte(0)) {
+        throw new Error('No finalized checkpoint available yet. Please try again in a few minutes.');
+      }
+      let hints: ethers.BigNumber[];
+      try {
+        // Lido checkpoints are 1-based; using 0 can revert in findCheckpointHints.
+        hints = await this.withdrawalQueueContract.findCheckpointHints(
+          ids,
+          ethers.BigNumber.from(1),
+          lastCheckpointIndex
+        );
+      } catch (error) {
+        const raw = error instanceof Error ? error.message : String(error);
+        if (/findcheckpointhints|CALL_EXCEPTION/i.test(raw)) {
+          throw new Error('Withdrawal is not claimable yet. Please refresh status and try again shortly.');
+        }
+        throw error;
+      }
 
       this.logger.info('Preparing claimWithdrawals transaction for client-side signing');
       const withdrawalQueue = new ethers.Contract(
@@ -733,6 +789,11 @@ export class LidoRepository implements ILidoRepository {
   }
 
   async getCurrentAPY(): Promise<number | null> {
+    // Return cached value if still fresh
+    if (this.apyCache && (Date.now() - this.apyCache.fetchedAt) < LidoRepository.APY_CACHE_TTL_MS) {
+      return this.apyCache.value;
+    }
+
     const parseApr = (value: unknown): number | null => {
       if (typeof value === 'number' && Number.isFinite(value)) return value;
       if (typeof value === 'string') {
@@ -742,30 +803,57 @@ export class LidoRepository implements ILidoRepository {
       return null;
     };
 
+    let freshApy: number | null = null;
+
     try {
       // Primary: Lido stake UI endpoint
       const resp = await axios.get('https://stake.lido.fi/api/stats', { timeout: 8000 });
-      const apr =
+      freshApy =
         parseApr(resp.data?.apr) ??
         parseApr(resp.data?.data?.apr) ??
         parseApr(resp.data?.result?.apr);
-
-      if (apr != null) return apr;
     } catch (error) {
       this.logger.warn(`Failed to fetch APR from stake.lido.fi: ${error}`);
     }
 
-    try {
-      // Secondary: Lido public API
-      const resp = await axios.get('https://api.lido.fi/v1/protocol/staking/apr/last', { timeout: 8000 });
-      const apr =
-        parseApr(resp.data?.apr) ??
-        parseApr(resp.data?.data?.apr) ??
-        parseApr(resp.data?.result?.apr);
+    if (freshApy == null) {
+      try {
+        // Secondary: Lido public API
+        const resp = await axios.get('https://api.lido.fi/v1/protocol/staking/apr/last', { timeout: 8000 });
+        freshApy =
+          parseApr(resp.data?.apr) ??
+          parseApr(resp.data?.data?.apr) ??
+          parseApr(resp.data?.result?.apr);
+      } catch (error) {
+        this.logger.warn(`Failed to fetch APR from api.lido.fi: ${error}`);
+      }
+    }
 
-      if (apr != null) return apr;
-    } catch (error) {
-      this.logger.warn(`Failed to fetch APR from api.lido.fi: ${error}`);
+    if (freshApy != null) {
+      this.apyCache = { value: freshApy, fetchedAt: Date.now() };
+      return freshApy;
+    }
+
+    // Fallback: return stale cache if available
+    if (this.apyCache) {
+      this.logger.warn('APY fetch failed, returning stale cached value');
+      return this.apyCache.value;
+    }
+
+    // Last resort: try to get from DB
+    if (this.db) {
+      try {
+        const result = await this.db.query(
+          `SELECT apy_bps FROM lido_positions_current ORDER BY updated_at DESC LIMIT 1`
+        );
+        if (result.rows.length > 0 && result.rows[0].apy_bps != null) {
+          const fromDb = Number(result.rows[0].apy_bps) / 100; // bps → percentage
+          this.logger.warn(`APY fetch failed, using DB fallback: ${fromDb}%`);
+          return fromDb;
+        }
+      } catch {
+        // ignore DB errors in fallback path
+      }
     }
 
     return null;

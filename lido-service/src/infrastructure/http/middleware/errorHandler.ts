@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { Logger } from '../../logs/logger';
+import { ERROR_CODES, sendError } from '../../../shared/errorCodes';
 
 export class ErrorHandler {
   private static logger = new Logger();
@@ -12,15 +13,10 @@ export class ErrorHandler {
       body: req.body
     });
 
-    // Don't expose internal errors in production
     const isDevelopment = process.env.NODE_ENV === 'development';
     const message = isDevelopment ? error.message : 'Internal server error';
 
-    res.status(500).json({
-      success: false,
-      error: message,
-      timestamp: new Date().toISOString()
-    });
+    sendError(res, 500, ERROR_CODES.SERVICE_UNAVAILABLE, message);
   }
 
   static asyncWrapper(fn: Function) {

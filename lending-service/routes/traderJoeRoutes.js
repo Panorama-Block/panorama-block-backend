@@ -22,12 +22,7 @@ const traderJoeRateLimiter = createRateLimiter(100, 15 * 60 * 1000); // 100 requ
  * COMO CHAMAR:
  * GET /dex/getprice?dexId=2100&path=0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7,0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB&amountIn=1000000000000000000
  * 
- * Headers: Content-Type: application/json
- * Body: {
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
- * }
- * 
- * Parâmetros:
+ * Parâmetros (query string):
  * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
  * - path: Caminho dos tokens separados por vírgula (tokenIn,tokenOut)
  * - amountIn: Quantidade de entrada em wei
@@ -228,12 +223,7 @@ router.post('/getprice',
  * COMO CHAMAR:
  * GET /dex/getuserliquidity?tokenA=0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7&tokenB=0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB&dexId=2100&address=0x6B509c04e3caA2207b8f2A60A067a8ddED03b8d0&id=1
  * 
- * Headers: Content-Type: application/json
- * Body: {
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
- * }
- * 
- * Parâmetros:
+ * Parâmetros (query string):
  * - tokenA: Endereço do primeiro token do par
  * - tokenB: Endereço do segundo token do par
  * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
@@ -326,12 +316,7 @@ router.get('/getuserliquidity',
  * COMO CHAMAR:
  * GET /dex/getpoolliquidity?poolAddress=0x0000000000000000000000000000000000000000&dexId=2100&id=1
  * 
- * Headers: Content-Type: application/json
- * Body: {
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
- * }
- * 
- * Parâmetros:
+ * Parâmetros (query string):
  * - poolAddress: Endereço do pool de liquidez
  * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
  * - id: ID do pool
@@ -416,12 +401,7 @@ router.get('/getpoolliquidity',
  * COMO CHAMAR:
  * GET /dex/gettokenliquidity?poolAddress=0x0000000000000000000000000000000000000000&dexId=2100
  * 
- * Headers: Content-Type: application/json
- * Body: {
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
- * }
- * 
- * Parâmetros:
+ * Parâmetros (query string):
  * - poolAddress: Endereço do pool de liquidez
  * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
  * - rpc: (opcional) URL do RPC customizado
@@ -508,7 +488,6 @@ router.get('/gettokenliquidity',
  * 
  * Headers: Content-Type: application/json
  * Body: {
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
  *   "dexId": "2100",
  *   "path": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7,0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB",
  *   "amountIn": "1000000000000000000",
@@ -519,9 +498,8 @@ router.get('/gettokenliquidity',
  *   "gas": "500000",
  *   "gasPriority": "medium",
  *   "slippage": 1.0
- *   // A transação será assinada automaticamente usando a privateKey
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
  * - path: Caminho dos tokens separados por vírgula
@@ -530,7 +508,6 @@ router.get('/gettokenliquidity',
  * - to: Endereço de destino dos tokens
  * - from: Endereço de origem
  * - deadline: Timestamp de expiração da transação
- * - privateKey: Private key para executar a transação
  * 
  * Parâmetros opcionais:
  * - gas: Limite de gas
@@ -651,7 +628,6 @@ router.post('/swap',
  * 
  * Headers: Content-Type: application/json
  * Body: {
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
  *   "dexId": "2100",
  *   "tokenA": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
  *   "tokenB": "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB",
@@ -666,9 +642,8 @@ router.post('/swap',
  *   "gasPriority": "medium",
  *   "slippage": 1.0,
  *   "strategy": "standard"
- *   // A transação será assinada automaticamente usando a privateKey
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
  * - tokenA: Endereço do primeiro token
@@ -680,7 +655,6 @@ router.post('/swap',
  * - deadline: Timestamp de expiração da transação
  * - to: Endereço de destino
  * - from: Endereço de origem
- * - privateKey: Private key para executar a transação
  * 
  * Parâmetros opcionais:
  * - gas: Limite de gas
@@ -810,7 +784,6 @@ router.post('/addliquidity',
  * 
  * Headers: Content-Type: application/json
  * Body: {
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
  *   "dexId": "2100",
  *   "tokenA": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
  *   "tokenB": "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB",
@@ -825,9 +798,8 @@ router.post('/addliquidity',
  *   "ids": ["1", "2", "3"],
  *   "amounts": ["1000000000000000000", "2000000000000000000", "3000000000000000000"],
  *   "slippage": 1.0
- *   // A transação será assinada automaticamente usando a privateKey
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - dexId: ID do DEX (deve ser 2100 para Trader Joe)
  * - tokenA: Endereço do primeiro token
@@ -840,7 +812,6 @@ router.post('/addliquidity',
  * - binStep: Passo do bin (para Trader Joe v2)
  * - ids: Array de IDs dos bins
  * - amounts: Array de quantidades para cada bin
- * - privateKey: Private key para executar a transação
  * 
  * Parâmetros opcionais:
  * - gas: Limite de gas

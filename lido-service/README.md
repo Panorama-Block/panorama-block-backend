@@ -169,6 +169,13 @@ DATABASE_URL=postgresql://postgres:postgres@engine_postgres:5432/postgres
 # Optional: isolate tables in a dedicated schema in the same database
 LIDO_DB_SCHEMA=lido
 
+# Optional: sync snapshots/tx metadata to the central database gateway
+DB_GATEWAY_SYNC_ENABLED=false
+DB_GATEWAY_URL=http://localhost:8080
+DB_GATEWAY_SERVICE_TOKEN=
+DB_GATEWAY_TENANT_ID=panorama-default
+DB_GATEWAY_TIMEOUT_MS=1500
+
 # Ethereum (required)
 ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/YOUR_INFURA_KEY
 ETHEREUM_CHAIN_ID=1

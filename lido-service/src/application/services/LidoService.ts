@@ -10,18 +10,26 @@ export class LidoService {
     private logger: Logger
   ) {}
 
+  private validateAmountWei(amount: string): void {
+    if (!amount || typeof amount !== 'string') {
+      throw new Error('Amount is required and must be a string');
+    }
+    if (!/^\d+$/.test(amount.trim())) {
+      throw new Error('Amount must be a wei string (integer digits only)');
+    }
+    if (amount.trim() === '0') {
+      throw new Error('Amount must be greater than 0');
+    }
+  }
+
   async stake(userAddress: string, amount: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Staking ${amount} ETH for user ${userAddress}`);
-      
-      // Validate inputs
-      if (!userAddress || !amount) {
-        throw new Error('User address and amount are required');
-      }
 
-      if (parseFloat(amount) <= 0) {
-        throw new Error('Amount must be greater than 0');
+      if (!userAddress) {
+        throw new Error('User address is required');
       }
+      this.validateAmountWei(amount);
 
       const transaction = await this.lidoRepository.stake(userAddress, amount);
       
@@ -37,14 +45,10 @@ export class LidoService {
     try {
       this.logger.info(`Unstaking ${amount} stETH for user ${userAddress}`);
       
-      // Validate inputs
-      if (!userAddress || !amount) {
-        throw new Error('User address and amount are required');
+      if (!userAddress) {
+        throw new Error('User address is required');
       }
-
-      if (parseFloat(amount) <= 0) {
-        throw new Error('Amount must be greater than 0');
-      }
+      this.validateAmountWei(amount);
 
       // Check if user has enough stETH
       const position = await this.lidoRepository.getStakingPosition(userAddress);
@@ -52,7 +56,7 @@ export class LidoService {
         throw new Error('Insufficient stETH balance');
       }
 
-      const amountWei = ethers.utils.parseEther(amount);
+      const amountWei = ethers.BigNumber.from(amount);
       const stEthBalanceWei = ethers.BigNumber.from(position.stETHBalance || '0');
 
       if (stEthBalanceWei.lt(amountWei)) {

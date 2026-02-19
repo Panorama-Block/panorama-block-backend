@@ -18,6 +18,8 @@ router.post("/quote", controller.getQuote);
 
 // Bundle preparado (approve? + swap) para o FRONT assinar
 router.post("/tx", controller.getPreparedTx);
+// Back-compat alias (older clients may still call /swap/prepare)
+router.post("/prepare", controller.getPreparedTx);
 
 // DEBUG: Compare providers (Thirdweb vs Uniswap)
 router.post("/compare", controller.compareProviders);

@@ -1,0 +1,48 @@
+sequenceDiagram
+    participant User as User
+    participant FE as Miniapp
+    participant Lido as lido-service
+    participant Swap as liquid-swap-service
+    participant Wallet as Connected Wallet
+    participant ETH as Ethereum
+
+    Note over FE,Lido: JWT already obtained from auth-service
+
+    alt Stake via Protocol (Lido mint)
+        FE->>Lido: POST /api/lido/stake { userAddress, amountWei }
+        Lido-->>FE: StakingTransaction { transactionData, chainId:1 }
+        FE->>Wallet: sendTransaction(transactionData)
+        Wallet-->>FE: txHash
+        FE->>Lido: POST /api/lido/transaction/submit (optional)
+        FE->>ETH: wait/poll receipt(txHash)
+        ETH-->>FE: confirmed | reverted | timeout
+        FE->>Lido: GET /api/lido/position/:address
+    else Unstake via Protocol (queue)
+        FE->>Lido: POST /api/lido/unstake { userAddress, amountWei }
+        Lido-->>FE: tx type = unstake_approval OR unstake
+        alt Approval required
+            FE->>Wallet: send approval tx
+            Wallet-->>FE: approval txHash
+            FE->>ETH: wait receipt
+            FE->>Lido: POST /api/lido/unstake again
+            Lido-->>FE: tx type = unstake (requestWithdrawals)
+        end
+        FE->>Wallet: send unstake request tx
+        Wallet-->>FE: unstake txHash
+        FE->>ETH: wait/poll receipt
+        ETH-->>FE: confirmed | reverted | timeout
+        Note over FE,Lido: Claim path: POST /api/lido/withdrawals/claim after finalization
+    else Stake/Unstake via Market
+        FE->>Swap: POST /swap/quote { amount, unit }
+        Swap-->>FE: quote
+        FE->>Swap: POST /swap/tx { amountWei, sender, route }
+        Swap-->>FE: prepared bundle [approval?, swap]
+        loop for each tx in bundle
+            FE->>Wallet: sendTransaction(tx)
+            Wallet-->>FE: txHash
+            FE->>ETH: wait/poll receipt
+            ETH-->>FE: confirmed | reverted | timeout
+        end
+        FE->>Lido: refresh position/withdrawals (UI sync)
+    end
+

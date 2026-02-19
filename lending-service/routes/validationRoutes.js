@@ -188,50 +188,37 @@ router.post('/calculate',
  * @route POST /setTaxRate
  * @desc Define nova taxa do contrato (apenas owner)
  * @access Private (com transação assinada)
- * 
+ *
  * COMO CHAMAR:
  * POST /validation/setTaxRate
- * 
+ *
  * Headers: Content-Type: application/json
  * Body: {
  *   "address": "0x1234567890abcdef1234567890abcdef12345678",
  *   "signature": "0xabcd...",
  *   "message": "Set tax rate\nTimestamp: 1234567890",
  *   "timestamp": 1234567890,
- *   "newTaxRate": "15",
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ *   "newTaxRate": "15"
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - newTaxRate: Nova taxa (0-100)
- * - privateKey: Private key do owner
- * 
+ *
  * Parâmetros opcionais:
  * - rpc: URL do RPC customizado
- * 
- * Exemplo de resposta:
- * {
- *   "status": 200,
- *   "msg": "success",
- *   "data": {
- *     "transactionHash": "0x...",
- *     "status": "pending",
- *     "gasEstimate": "50000",
- *     "newTaxRate": "15"
- *   }
- * }
+ *
+ * Retorna dados da transação para assinatura no frontend (smart wallet)
  */
-router.post('/setTaxRate', 
-  verifySignature, 
+router.post('/setTaxRate',
+  verifySignature,
   prepareTransactionData,
   validationRateLimiter,
   validateNetwork(NETWORKS.AVALANCHE),
   sanitizeInput,
   async (req, res) => {
     try {
-      const { newTaxRate, privateKey, rpc } = req.body;
-      const { isSmartWallet } = req;
-      
+      const { newTaxRate, rpc } = req.body;
+
       // Validação dos parâmetros obrigatórios
       if (!newTaxRate) {
         return res.status(400).json({
@@ -239,17 +226,6 @@ router.post('/setTaxRate',
           msg: 'error',
           data: {
             error: 'newTaxRate é obrigatório'
-          }
-        });
-      }
-
-      // Para private key, verificar se foi fornecida
-      if (!isSmartWallet && !privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatório para wallets tradicionais'
           }
         });
       }
@@ -275,22 +251,11 @@ router.post('/setTaxRate',
       });
 
       const validationService = new ValidationService(provider);
-      
-      let result;
-      if (isSmartWallet) {
-        // Para smart wallets, retorna dados da transação para assinatura no frontend
-        result = await validationService.prepareSetTaxRate(newTaxRate);
-        result.walletType = 'smart_wallet';
-        result.requiresSignature = true;
-        result.note = 'Transação preparada para assinatura no frontend (smart wallet)';
-      } else {
-        // Para private keys, executa a transação diretamente
-        result = await validationService.setTaxRate(newTaxRate, privateKey);
-        result.walletType = 'private_key';
-        result.requiresSignature = false;
-        result.note = 'Transação executada com private key';
-      }
-      
+
+      const result = await validationService.prepareSetTaxRate(newTaxRate);
+      result.walletType = 'smart_wallet';
+      result.requiresSignature = true;
+
       res.json({
         status: 200,
         msg: 'success',
@@ -312,55 +277,39 @@ router.post('/setTaxRate',
 
 /**
  * @route POST /payAndValidate
- * @desc Executa pagamento e validação (função payable)
+ * @desc Prepara transação de pagamento e validação (função payable)
  * @access Private (com transação assinada)
- * 
+ *
  * COMO CHAMAR:
  * POST /validation/payAndValidate
- * 
+ *
  * Headers: Content-Type: application/json
  * Body: {
  *   "address": "0x1234567890abcdef1234567890abcdef12345678",
  *   "signature": "0xabcd...",
  *   "message": "Pay and validate\nTimestamp: 1234567890",
  *   "timestamp": 1234567890,
- *   "amount": "1000000000000000000",
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ *   "amount": "1000000000000000000"
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - amount: Montante em wei a ser enviado
- * - privateKey: Private key do usuário
- * 
+ *
  * Parâmetros opcionais:
  * - rpc: URL do RPC customizado
- * 
- * Exemplo de resposta:
- * {
- *   "status": 200,
- *   "msg": "success",
- *   "data": {
- *     "transactionHash": "0x...",
- *     "status": "success",
- *     "blockNumber": "12345678",
- *     "gasUsed": "50000",
- *     "amountSent": "1000000000000000000",
- *     "taxAmount": "100000000000000000",
- *     "restAmount": "900000000000000000"
- *   }
- * }
+ *
+ * Retorna dados da transação para assinatura no frontend (smart wallet)
  */
-router.post('/payAndValidate', 
-  verifySignature, 
+router.post('/payAndValidate',
+  verifySignature,
   prepareTransactionData,
   validationRateLimiter,
   validateNetwork(NETWORKS.AVALANCHE),
   sanitizeInput,
   async (req, res) => {
     try {
-      const { amount, privateKey, rpc } = req.body;
-      const { isSmartWallet, walletType } = req;
-      
+      const { amount, rpc } = req.body;
+
       // Validação dos parâmetros obrigatórios
       if (!amount) {
         return res.status(400).json({
@@ -368,17 +317,6 @@ router.post('/payAndValidate',
           msg: 'error',
           data: {
             error: 'amount é obrigatório'
-          }
-        });
-      }
-
-      // Para private key, verificar se foi fornecida
-      if (!isSmartWallet && !privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatório para wallets tradicionais'
           }
         });
       }
@@ -403,22 +341,11 @@ router.post('/payAndValidate',
       });
 
       const validationService = new ValidationService(provider);
-      
-      let result;
-      if (isSmartWallet) {
-        // Para smart wallets, retorna dados da transação para assinatura no frontend
-        result = await validationService.preparePayAndValidate(amount);
-        result.walletType = 'smart_wallet';
-        result.requiresSignature = true;
-        result.note = 'Transação preparada para assinatura no frontend (smart wallet)';
-      } else {
-        // Para private keys, executa a transação diretamente
-        result = await validationService.payAndValidate(amount, privateKey);
-        result.walletType = 'private_key';
-        result.requiresSignature = false;
-        result.note = 'Transação executada com private key';
-      }
-      
+
+      const result = await validationService.preparePayAndValidate(amount);
+      result.walletType = 'smart_wallet';
+      result.requiresSignature = true;
+
       res.json({
         status: 200,
         msg: 'success',
@@ -440,61 +367,34 @@ router.post('/payAndValidate',
 
 /**
  * @route POST /withdraw
- * @desc Retira fundos do contrato (apenas owner)
+ * @desc Prepara transação de retirada de fundos do contrato (apenas owner)
  * @access Private (com transação assinada)
- * 
+ *
  * COMO CHAMAR:
  * POST /validation/withdraw
- * 
+ *
  * Headers: Content-Type: application/json
  * Body: {
  *   "address": "0x1234567890abcdef1234567890abcdef12345678",
  *   "signature": "0xabcd...",
  *   "message": "Withdraw funds\nTimestamp: 1234567890",
- *   "timestamp": 1234567890,
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ *   "timestamp": 1234567890
  * }
- * 
- * Parâmetros obrigatórios:
- * - privateKey: Private key do owner
- * 
+ *
  * Parâmetros opcionais:
  * - rpc: URL do RPC customizado
- * 
- * Exemplo de resposta:
- * {
- *   "status": 200,
- *   "msg": "success",
- *   "data": {
- *     "transactionHash": "0x...",
- *     "status": "success",
- *     "blockNumber": "12345678",
- *     "gasUsed": "50000",
- *     "amountWithdrawn": "1000000000000000000"
- *   }
- * }
+ *
+ * Retorna dados da transação para assinatura no frontend (smart wallet)
  */
-router.post('/withdraw', 
-  verifySignature, 
+router.post('/withdraw',
+  verifySignature,
   prepareTransactionData,
   validationRateLimiter,
   validateNetwork(NETWORKS.AVALANCHE),
   sanitizeInput,
   async (req, res) => {
     try {
-      const { privateKey, rpc } = req.body;
-      const { isSmartWallet } = req;
-      
-      // Para private key, verificar se foi fornecida
-      if (!isSmartWallet && !privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatório para wallets tradicionais'
-          }
-        });
-      }
+      const { rpc } = req.body;
 
       const rpcUrl = rpc || NETWORKS.AVALANCHE.rpcUrl;
       const provider = new ethers.JsonRpcProvider(rpcUrl, {
@@ -505,22 +405,11 @@ router.post('/withdraw',
       });
 
       const validationService = new ValidationService(provider);
-      
-      let result;
-      if (isSmartWallet) {
-        // Para smart wallets, retorna dados da transação para assinatura no frontend
-        result = await validationService.prepareWithdraw();
-        result.walletType = 'smart_wallet';
-        result.requiresSignature = true;
-        result.note = 'Transação preparada para assinatura no frontend (smart wallet)';
-      } else {
-        // Para private keys, executa a transação diretamente
-        result = await validationService.withdraw(privateKey);
-        result.walletType = 'private_key';
-        result.requiresSignature = false;
-        result.note = 'Transação executada com private key';
-      }
-      
+
+      const result = await validationService.prepareWithdraw();
+      result.walletType = 'smart_wallet';
+      result.requiresSignature = true;
+
       res.json({
         status: 200,
         msg: 'success',

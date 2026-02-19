@@ -18,10 +18,12 @@ interface IBenqiQToken {
     function borrow(uint256 borrowAmount) external returns (uint256);
     function repayBorrow(uint256 repayAmount) external returns (uint256);
     function redeemUnderlying(uint256 redeemAmount) external returns (uint256);
+    function underlying() external view returns (address);
 }
 
 interface IERC20 {
     function approve(address spender, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
 }
@@ -204,13 +206,11 @@ contract ValidatedLending {
     // ========== VIEW FUNCTIONS ==========
 
     /**
-     * @notice Retorna o token underlying de um qToken
-     * @dev Função placeholder - implementação real requer interface do qToken
+     * @notice Retorna o token underlying de um qToken Benqi
+     * @dev Chama underlying() do qToken (disponível em qTokens ERC20, não em qAVAX)
      */
-    function getUnderlyingToken(address qTokenAddress) internal pure returns (address) {
-        // TODO: Implementar lógica para obter underlying token
-        // Por enquanto retorna o próprio endereço como placeholder
-        return qTokenAddress;
+    function getUnderlyingToken(address qTokenAddress) internal view returns (address) {
+        return IBenqiQToken(qTokenAddress).underlying();
     }
 
     /**
@@ -241,7 +241,7 @@ contract ValidatedLending {
     function emergencyWithdrawERC20(address token) external onlyOwner {
         IERC20 erc20 = IERC20(token);
         uint256 balance = erc20.balanceOf(address(this));
-        bool success = erc20.transferFrom(address(this), owner, balance);
+        bool success = erc20.transfer(owner, balance);
         if (!success) revert TransferFailed();
     }
 

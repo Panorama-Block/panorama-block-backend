@@ -1,10 +1,11 @@
 // Configurações da Rede Avalanche
 const NETWORKS = {
   AVALANCHE: {
-    chainId: 43114,
+    chainId: parseInt(process.env.AVALANCHE_CHAIN_ID || '43114', 10),
     name: 'Avalanche C-Chain',
-    rpcUrl: process.env.RPC_URL_AVALANCHE || 'https://avalanche-mainnet.infura.io/v3/9ff045cf374041eeabdf13a4664ceced',
-    explorer: 'https://snowtrace.io',
+    // Support both env var names used across the repo/compose.
+    rpcUrl: process.env.AVALANCHE_RPC_URL || process.env.RPC_URL_AVALANCHE || 'https://avalanche-mainnet.infura.io/v3/9ff045cf374041eeabdf13a4664ceced',
+    explorer: process.env.AVALANCHE_EXPLORER_URL || 'https://snowtrace.io',
     nativeCurrency: {
       name: 'AVAX',
       symbol: 'AVAX',
@@ -12,7 +13,7 @@ const NETWORKS = {
     }
   },
   FUJI: {
-    chainId: 43113,
+    chainId: parseInt(process.env.FUJI_CHAIN_ID || '43113', 10),
     name: 'Avalanche Fuji Testnet',
     rpcUrl: process.env.RPC_URL_FUJI || 'https://api.avax-test.network/ext/bc/C/rpc',
     explorer: 'https://testnet.snowtrace.io',
@@ -41,19 +42,28 @@ const VALIDATION = {
 
 // Endereços dos Contratos Benqi (Mainnet Avalanche - Endereços Oficiais)
 const BENQI = {
-  COMPTROLLER: process.env.BENQI_COMPTROLLER || '0x5C0401e81Bc07Ca70fAD469b451682c0d747Ef1c',
-  UNITROLLER: process.env.BENQI_UNITROLLER || '0xD7c4006d33DA2A0A8525791ed212bbCD7Aca763F',
-  ORACLE: process.env.BENQI_ORACLE || '0x4cC758Fc4d77C88d7105030d82B1740d6b7dFc6E',
-  QAVAX: process.env.BENQI_QAVAX || '0x5C0401e81Bc07Ca70fAD469b451682c0d747Ef1c',
-  QUSDC: process.env.BENQI_QUSDC || '0xB715808a78F6041E46d61Cb123C9B3E9BcF8Da77',
-  QUSDT: process.env.BENQI_QUSDT || '0xCde5A11a4ACB4eE4c805352Cec57E236bdBC3837',
-  QDAI: process.env.BENQI_QDAI || '0x835866d37afb8cb8f8334dccdaf66cf01832ffcf',
-  QWETH: process.env.BENQI_QWETH || '0x334ad834cd4481bb02d09615e7c11a00579a7909',
-  QBTC: process.env.BENQI_QBTC || '0x2f2c4b3e0f3a9b7f6e3a2f3a9b7f6e3a2f3a9b7f',
-  QLINK: process.env.BENQI_QLINK || '0x4e9f683A27a6BdAD3FC2764003759277e936103e',
-  QJOE: process.env.BENQI_QJOE || '0x4036cb0D6BF6b5F17Aa4e05191F86D4b1655b0d9',
-  QQI: process.env.BENQI_QQI || '0x545356e396350D40cDEa888ad73534517399BF96',
-  QCOQ: process.env.BENQI_QCOQ || '0x0eBfebD41e1eA83Be5e911cDCd2730a0CCEE344d'
+  // Source: https://docs.benqi.fi/resources/contracts/core-markets
+  // (env overrides remain supported)
+  COMPTROLLER: process.env.BENQI_COMPTROLLER || '0x486Af39519B4Dc9a7fCcd318217352830E8AD9b4',
+  // Benqi uses a Unitroller/Comptroller pattern; in practice the address above is what UIs integrate with.
+  UNITROLLER: process.env.BENQI_UNITROLLER || process.env.BENQI_COMPTROLLER || '0x486Af39519B4Dc9a7fCcd318217352830E8AD9b4',
+  // Prefer resolving via comptroller.oracle() at runtime; this is just a fallback.
+  ORACLE: process.env.BENQI_ORACLE || '0x316aedaed0e6c38cddd088ba28dd0def3c84e41d',
+
+  // Core qiTokens (Lending Markets)
+  QAVAX: process.env.BENQI_QAVAX || '0x5C0401e81Bc07Ca70fAD469b451682c0d747Ef1c', // qiAVAX
+  QUSDC: process.env.BENQI_QUSDC || '0xBEb5d47A3f720Ec0a390d04b4d41ED7d9688bC7F', // qiUSDC
+  QUSDT: process.env.BENQI_QUSDT || '0xc9e5999b8e75C3fEB117F6f73E664b9f3C8ca65C', // qiUSDT
+  QDAI: process.env.BENQI_QDAI || '0x835866d37afb8cb8f8334dccdaf66cf01832ffcf', // qiDAI
+  QWETH: process.env.BENQI_QWETH || '0x334AD834Cd4481BB02d09615E7c11a00579A7909', // qiETH (WETH.e)
+  // Default to qiBTC.b (BTC bridged on Avalanche). If your product prefers WBTC.e, override via env.
+  QBTC: process.env.BENQI_QBTC || '0x89a415b3d20098e6a6c8f2781a94e24a4f41469e', // qiBTC.b
+  QLINK: process.env.BENQI_QLINK || '0x4e9f683A27a6BdAD3FC2764003759277e93696e6', // qiLINK
+  QQI: process.env.BENQI_QQI || '0x35Bd6aedA81a7e5FC7A7832490e71F757b0cD9Ce', // qiQI
+
+  // Optional/non-core markets (leave empty by default to avoid address drift; override via env when needed)
+  QJOE: process.env.BENQI_QJOE || '',
+  QCOQ: process.env.BENQI_QCOQ || ''
 };
 
 

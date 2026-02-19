@@ -4,6 +4,7 @@ import { StakeUseCase } from '../../../application/usecases/StakeUseCase';
 import { UnstakeUseCase } from '../../../application/usecases/UnstakeUseCase';
 import { GetPositionUseCase } from '../../../application/usecases/GetPositionUseCase';
 import { Logger } from '../../logs/logger';
+import { ERROR_CODES, sendError, ErrorCode } from '../../../shared/errorCodes';
 
 export class LidoController {
   private lidoService!: LidoService;
@@ -34,43 +35,29 @@ export class LidoController {
       const { userAddress, amount } = req.body;
 
       if (!userAddress || !amount) {
-        this.logger.error('❌ Missing required parameters for stake');
-        res.status(400).json({
-          success: false,
-          error: 'User address and amount are required'
-        });
+        this.logger.error('Missing required parameters for stake');
+        sendError(res, 400, ERROR_CODES.INVALID_AMOUNT, 'User address and amount are required');
         return;
       }
 
-      this.logger.info('🎯 Stake request', {
-        userAddress,
-        amount
-      });
+      this.logger.info('Stake request', { userAddress, amount });
 
       const result = await this.stakeUseCase.execute({ userAddress, amount });
 
-      this.logger.info(`📊 Stake UseCase result: ${JSON.stringify(result, null, 2)}`);
-
       if (result.success) {
-        this.logger.info('✅ Stake successful, returning transaction data');
+        this.logger.info('Stake successful, returning transaction data');
         res.status(200).json({
           success: true,
           data: result.transaction
         });
       } else {
-        this.logger.error(`❌ Stake failed: ${result.error}`);
-        res.status(400).json({
-          success: false,
-          error: result.error
-        });
+        this.logger.error(`Stake failed: ${result.error}`);
+        const code = this.mapServiceErrorCode(result.error);
+        sendError(res, 400, code, result.error || 'Stake failed');
       }
     } catch (error) {
-      this.logger.error(`❌ Error in stake controller: ${error}`);
-      this.logger.error(`   Error stack: ${error instanceof Error ? error.stack : 'No stack trace'}`);
-      res.status(500).json({
-        success: false,
-        error: 'Internal server error'
-      });
+      this.logger.error(`Error in stake controller: ${error}`);
+      sendError(res, 500, ERROR_CODES.SERVICE_UNAVAILABLE, 'Internal server error');
     }
   }
 
@@ -79,47 +66,28 @@ export class LidoController {
       const { userAddress, amount } = req.body;
 
       if (!userAddress || !amount) {
-        this.logger.error('❌ Missing required parameters');
-        res.status(400).json({
-          success: false,
-          error: 'User address and amount are required'
-        });
+        sendError(res, 400, ERROR_CODES.INVALID_AMOUNT, 'User address and amount are required');
         return;
       }
 
-      this.logger.info('🎯 Unstake request', {
-        userAddress,
-        amount
-      });
+      this.logger.info('Unstake request', { userAddress, amount });
 
       const result = await this.unstakeUseCase.execute({ userAddress, amount });
 
-      this.logger.info(`📊 Unstake UseCase result:`);
-      this.logger.info(`   success: ${result.success}`);
-      this.logger.info(`   transaction type: ${result.transaction?.type}`);
-      this.logger.info(`   transaction data: ${JSON.stringify(result.transaction?.transactionData, null, 2)}`);
-      this.logger.info(`   requiresFollowUp: ${result.transaction?.requiresFollowUp}`);
-
       if (result.success) {
-        this.logger.info('✅ Unstake successful, returning transaction data');
+        this.logger.info('Unstake successful, returning transaction data');
         res.status(200).json({
           success: true,
           data: result.transaction
         });
       } else {
-        this.logger.error(`❌ Unstake failed: ${result.error}`);
-        res.status(400).json({
-          success: false,
-          error: result.error
-        });
+        this.logger.error(`Unstake failed: ${result.error}`);
+        const code = this.mapServiceErrorCode(result.error);
+        sendError(res, 400, code, result.error || 'Unstake failed');
       }
     } catch (error) {
-      this.logger.error(`❌ Error in unstake controller: ${error}`);
-      this.logger.error(`   Error stack: ${error instanceof Error ? error.stack : 'No stack trace'}`);
-      res.status(500).json({
-        success: false,
-        error: 'Internal server error'
-      });
+      this.logger.error(`Error in unstake controller: ${error}`);
+      sendError(res, 500, ERROR_CODES.SERVICE_UNAVAILABLE, 'Internal server error');
     }
   }
 
@@ -296,10 +264,22 @@ export class LidoController {
         data: transaction,
       });
     } catch (error) {
-      this.logger.error(`Error in claimWithdrawals controller: ${error}`);
-      res.status(500).json({
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      this.logger.error(`Error in claimWithdrawals controller: ${message}`);
+
+      const lower = message.toLowerCase();
+      const isClientError =
+        lower.includes('required') ||
+        lower.includes('not finalized') ||
+        lower.includes('already claimed') ||
+        lower.includes('do not belong') ||
+        lower.includes('no finalized checkpoint') ||
+        lower.includes('not claimable yet') ||
+        lower.includes('unable to validate');
+
+      res.status(isClientError ? 400 : 500).json({
         success: false,
-        error: 'Internal server error',
+        error: isClientError ? message : 'Internal server error',
       });
     }
   }
@@ -380,10 +360,25 @@ export class LidoController {
       }
     } catch (error) {
       this.logger.error(`Error in getTransactionStatus controller: ${error}`);
-      res.status(500).json({
-        success: false,
-        error: 'Internal server error'
-      });
+      sendError(res, 500, ERROR_CODES.SERVICE_UNAVAILABLE, 'Internal server error');
     }
+  }
+
+  /**
+   * Map service-layer error messages to standardized error codes.
+   */
+  private mapServiceErrorCode(errorMessage?: string): ErrorCode {
+    if (!errorMessage) return ERROR_CODES.SERVICE_UNAVAILABLE;
+    const msg = errorMessage.toUpperCase();
+    if (msg.includes('INSUFFICIENT') && msg.includes('BALANCE')) return ERROR_CODES.INSUFFICIENT_BALANCE;
+    if (msg.includes('INVALID') && msg.includes('AMOUNT')) return ERROR_CODES.INVALID_AMOUNT;
+    if (msg.includes('AMOUNT') && msg.includes('SMALL')) return ERROR_CODES.AMOUNT_TOO_SMALL;
+    if (msg.includes('AMOUNT') && msg.includes('LARGE')) return ERROR_CODES.AMOUNT_TOO_LARGE;
+    if (msg.includes('GAS')) return ERROR_CODES.GAS_ESTIMATION_FAILED;
+    if (msg.includes('REVERT')) return ERROR_CODES.TRANSACTION_REVERTED;
+    if (msg.includes('NONCE')) return ERROR_CODES.NONCE_TOO_LOW;
+    if (msg.includes('TIMEOUT')) return ERROR_CODES.TIMEOUT;
+    if (msg.includes('RPC') || msg.includes('PROVIDER')) return ERROR_CODES.RPC_ERROR;
+    return ERROR_CODES.SERVICE_UNAVAILABLE;
   }
 }

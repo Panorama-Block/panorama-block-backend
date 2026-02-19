@@ -19,6 +19,12 @@ model User {
   DcaSessions   DcaSession[]
   DcaWorkflows  DcaWorkflow[]
   DcaHistories  DcaHistory[]
+  LendingPositions LendingPosition[]
+  LendingSnapshots LendingSnapshotDaily[]
+  LendingTxs       LendingTx[]
+  LidoPositions    LidoPosition[]
+  LidoWithdrawals  LidoWithdrawal[]
+  LidoTxs          LidoTx[]
 }
 
 model Conversation {

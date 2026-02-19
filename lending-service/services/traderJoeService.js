@@ -100,6 +100,12 @@ class TraderJoeService {
    * Calcula o slippage para uma transação
    */
   calculateSlippage(amountOut, slippagePercent) {
+    if (typeof amountOut !== 'number' || !Number.isFinite(amountOut) || amountOut <= 0) {
+      throw new Error('amountOut must be a positive finite number');
+    }
+    if (typeof slippagePercent !== 'number' || !Number.isFinite(slippagePercent) || slippagePercent < 0 || slippagePercent > 100) {
+      throw new Error('slippagePercent must be a number between 0 and 100');
+    }
     const slippageMultiplier = slippagePercent / 100;
     const minAmountOut = amountOut * (1 - slippageMultiplier);
     return ethers.parseUnits(minAmountOut.toString(), 18);
