@@ -25,6 +25,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: panorama_backend
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
