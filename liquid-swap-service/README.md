@@ -133,6 +133,16 @@ Content-Type: application/json
   "toChainId": 137,
   "fromToken": "native",
   "toToken": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+  "amount": "0.001",
+  "unit": "token" // recommended: always send unit ("token" or "wei")
+}
+
+// If you send wei, you MUST set unit="wei" (otherwise it will be treated as token units and double-converted):
+{
+  "fromChainId": 1,
+  "toChainId": 137,
+  "fromToken": "native",
+  "toToken": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
   "amount": "1000000000000000",
   "unit": "wei"
 }

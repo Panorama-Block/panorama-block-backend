@@ -8,9 +8,9 @@ set -e  # Exit on any error
 # Configuration
 BASE_URL="http://localhost:3004"
 API_BASE="$BASE_URL/api/lido"
-AUTH_BASE="$API_BASE/auth"
-TEST_USER="0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6"
-TEST_AMOUNT="1.0"
+TEST_USER="${TEST_USER:-0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6}"
+TEST_AMOUNT="${TEST_AMOUNT:-0.01}"
+ACCESS_TOKEN="${AUTH_TOKEN:-}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -48,6 +48,23 @@ print_error() {
 
 print_info() {
     echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+get_steth_balance_wei() {
+    if [ -z "$ACCESS_TOKEN" ]; then
+        echo ""
+        return 0
+    fi
+
+    local resp
+    resp=$(curl -s -X GET "$API_BASE/position/$TEST_USER" -H "Authorization: Bearer $ACCESS_TOKEN" 2>/dev/null || echo "")
+    if [ -z "$resp" ]; then
+        echo ""
+        return 0
+    fi
+
+    # Position can be missing/undefined when user has no stake; treat as empty
+    echo "$resp" | jq -r '.data.stETHBalance // empty' 2>/dev/null || echo ""
 }
 
 # Test helper function
@@ -115,41 +132,20 @@ check_api_health() {
 
 # Test authentication endpoints
 test_authentication() {
-    print_header "🔐 Testing Authentication Endpoints"
-    
-    # Test login
-    if test_endpoint "POST" "$AUTH_BASE/login" "{\"userAddress\": \"$TEST_USER\"}" "" "200" "Login with user address"; then
-        # Extract tokens from response
-        local login_response=$(curl -s -X POST "$AUTH_BASE/login" \
-            -H "Content-Type: application/json" \
-            -d "{\"userAddress\": \"$TEST_USER\"}" 2>/dev/null)
-        
-        ACCESS_TOKEN=$(echo "$login_response" | jq -r '.data.accessToken' 2>/dev/null)
-        REFRESH_TOKEN=$(echo "$login_response" | jq -r '.data.refreshToken' 2>/dev/null)
-        
-        if [ "$ACCESS_TOKEN" != "null" ] && [ -n "$ACCESS_TOKEN" ]; then
-            print_success "Access token obtained: ${ACCESS_TOKEN:0:50}..."
-            print_success "Refresh token obtained: ${REFRESH_TOKEN:0:50}..."
-        else
-            print_error "Failed to extract tokens from login response"
-            return 1
-        fi
-    else
-        print_error "Login failed"
+    print_header "🔐 Authentication (Centralized via auth-service)"
+
+    if [ -z "$ACCESS_TOKEN" ]; then
+        print_error "AUTH_TOKEN env var not set"
+        print_info "Export a token from your MiniApp session:"
+        print_info "  export AUTH_TOKEN='eyJ...'"
+        print_info "Also ensure TEST_USER matches the JWT address (protected endpoints enforce it)."
         return 1
     fi
-    
-    # Test token verification
-    test_endpoint "GET" "$AUTH_BASE/verify" "" "Authorization: Bearer $ACCESS_TOKEN" "200" "Verify access token"
-    
-    # Test token info
-    test_endpoint "GET" "$AUTH_BASE/token-info" "" "Authorization: Bearer $ACCESS_TOKEN" "200" "Get token information"
-    
-    # Test token refresh
-    test_endpoint "POST" "$AUTH_BASE/refresh" "{\"refreshToken\": \"$REFRESH_TOKEN\"}" "" "200" "Refresh access token"
-    
-    # Test logout
-    test_endpoint "POST" "$AUTH_BASE/logout" "" "Authorization: Bearer $ACCESS_TOKEN" "200" "Logout"
+
+    print_success "Using AUTH_TOKEN: ${ACCESS_TOKEN:0:24}..."
+
+    # Validate token by calling a protected endpoint
+    test_endpoint "GET" "$API_BASE/position/$TEST_USER" "" "Authorization: Bearer $ACCESS_TOKEN" "200" "Validate token (position with auth)"
 }
 
 # Test staking endpoints (protected)
@@ -164,11 +160,40 @@ test_staking_endpoints() {
     # Test stake
     test_endpoint "POST" "$API_BASE/stake" "{\"userAddress\": \"$TEST_USER\", \"amount\": \"$TEST_AMOUNT\"}" "Authorization: Bearer $ACCESS_TOKEN" "200" "Stake ETH"
     
-    # Test unstake
-    test_endpoint "POST" "$API_BASE/unstake" "{\"userAddress\": \"$TEST_USER\", \"amount\": \"$TEST_AMOUNT\"}" "Authorization: Bearer $ACCESS_TOKEN" "200" "Unstake stETH"
+    # Test unstake (requires stETH balance)
+    local steth_balance_wei
+    steth_balance_wei="$(get_steth_balance_wei)"
+    if [ -n "$steth_balance_wei" ] && [ "$steth_balance_wei" != "0" ]; then
+        test_endpoint "POST" "$API_BASE/unstake" "{\"userAddress\": \"$TEST_USER\", \"amount\": \"$TEST_AMOUNT\"}" "Authorization: Bearer $ACCESS_TOKEN" "200" "Unstake stETH (Withdrawal Queue)"
+    else
+        print_info "Skipping unstake test (no stETH balance detected for TEST_USER)."
+    fi
     
     # Test claim rewards
     test_endpoint "POST" "$API_BASE/claim-rewards" "{\"userAddress\": \"$TEST_USER\"}" "Authorization: Bearer $ACCESS_TOKEN" "200" "Claim rewards"
+}
+
+test_withdrawals_and_tracking_endpoints() {
+    print_header "🧾 Testing Withdrawals & Tracking"
+
+    # Withdrawals list (public/optional auth)
+    test_endpoint "GET" "$API_BASE/withdrawals/$TEST_USER" "" "" "200" "Get withdrawals (no auth)"
+    if [ -n "$ACCESS_TOKEN" ]; then
+        test_endpoint "GET" "$API_BASE/withdrawals/$TEST_USER" "" "Authorization: Bearer $ACCESS_TOKEN" "200" "Get withdrawals (with auth)"
+    fi
+
+    # Claim withdrawals validation (requires auth)
+    if [ -n "$ACCESS_TOKEN" ]; then
+        test_endpoint "POST" "$API_BASE/withdrawals/claim" "{\"userAddress\": \"$TEST_USER\", \"requestIds\": []}" "Authorization: Bearer $ACCESS_TOKEN" "400" "Claim withdrawals (empty requestIds rejected)"
+    fi
+
+    # Transaction submit validation (requires auth)
+    if [ -n "$ACCESS_TOKEN" ]; then
+        test_endpoint "POST" "$API_BASE/transaction/submit" "{\"id\": \"tx_test\", \"userAddress\": \"$TEST_USER\"}" "Authorization: Bearer $ACCESS_TOKEN" "400" "Submit tx hash (missing hash rejected)"
+    fi
+
+    # Transaction status validation (public)
+    test_endpoint "GET" "$API_BASE/transaction/0x123" "" "" "400" "Get tx status (invalid hash format rejected)"
 }
 
 # Test public endpoints
@@ -193,18 +218,12 @@ test_public_endpoints() {
 # Test error cases
 test_error_cases() {
     print_header "🚫 Testing Error Cases"
-    
-    # Test invalid login
-    test_endpoint "POST" "$AUTH_BASE/login" "{\"userAddress\": \"invalid_address\"}" "" "400" "Login with invalid address"
-    
-    # Test missing user address
-    test_endpoint "POST" "$AUTH_BASE/login" "{}" "" "400" "Login without user address"
-    
+
     # Test stake without auth
     test_endpoint "POST" "$API_BASE/stake" "{\"userAddress\": \"$TEST_USER\", \"amount\": \"$TEST_AMOUNT\"}" "" "401" "Stake without authentication"
     
-    # Test invalid token
-    test_endpoint "GET" "$AUTH_BASE/verify" "" "Authorization: Bearer invalid_token" "401" "Verify invalid token"
+    # Test invalid token (should be rejected)
+    test_endpoint "POST" "$API_BASE/stake" "{\"userAddress\": \"$TEST_USER\", \"amount\": \"$TEST_AMOUNT\"}" "Authorization: Bearer invalid_token" "401" "Stake with invalid token"
     
     # Test invalid endpoint
     test_endpoint "GET" "$API_BASE/invalid-endpoint" "" "" "404" "Invalid endpoint"
@@ -237,8 +256,8 @@ test_token_expiration() {
     # Create a token that will expire quickly (if we had control over expiration)
     print_test "Token expiration handling"
     
-    # Test with expired token (this will fail as expected)
-    test_endpoint "GET" "$AUTH_BASE/verify" "" "Authorization: Bearer expired_token_here" "401" "Expired token verification"
+    # Test with expired token placeholder (expect 401)
+    test_endpoint "POST" "$API_BASE/stake" "{\"userAddress\": \"$TEST_USER\", \"amount\": \"$TEST_AMOUNT\"}" "Authorization: Bearer expired_token_here" "401" "Expired token rejected"
 }
 
 # Main test execution
@@ -257,6 +276,7 @@ main() {
     test_authentication
     test_public_endpoints
     test_staking_endpoints
+    test_withdrawals_and_tracking_endpoints
     test_error_cases
     test_performance
     test_token_expiration

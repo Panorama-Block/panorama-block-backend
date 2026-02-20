@@ -1,0 +1,30 @@
+services:
+  redis:
+    profiles: ["infra"]
+
+  engine_postgres:
+    profiles: ["infra"]
+
+  engine_postgres_bootstrap:
+    profiles: ["infra"]
+
+  engine:
+    profiles: ["infra"]
+
+  auth_service:
+    profiles: ["core"]
+
+  bridge_service:
+    profiles: ["bridge"]
+
+  liquid_swap_service:
+    profiles: ["swap"]
+
+  lido_service:
+    profiles: ["staking"]
+
+  lending_service:
+    profiles: ["lending"]
+
+  dca_service:
+    profiles: ["dca"]

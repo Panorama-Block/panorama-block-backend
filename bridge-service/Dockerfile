@@ -1,10 +1,5 @@
 # Build stage
-FROM node:18-bullseye-slim AS builder
-
-# Add OpenSSL for Prisma + CA certs
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+FROM node:18-bullseye AS builder
 
 WORKDIR /app
 
@@ -12,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies (use npm install to avoid lock mismatches in envs without updated lockfile)
-RUN npm install --only=production
+RUN npm install
 
 # Copy source code
 COPY . .
@@ -23,13 +18,11 @@ RUN npx prisma generate
 # Build the application
 RUN npm run build
 
-# Production stage
-FROM node:18-bullseye-slim AS production
+# Remove devDependencies for production image
+RUN npm prune --omit=dev
 
-# Add OpenSSL for Prisma + CA certs
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+# Production stage
+FROM node:18-bullseye AS production
 
 # Create app user
 RUN addgroup --system --gid 1001 nodejs
@@ -62,12 +55,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 CMD ["node", "dist/index.js"]
 
 # Development stage
-FROM node:18-bullseye-slim AS development
-
-# Add OpenSSL for Prisma + CA certs
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+FROM node:18-bullseye AS development
 
 WORKDIR /app
 

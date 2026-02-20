@@ -2,13 +2,15 @@
 import { SwapRequest } from "../../domain/entities/swap";
 import { ProviderSelectorService } from "../services/provider-selector.service";
 import { normalizeToNative } from "../../utils/native.utils";
+import { getTokenDecimals, toWei } from "../../utils/token.utils";
 
 export interface PrepareSwapUseCaseRequest {
   fromChainId: number;
   toChainId: number;
   fromToken: string;
   toToken: string;
-  amount: string; // WEI (string) ou token human se você quiser adaptar
+  amount: string; // unit="token" => token units (decimal string); unit="wei" => base units (integer string)
+  unit?: "token" | "wei";
   sender: string;
   receiver?: string;
   provider?: string; // Optional: specify provider to use (default: auto-select best)
@@ -27,12 +29,15 @@ export class PrepareSwapUseCase {
   ): Promise<PrepareSwapUseCaseResponse> {
     const fromTok = normalizeToNative(req.fromToken);
     const toTok = normalizeToNative(req.toToken);
+    const unit = req.unit || "wei";
+    const fromDecimals = await getTokenDecimals(req.fromChainId, fromTok);
+    const amountWei = unit === "wei" ? BigInt(req.amount) : toWei(req.amount, fromDecimals);
     const swapRequest = new SwapRequest(
       req.fromChainId,
       req.toChainId,
       fromTok,
       toTok,
-      BigInt(req.amount),
+      amountWei,
       req.sender,
       req.receiver || req.sender
     );

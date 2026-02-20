@@ -4,8 +4,7 @@ export interface StakingPosition {
   stakedAmount: string;
   stETHBalance: string;
   wstETHBalance: string;
-  rewards: string;
-  apy: number;
+  apy: number | null;
   timestamp: Date;
   status: 'active' | 'pending' | 'completed' | 'failed';
 }
@@ -13,7 +12,7 @@ export interface StakingPosition {
 export interface StakingTransaction {
   id: string;
   userAddress: string;
-  type: 'stake' | 'unstake' | 'unstake_approval' | 'claim_rewards';
+  type: 'stake' | 'unstake' | 'unstake_approval' | 'claim_rewards' | 'withdrawal_claim';
   amount: string;
   token: 'ETH' | 'stETH' | 'wstETH';
   transactionHash?: string;
@@ -34,11 +33,18 @@ export interface StakingTransaction {
   followUpAction?: 'unstake';
 }
 
+export interface WithdrawalRequest {
+  requestId: string; // uint256 as string
+  amountOfStETHWei: string;
+  amountOfSharesWei: string;
+  owner: string;
+  timestamp: number; // unix seconds (as returned by the contract)
+  isFinalized: boolean;
+  isClaimed: boolean;
+}
+
 export interface LidoProtocolInfo {
   totalStaked: string;
-  totalRewards: string;
-  currentAPY: number;
-  stETHPrice: string;
-  wstETHPrice: string;
+  currentAPY: number | null;
   lastUpdate: Date;
 }

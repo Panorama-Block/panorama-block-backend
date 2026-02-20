@@ -155,7 +155,8 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
   public readonly name = 'uniswap-trading-api';
   private readonly client: AxiosInstance;
   private readonly config: UniswapTradingApiConfig;
-  private readonly slippageTolerance = "auto" as const;
+  private readonly slippagePercent: number; // e.g., 5.0 = 5%
+  private readonly quoteCacheEnabled: boolean;
 
   // Quote cache to reuse between getQuote() and prepareSwap()
   // Key format: `${chainId}:${fromToken}:${toToken}:${amount}:${sender}`
@@ -195,6 +196,12 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
     }
 
     console.log(`[${this.name}] 📊 Slippage tolerance: auto`);
+
+    // Quotes must not be cached by default (trust-first UX). Enable explicitly if needed.
+    this.quoteCacheEnabled = String(process.env.ENABLE_QUOTE_CACHE || '').toLowerCase() === 'true';
+    if (!this.quoteCacheEnabled) {
+      console.log(`[${this.name}] 🧊 Quote cache disabled (set ENABLE_QUOTE_CACHE=true to enable)`);
+    }
 
     // Initialize HTTP client
     this.client = axios.create({
@@ -857,6 +864,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
    * Store quote in cache
    */
   private cacheQuote(request: SwapRequest, quoteResponse: any): void {
+    if (!this.quoteCacheEnabled) return;
     const key = this.getCacheKey(request);
     const now = Date.now();
 
@@ -882,6 +890,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
    * Get cached quote if still valid
    */
   private getCachedQuote(request: SwapRequest): any | null {
+    if (!this.quoteCacheEnabled) return null;
     const key = this.getCacheKey(request);
     const cached = this.quoteCache.get(key);
 
@@ -911,6 +920,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
    * Clear expired quotes from cache (cleanup)
    */
   private cleanupCache(): void {
+    if (!this.quoteCacheEnabled) return;
     const now = Date.now();
     let cleaned = 0;
 

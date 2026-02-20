@@ -14,15 +14,52 @@ const router = express.Router();
 
 // Rate limiting
 const benqiValidationRateLimiter = createRateLimiter(20, 15 * 60 * 1000); // 20 requests por 15 minutos
+const ZERO_ADDRESS_REGEX = /^0x0{40}$/i;
+
+function isValidationContractConfigured() {
+  return (
+    typeof VALIDATION.CONTRACT_ADDRESS === 'string' &&
+    ethers.isAddress(VALIDATION.CONTRACT_ADDRESS) &&
+    !ZERO_ADDRESS_REGEX.test(VALIDATION.CONTRACT_ADDRESS)
+  );
+}
+
+function buildDirectSmartWalletResult({
+  actionKey,
+  actionData,
+  amount,
+  amountSummaryKey,
+  operationLabel,
+}) {
+  return {
+    validation: null,
+    [actionKey]: {
+      ...actionData,
+      walletType: 'smart_wallet',
+      requiresSignature: true,
+    },
+    summary: {
+      totalAmount: amount,
+      taxPaid: '0',
+      [amountSummaryKey]: amount,
+      finalAmount: amount,
+      totalFees: '0',
+    },
+    walletType: 'smart_wallet',
+    requiresSignature: true,
+    validationBypassed: true,
+    note: `Validation contract not configured. Prepared direct ${operationLabel} transaction.`,
+  };
+}
 
 /**
  * @route POST /validateAndSupply
- * @desc Executa validação primeiro e depois supply
+ * @desc Prepara transações de validação + supply para assinatura no frontend
  * @access Private (com transação assinada)
- * 
+ *
  * COMO CHAMAR:
  * POST /benqi-validation/validateAndSupply
- * 
+ *
  * Headers: Content-Type: application/json
  * Body: {
  *   "address": "0x1234567890abcdef1234567890abcdef12345678",
@@ -30,42 +67,24 @@ const benqiValidationRateLimiter = createRateLimiter(20, 15 * 60 * 1000); // 20 
  *   "message": "Validate and supply\nTimestamp: 1234567890",
  *   "timestamp": 1234567890,
  *   "amount": "1000000000000000000",
- *   "qTokenAddress": "0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7",
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ *   "qTokenAddress": "0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7"
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - amount: Montante em wei para validação
  * - qTokenAddress: Endereço do qToken
- * - privateKey: Private key do usuário
- * 
- * Exemplo de resposta:
- * {
- *   "status": 200,
- *   "msg": "success",
- *   "data": {
- *     "validation": {
- *       "transactionHash": "0x...",
- *       "taxAmount": "100000000000000000",
- *       "restAmount": "900000000000000000"
- *     },
- *     "supply": {
- *       "transactionHash": "0x...",
- *       "amountSupplied": "900000000000000000"
- *     }
- *   }
- * }
+ *
+ * Retorna dados das transações para assinatura no frontend (smart wallet)
  */
-router.post('/validateAndSupply', 
+router.post('/validateAndSupply',
   verifySignature,
   prepareTransactionData,
   benqiValidationRateLimiter,
   sanitizeInput,
   async (req, res) => {
     try {
-      const { amount, qTokenAddress, privateKey, rpc } = req.body;
-      const { isSmartWallet } = req;
-      
+      const { amount, qTokenAddress, rpc } = req.body;
+
       // Validação dos parâmetros obrigatórios
       if (!amount || !qTokenAddress) {
         return res.status(400).json({
@@ -73,17 +92,6 @@ router.post('/validateAndSupply',
           msg: 'error',
           data: {
             error: 'amount e qTokenAddress são obrigatórios'
-          }
-        });
-      }
-
-      // Para private key, verificar se foi fornecida
-      if (!isSmartWallet && !privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatório para wallets tradicionais'
           }
         });
       }
@@ -107,23 +115,36 @@ router.post('/validateAndSupply',
         staticNetwork: true
       });
 
-      const validationService = new ValidationService(provider);
       const benqiService = new BenqiService(provider);
-      
-      console.log('🔄 Iniciando processo de validação + supply...');
-      
-      let result;
-      if (isSmartWallet) {
-        // Para smart wallets, retorna dados das transações para assinatura no frontend
-        console.log('📋 Preparando transações para smart wallet...');
-        
-        // PASSO 1: Preparar validação
-        const validationData = await validationService.preparePayAndValidate(amount);
-        
-        // PASSO 2: Preparar supply
-        const supplyData = await benqiService.prepareSupply(qTokenAddress, validationData.restAmount);
-        
-        result = {
+      const validationConfigured = isValidationContractConfigured();
+
+      if (!validationConfigured) {
+        console.warn('[benqi-validation] Validation contract not configured. Falling back to direct supply prepare.');
+        const supplyData = await benqiService.prepareSupply(qTokenAddress, amount);
+        return res.json({
+          status: 200,
+          msg: 'success',
+          data: buildDirectSmartWalletResult({
+            actionKey: 'supply',
+            actionData: supplyData,
+            amount,
+            amountSummaryKey: 'amountSupplied',
+            operationLabel: 'supply',
+          }),
+        });
+      }
+
+      const validationService = new ValidationService(provider);
+
+      console.log('🔄 Preparando transações de validação + supply...');
+
+      const validationData = await validationService.preparePayAndValidate(amount);
+      const supplyData = await benqiService.prepareSupply(qTokenAddress, validationData.restAmount);
+
+      res.json({
+        status: 200,
+        msg: 'success',
+        data: {
           validation: {
             ...validationData,
             walletType: 'smart_wallet',
@@ -142,59 +163,10 @@ router.post('/validateAndSupply',
             totalFees: (BigInt(amount) - BigInt(validationData.restAmount)).toString()
           },
           walletType: 'smart_wallet',
-          requiresSignature: true,
-          note: 'Transações preparadas para assinatura no frontend (smart wallet)'
-        };
-      } else {
-        // Para private keys, executa as transações diretamente
-        console.log('📋 Passo 1: Executando validação...');
-        const validationResult = await validationService.payAndValidate(amount, privateKey);
-        
-        console.log('✅ Validação concluída:', validationResult.transactionHash);
-        
-        // PASSO 2: Executar supply com o valor restante
-        console.log('🔄 Passo 2: Executando supply...');
-        
-        // Simula supply (em produção, você integraria com o Benqi)
-        const supplyResult = {
-          transactionHash: '0x' + Math.random().toString(16).substr(2, 64),
-          status: 'success',
-          amountSupplied: validationResult.restAmount,
-          qTokenAddress: qTokenAddress
-        };
-        
-        console.log('✅ Supply concluído:', supplyResult.transactionHash);
-        
-        result = {
-          validation: {
-            transactionHash: validationResult.transactionHash,
-            status: validationResult.status,
-            blockNumber: validationResult.blockNumber,
-            gasUsed: validationResult.gasUsed,
-            amountSent: validationResult.amountSent,
-            taxAmount: validationResult.taxAmount,
-            restAmount: validationResult.restAmount
-          },
-          supply: supplyResult,
-          summary: {
-            totalAmount: amount,
-            taxPaid: validationResult.taxAmount,
-            amountSupplied: validationResult.restAmount,
-            finalAmount: validationResult.restAmount,
-            totalFees: (BigInt(amount) - BigInt(validationResult.restAmount)).toString()
-          },
-          walletType: 'private_key',
-          requiresSignature: false,
-          note: 'Transações executadas com private key'
-        };
-      }
-      
-      res.json({
-        status: 200,
-        msg: 'success',
-        data: result
+          requiresSignature: true
+        }
       });
-      
+
     } catch (error) {
       console.error('Erro no validateAndSupply:', error);
       res.status(500).json({
@@ -211,12 +183,12 @@ router.post('/validateAndSupply',
 
 /**
  * @route POST /validateAndBorrow
- * @desc Executa validação primeiro e depois borrow
+ * @desc Prepara transações de validação + borrow para assinatura no frontend
  * @access Private (com transação assinada)
- * 
+ *
  * COMO CHAMAR:
  * POST /benqi-validation/validateAndBorrow
- * 
+ *
  * Headers: Content-Type: application/json
  * Body: {
  *   "address": "0x1234567890abcdef1234567890abcdef12345678",
@@ -224,42 +196,24 @@ router.post('/validateAndSupply',
  *   "message": "Validate and borrow\nTimestamp: 1234567890",
  *   "timestamp": 1234567890,
  *   "amount": "1000000000000000000",
- *   "qTokenAddress": "0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7",
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ *   "qTokenAddress": "0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7"
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - amount: Montante em wei para validação
  * - qTokenAddress: Endereço do qToken
- * - privateKey: Private key do usuário
- * 
- * Exemplo de resposta:
- * {
- *   "status": 200,
- *   "msg": "success",
- *   "data": {
- *     "validation": {
- *       "transactionHash": "0x...",
- *       "taxAmount": "100000000000000000",
- *       "restAmount": "900000000000000000"
- *     },
- *     "borrow": {
- *       "transactionHash": "0x...",
- *       "amountBorrowed": "900000000000000000"
- *     }
- *   }
- * }
+ *
+ * Retorna dados das transações para assinatura no frontend (smart wallet)
  */
-router.post('/validateAndBorrow', 
-  verifySignature, 
+router.post('/validateAndBorrow',
+  verifySignature,
   prepareTransactionData,
   benqiValidationRateLimiter,
   sanitizeInput,
   async (req, res) => {
     try {
-      const { amount, qTokenAddress, privateKey, rpc } = req.body;
-      const { isSmartWallet } = req;
-      
+      const { amount, qTokenAddress, rpc } = req.body;
+
       // Validação dos parâmetros obrigatórios
       if (!amount || !qTokenAddress) {
         return res.status(400).json({
@@ -267,17 +221,6 @@ router.post('/validateAndBorrow',
           msg: 'error',
           data: {
             error: 'amount e qTokenAddress são obrigatórios'
-          }
-        });
-      }
-
-      // Para private key, verificar se foi fornecida
-      if (!isSmartWallet && !privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatório para wallets tradicionais'
           }
         });
       }
@@ -301,23 +244,36 @@ router.post('/validateAndBorrow',
         staticNetwork: true
       });
 
-      const validationService = new ValidationService(provider);
       const benqiService = new BenqiService(provider);
-      
-      console.log('🔄 Iniciando processo de validação + borrow...');
-      
-      let result;
-      if (isSmartWallet) {
-        // Para smart wallets, retorna dados das transações para assinatura no frontend
-        console.log('📋 Preparando transações para smart wallet...');
-        
-        // PASSO 1: Preparar validação
-        const validationData = await validationService.preparePayAndValidate(amount);
-        
-        // PASSO 2: Preparar borrow
-        const borrowData = await benqiService.prepareBorrow(qTokenAddress, validationData.restAmount);
-        
-        result = {
+      const validationConfigured = isValidationContractConfigured();
+
+      if (!validationConfigured) {
+        console.warn('[benqi-validation] Validation contract not configured. Falling back to direct borrow prepare.');
+        const borrowData = await benqiService.prepareBorrow(qTokenAddress, amount);
+        return res.json({
+          status: 200,
+          msg: 'success',
+          data: buildDirectSmartWalletResult({
+            actionKey: 'borrow',
+            actionData: borrowData,
+            amount,
+            amountSummaryKey: 'amountBorrowed',
+            operationLabel: 'borrow',
+          }),
+        });
+      }
+
+      const validationService = new ValidationService(provider);
+
+      console.log('🔄 Preparando transações de validação + borrow...');
+
+      const validationData = await validationService.preparePayAndValidate(amount);
+      const borrowData = await benqiService.prepareBorrow(qTokenAddress, validationData.restAmount);
+
+      res.json({
+        status: 200,
+        msg: 'success',
+        data: {
           validation: {
             ...validationData,
             walletType: 'smart_wallet',
@@ -336,59 +292,10 @@ router.post('/validateAndBorrow',
             totalFees: (BigInt(amount) - BigInt(validationData.restAmount)).toString()
           },
           walletType: 'smart_wallet',
-          requiresSignature: true,
-          note: 'Transações preparadas para assinatura no frontend (smart wallet)'
-        };
-      } else {
-        // Para private keys, executa as transações diretamente
-        console.log('📋 Passo 1: Executando validação...');
-        const validationResult = await validationService.payAndValidate(amount, privateKey);
-        
-        console.log('✅ Validação concluída:', validationResult.transactionHash);
-        
-        // PASSO 2: Executar borrow com o valor restante
-        console.log('🔄 Passo 2: Executando borrow...');
-        
-        // Simula borrow (em produção, você integraria com o Benqi)
-        const borrowResult = {
-          transactionHash: '0x' + Math.random().toString(16).substr(2, 64),
-          status: 'success',
-          amountBorrowed: validationResult.restAmount,
-          qTokenAddress: qTokenAddress
-        };
-        
-        console.log('✅ Borrow concluído:', borrowResult.transactionHash);
-        
-        result = {
-          validation: {
-            transactionHash: validationResult.transactionHash,
-            status: validationResult.status,
-            blockNumber: validationResult.blockNumber,
-            gasUsed: validationResult.gasUsed,
-            amountSent: validationResult.amountSent,
-            taxAmount: validationResult.taxAmount,
-            restAmount: validationResult.restAmount
-          },
-          borrow: borrowResult,
-          summary: {
-            totalAmount: amount,
-            taxPaid: validationResult.taxAmount,
-            amountBorrowed: validationResult.restAmount,
-            finalAmount: validationResult.restAmount,
-            totalFees: (BigInt(amount) - BigInt(validationResult.restAmount)).toString()
-          },
-          walletType: 'private_key',
-          requiresSignature: false,
-          note: 'Transações executadas com private key'
-        };
-      }
-      
-      res.json({
-        status: 200,
-        msg: 'success',
-        data: result
+          requiresSignature: true
+        }
       });
-      
+
     } catch (error) {
       console.error('Erro no validateAndBorrow:', error);
       res.status(500).json({
@@ -631,12 +538,12 @@ router.post('/getValidationAndBorrowQuote',
 
 /**
  * @route POST /validateAndWithdraw
- * @desc Executa validação primeiro e depois withdraw
+ * @desc Prepara transações de validação + withdraw para assinatura no frontend
  * @access Private (com transação assinada)
- * 
+ *
  * COMO CHAMAR:
  * POST /benqi-validation/validateAndWithdraw
- * 
+ *
  * Headers: Content-Type: application/json
  * Body: {
  *   "address": "0x1234567890abcdef1234567890abcdef12345678",
@@ -644,42 +551,24 @@ router.post('/getValidationAndBorrowQuote',
  *   "message": "Validate and withdraw\nTimestamp: 1234567890",
  *   "timestamp": 1234567890,
  *   "amount": "1000000000000000000",
- *   "qTokenAddress": "0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7",
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ *   "qTokenAddress": "0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7"
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - amount: Montante em wei para validação
  * - qTokenAddress: Endereço do qToken
- * - privateKey: Private key do usuário
- * 
- * Exemplo de resposta:
- * {
- *   "status": 200,
- *   "msg": "success",
- *   "data": {
- *     "validation": {
- *       "transactionHash": "0x...",
- *       "taxAmount": "100000000000000000",
- *       "restAmount": "900000000000000000"
- *     },
- *     "withdraw": {
- *       "transactionHash": "0x...",
- *       "amountWithdrawn": "900000000000000000"
- *     }
- *   }
- * }
+ *
+ * Retorna dados das transações para assinatura no frontend (smart wallet)
  */
-router.post('/validateAndWithdraw', 
-  verifySignature, 
+router.post('/validateAndWithdraw',
+  verifySignature,
   prepareTransactionData,
   benqiValidationRateLimiter,
   sanitizeInput,
   async (req, res) => {
     try {
-      const { amount, qTokenAddress, privateKey, rpc } = req.body;
-      const { isSmartWallet } = req;
-      
+      const { amount, qTokenAddress, rpc } = req.body;
+
       // Validação dos parâmetros obrigatórios
       if (!amount || !qTokenAddress) {
         return res.status(400).json({
@@ -687,17 +576,6 @@ router.post('/validateAndWithdraw',
           msg: 'error',
           data: {
             error: 'amount e qTokenAddress são obrigatórios'
-          }
-        });
-      }
-
-      // Para private key, verificar se foi fornecida
-      if (!isSmartWallet && !privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatório para wallets tradicionais'
           }
         });
       }
@@ -721,23 +599,36 @@ router.post('/validateAndWithdraw',
         staticNetwork: true
       });
 
-      const validationService = new ValidationService(provider);
       const benqiService = new BenqiService(provider);
-      
-      console.log('🔄 Iniciando processo de validação + withdraw...');
-      
-      let result;
-      if (isSmartWallet) {
-        // Para smart wallets, retorna dados das transações para assinatura no frontend
-        console.log('📋 Preparando transações para smart wallet...');
-        
-        // PASSO 1: Preparar validação
-        const validationData = await validationService.preparePayAndValidate(amount);
-        
-        // PASSO 2: Preparar withdraw
-        const withdrawData = await benqiService.prepareRedeem(qTokenAddress, validationData.restAmount);
-        
-        result = {
+      const validationConfigured = isValidationContractConfigured();
+
+      if (!validationConfigured) {
+        console.warn('[benqi-validation] Validation contract not configured. Falling back to direct withdraw prepare.');
+        const withdrawData = await benqiService.prepareRedeem(qTokenAddress, amount, true);
+        return res.json({
+          status: 200,
+          msg: 'success',
+          data: buildDirectSmartWalletResult({
+            actionKey: 'withdraw',
+            actionData: withdrawData,
+            amount,
+            amountSummaryKey: 'amountWithdrawn',
+            operationLabel: 'withdraw',
+          }),
+        });
+      }
+
+      const validationService = new ValidationService(provider);
+
+      console.log('🔄 Preparando transações de validação + withdraw...');
+
+      const validationData = await validationService.preparePayAndValidate(amount);
+      const withdrawData = await benqiService.prepareRedeem(qTokenAddress, validationData.restAmount, true);
+
+      res.json({
+        status: 200,
+        msg: 'success',
+        data: {
           validation: {
             ...validationData,
             walletType: 'smart_wallet',
@@ -756,59 +647,10 @@ router.post('/validateAndWithdraw',
             totalFees: (BigInt(amount) - BigInt(validationData.restAmount)).toString()
           },
           walletType: 'smart_wallet',
-          requiresSignature: true,
-          note: 'Transações preparadas para assinatura no frontend (smart wallet)'
-        };
-      } else {
-        // Para private keys, executa as transações diretamente
-        console.log('📋 Passo 1: Executando validação...');
-        const validationResult = await validationService.payAndValidate(amount, privateKey);
-        
-        console.log('✅ Validação concluída:', validationResult.transactionHash);
-        
-        // PASSO 2: Executar withdraw com o valor restante
-        console.log('🔄 Passo 2: Executando withdraw...');
-        
-        // Simula withdraw (em produção, você integraria com o Benqi)
-        const withdrawResult = {
-          transactionHash: '0x' + Math.random().toString(16).substr(2, 64),
-          status: 'success',
-          amountWithdrawn: validationResult.restAmount,
-          qTokenAddress: qTokenAddress
-        };
-        
-        console.log('✅ Withdraw concluído:', withdrawResult.transactionHash);
-        
-        result = {
-          validation: {
-            transactionHash: validationResult.transactionHash,
-            status: validationResult.status,
-            blockNumber: validationResult.blockNumber,
-            gasUsed: validationResult.gasUsed,
-            amountSent: validationResult.amountSent,
-            taxAmount: validationResult.taxAmount,
-            restAmount: validationResult.restAmount
-          },
-          withdraw: withdrawResult,
-          summary: {
-            totalAmount: amount,
-            taxPaid: validationResult.taxAmount,
-            amountWithdrawn: validationResult.restAmount,
-            finalAmount: validationResult.restAmount,
-            totalFees: (BigInt(amount) - BigInt(validationResult.restAmount)).toString()
-          },
-          walletType: 'private_key',
-          requiresSignature: false,
-          note: 'Transações executadas com private key'
-        };
-      }
-      
-      res.json({
-        status: 200,
-        msg: 'success',
-        data: result
+          requiresSignature: true
+        }
       });
-      
+
     } catch (error) {
       console.error('Erro no validateAndWithdraw:', error);
       res.status(500).json({
@@ -825,12 +667,12 @@ router.post('/validateAndWithdraw',
 
 /**
  * @route POST /validateAndRepay
- * @desc Executa validação primeiro e depois repay
+ * @desc Prepara transações de validação + repay para assinatura no frontend
  * @access Private (com transação assinada)
- * 
+ *
  * COMO CHAMAR:
  * POST /benqi-validation/validateAndRepay
- * 
+ *
  * Headers: Content-Type: application/json
  * Body: {
  *   "address": "0x1234567890abcdef1234567890abcdef12345678",
@@ -838,42 +680,24 @@ router.post('/validateAndWithdraw',
  *   "message": "Validate and repay\nTimestamp: 1234567890",
  *   "timestamp": 1234567890,
  *   "amount": "1000000000000000000",
- *   "qTokenAddress": "0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7",
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ *   "qTokenAddress": "0x4A2c2838c3904D4B0B4a82eD7a3d0d3a0B4a82eD7"
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - amount: Montante em wei para validação
  * - qTokenAddress: Endereço do qToken
- * - privateKey: Private key do usuário
- * 
- * Exemplo de resposta:
- * {
- *   "status": 200,
- *   "msg": "success",
- *   "data": {
- *     "validation": {
- *       "transactionHash": "0x...",
- *       "taxAmount": "100000000000000000",
- *       "restAmount": "900000000000000000"
- *     },
- *     "repay": {
- *       "transactionHash": "0x...",
- *       "amountRepaid": "900000000000000000"
- *     }
- *   }
- * }
+ *
+ * Retorna dados das transações para assinatura no frontend (smart wallet)
  */
-router.post('/validateAndRepay', 
-  verifySignature, 
+router.post('/validateAndRepay',
+  verifySignature,
   prepareTransactionData,
   benqiValidationRateLimiter,
   sanitizeInput,
   async (req, res) => {
     try {
-      const { amount, qTokenAddress, privateKey, rpc } = req.body;
-      const { isSmartWallet } = req;
-      
+      const { amount, qTokenAddress, rpc } = req.body;
+
       // Validação dos parâmetros obrigatórios
       if (!amount || !qTokenAddress) {
         return res.status(400).json({
@@ -881,17 +705,6 @@ router.post('/validateAndRepay',
           msg: 'error',
           data: {
             error: 'amount e qTokenAddress são obrigatórios'
-          }
-        });
-      }
-
-      // Para private key, verificar se foi fornecida
-      if (!isSmartWallet && !privateKey) {
-        return res.status(400).json({
-          status: 400,
-          msg: 'error',
-          data: {
-            error: 'privateKey é obrigatório para wallets tradicionais'
           }
         });
       }
@@ -915,23 +728,36 @@ router.post('/validateAndRepay',
         staticNetwork: true
       });
 
-      const validationService = new ValidationService(provider);
       const benqiService = new BenqiService(provider);
-      
-      console.log('🔄 Iniciando processo de validação + repay...');
-      
-      let result;
-      if (isSmartWallet) {
-        // Para smart wallets, retorna dados das transações para assinatura no frontend
-        console.log('📋 Preparando transações para smart wallet...');
-        
-        // PASSO 1: Preparar validação
-        const validationData = await validationService.preparePayAndValidate(amount);
-        
-        // PASSO 2: Preparar repay
-        const repayData = await benqiService.prepareRepay(qTokenAddress, validationData.restAmount);
-        
-        result = {
+      const validationConfigured = isValidationContractConfigured();
+
+      if (!validationConfigured) {
+        console.warn('[benqi-validation] Validation contract not configured. Falling back to direct repay prepare.');
+        const repayData = await benqiService.prepareRepay(qTokenAddress, amount);
+        return res.json({
+          status: 200,
+          msg: 'success',
+          data: buildDirectSmartWalletResult({
+            actionKey: 'repay',
+            actionData: repayData,
+            amount,
+            amountSummaryKey: 'amountRepaid',
+            operationLabel: 'repay',
+          }),
+        });
+      }
+
+      const validationService = new ValidationService(provider);
+
+      console.log('🔄 Preparando transações de validação + repay...');
+
+      const validationData = await validationService.preparePayAndValidate(amount);
+      const repayData = await benqiService.prepareRepay(qTokenAddress, validationData.restAmount);
+
+      res.json({
+        status: 200,
+        msg: 'success',
+        data: {
           validation: {
             ...validationData,
             walletType: 'smart_wallet',
@@ -950,59 +776,10 @@ router.post('/validateAndRepay',
             totalFees: (BigInt(amount) - BigInt(validationData.restAmount)).toString()
           },
           walletType: 'smart_wallet',
-          requiresSignature: true,
-          note: 'Transações preparadas para assinatura no frontend (smart wallet)'
-        };
-      } else {
-        // Para private keys, executa as transações diretamente
-        console.log('📋 Passo 1: Executando validação...');
-        const validationResult = await validationService.payAndValidate(amount, privateKey);
-        
-        console.log('✅ Validação concluída:', validationResult.transactionHash);
-        
-        // PASSO 2: Executar repay com o valor restante
-        console.log('🔄 Passo 2: Executando repay...');
-        
-        // Simula repay (em produção, você integraria com o Benqi)
-        const repayResult = {
-          transactionHash: '0x' + Math.random().toString(16).substr(2, 64),
-          status: 'success',
-          amountRepaid: validationResult.restAmount,
-          qTokenAddress: qTokenAddress
-        };
-        
-        console.log('✅ Repay concluído:', repayResult.transactionHash);
-        
-        result = {
-          validation: {
-            transactionHash: validationResult.transactionHash,
-            status: validationResult.status,
-            blockNumber: validationResult.blockNumber,
-            gasUsed: validationResult.gasUsed,
-            amountSent: validationResult.amountSent,
-            taxAmount: validationResult.taxAmount,
-            restAmount: validationResult.restAmount
-          },
-          repay: repayResult,
-          summary: {
-            totalAmount: amount,
-            taxPaid: validationResult.taxAmount,
-            amountRepaid: validationResult.restAmount,
-            finalAmount: validationResult.restAmount,
-            totalFees: (BigInt(amount) - BigInt(validationResult.restAmount)).toString()
-          },
-          walletType: 'private_key',
-          requiresSignature: false,
-          note: 'Transações executadas com private key'
-        };
-      }
-      
-      res.json({
-        status: 200,
-        msg: 'success',
-        data: result
+          requiresSignature: true
+        }
       });
-      
+
     } catch (error) {
       console.error('Erro no validateAndRepay:', error);
       res.status(500).json({

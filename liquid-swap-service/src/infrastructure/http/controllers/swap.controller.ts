@@ -46,13 +46,14 @@ export class SwapController {
     try {
       console.log("[SwapController] Getting swap quote");
 
-      const { fromChainId, toChainId, fromToken, toToken, amount, smartAccountAddress } =
+      const { fromChainId, toChainId, fromToken, toToken, amount, unit, smartAccountAddress } =
         (req.body ?? {}) as {
           fromChainId?: number;
           toChainId?: number;
           fromToken?: string;
           toToken?: string;
           amount?: string;
+          unit?: "token" | "wei";
           smartAccountAddress?: string;
         };
 
@@ -69,6 +70,24 @@ export class SwapController {
         );
       }
 
+      const resolveUnit = (rawAmount: string, rawUnit?: "token" | "wei"): "token" | "wei" => {
+        if (rawUnit) return rawUnit;
+        // Back-compat guardrail: if the caller forgets unit, infer it.
+        // - decimals => token units
+        // - long integer => probably wei (common bug: passing wei while omitting unit)
+        const trimmed = String(rawAmount).trim();
+        if (trimmed.includes(".")) return "token";
+        if (/^\d+$/.test(trimmed) && trimmed.length > 12) return "wei";
+        return "token";
+      };
+
+      const resolvedUnit = resolveUnit(amount, unit);
+      if (!unit) {
+        console.warn(
+          `[SwapController] ⚠️ Missing unit in /swap/quote request; inferred '${resolvedUnit}'. Callers should always send unit explicitly.`
+        );
+      }
+
       const sender = smartAccountAddress
       console.log(`[SwapController] Getting quote for user: ${sender}`);
       if (!sender) {
@@ -80,6 +99,7 @@ export class SwapController {
         fromToken,
         toToken,
         amount,
+        unit: resolvedUnit,
         sender,
       });
 
@@ -104,13 +124,14 @@ export class SwapController {
     try {
       console.log("[SwapController] Preparing swap (bundle)");
 
-      const { fromChainId, toChainId, fromToken, toToken, amount, sender, provider: preferredProvider } =
+      const { fromChainId, toChainId, fromToken, toToken, amount, unit, sender, provider: preferredProvider } =
         (req.body ?? {}) as {
           fromChainId?: number;
           toChainId?: number;
           fromToken?: string;
           toToken?: string;
           amount?: string;
+          unit?: "token" | "wei";
           sender?: string;
           provider?: string;
         };
@@ -130,6 +151,20 @@ export class SwapController {
 
       const receiver = sender;
 
+      const resolveUnit = (amountStr: string, u?: "token" | "wei"): "token" | "wei" => {
+        if (u === "token" || u === "wei") return u;
+        const trimmed = String(amountStr || "").trim();
+        if (/^\d+$/.test(trimmed) && trimmed.length > 12) return "wei";
+        return "token";
+      };
+
+      const resolvedUnit = resolveUnit(amount, unit);
+      if (!unit) {
+        console.warn(
+          `[SwapController] ⚠️ Missing unit in /swap/tx request; inferred '${resolvedUnit}'. Callers should always send unit explicitly.`
+        );
+      }
+
       console.log(`[SwapController] Preparing with${preferredProvider ? ` preferred provider: ${preferredProvider}` : ' auto-select'}`);
 
       const { prepared, provider } = await this.prepareSwapUseCase.execute({
@@ -138,6 +173,7 @@ export class SwapController {
         fromToken,
         toToken,
         amount,
+        unit: resolvedUnit,
         sender,
         receiver,
         provider: preferredProvider, // Pass preferred provider from quote

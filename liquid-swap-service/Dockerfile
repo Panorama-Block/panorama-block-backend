@@ -1,6 +1,9 @@
-FROM node:18-alpine
+FROM node:18-alpine AS builder
 
 WORKDIR /app
+
+# Native deps (thirdweb/metamask deps include native modules like bufferutil)
+RUN apk add --no-cache python3 py3-setuptools make g++
 
 # Copy package files
 COPY package*.json ./
@@ -12,8 +15,22 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
+# Remove dev dependencies after building to keep image lean
+RUN npm prune --omit=dev
+
+# Runtime stage (keeps image lean, no build toolchain)
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
+RUN mkdir -p /app/shared
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+
 # Expose port
 EXPOSE 3003
 
 # Run the application
-CMD ["npm", "start"] 
+CMD ["npm", "start"]

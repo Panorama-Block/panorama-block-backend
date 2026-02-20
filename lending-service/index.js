@@ -14,10 +14,13 @@ const benqiRoutes = require('./routes/benqiRoutes');
 const benqiValidationRoutes = require('./routes/benqiValidationRoutes');
 
 // Importa configurações
-const { NETWORKS, RATE_LIMIT, SECURITY } = require('./config/constants');
+const { NETWORKS, RATE_LIMIT, SECURITY, VALIDATION } = require('./config/constants');
+const { ERROR_CODES, sendError } = require('./lib/errorCodes');
+const { getAllBreakerStatuses } = require('./lib/circuitBreaker');
 
 const app = express();
 const port = process.env.PORT || 3001;
+app.set('trust proxy', 1);
 
 // Middleware de segurança
 app.use(helmet({
@@ -56,18 +59,28 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const globalRateLimiter = rateLimit({
   windowMs: RATE_LIMIT.WINDOW_MS,
   max: RATE_LIMIT.MAX_REQUESTS,
-  message: {
-    error: 'Rate limit excedido',
-    message: `Máximo de ${RATE_LIMIT.MAX_REQUESTS} requisições por ${RATE_LIMIT.WINDOW_MS / 1000} segundos`
+  keyGenerator: (req) => {
+    // Per-account rate limiting: prefer wallet address, fall back to IP
+    return req.verifiedAddress || req.body?.address?.toLowerCase() || req.ip;
+  },
+  skip: (req) => {
+    if (req.method !== 'GET') return false;
+    const path = req.path || '';
+    return (
+      path === '/health' ||
+      path === '/info' ||
+      path === '/config' ||
+      path === '/network/status' ||
+      path === '/benqi/markets'
+    );
   },
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
-    res.status(429).json({
-      error: 'Rate limit excedido',
-      message: `Máximo de ${RATE_LIMIT.MAX_REQUESTS} requisições por ${RATE_LIMIT.WINDOW_MS / 1000} segundos`,
-      retryAfter: Math.ceil(RATE_LIMIT.WINDOW_MS / 1000)
-    });
+    sendError(res, 429, ERROR_CODES.RATE_LIMITED,
+      `Rate limit exceeded. Max ${RATE_LIMIT.MAX_REQUESTS} requests per ${RATE_LIMIT.WINDOW_MS / 1000}s`,
+      { retryAfter: Math.ceil(RATE_LIMIT.WINDOW_MS / 1000) }
+    );
   }
 });
 
@@ -82,12 +95,24 @@ app.use((req, res, next) => {
 
 // Rota de health check
 app.get('/health', (req, res) => {
+  const cbStatuses = getAllBreakerStatuses();
+  const anyOpen = Object.values(cbStatuses).some((s) => s.state === 'open');
+  const dbGateway = process.env.DB_GATEWAY_SYNC_ENABLED === 'true' && !!process.env.DB_GATEWAY_URL;
+
   res.json({
-    status: 'healthy',
+    status: anyOpen ? 'degraded' : 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    network: NETWORKS.AVALANCHE.name,
-    version: '1.0.0'
+    service: 'lending-service',
+    version: '1.0.0',
+    network: {
+      name: NETWORKS.AVALANCHE.name,
+      chainId: NETWORKS.AVALANCHE.chainId,
+    },
+    circuitBreakers: cbStatuses,
+    database: {
+      gateway: dbGateway ? 'enabled' : 'disabled',
+    },
   });
 });
 
@@ -199,13 +224,11 @@ app.use('/benqi-validation', benqiValidationRoutes);
 
 // Middleware de tratamento de erros
 app.use((err, req, res, next) => {
-  console.error('Erro não tratado:', err);
-  
-  res.status(err.status || 500).json({
-    error: 'Erro interno do servidor',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Algo deu errado',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
+  console.error('Unhandled error:', err);
+  const status = err.status || 500;
+  const code = err.errorCode || (status === 429 ? ERROR_CODES.RATE_LIMITED : ERROR_CODES.SERVICE_UNAVAILABLE);
+  const message = process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong';
+  sendError(res, status, code, message);
 });
 
 // Middleware para rotas não encontradas (deve ser o último)
@@ -231,15 +254,25 @@ app.use((req, res) => {
 async function initializeAPI() {
   try {
     // Verifica se as variáveis de ambiente necessárias estão configuradas
-    const requiredEnvVars = [
-      'RPC_URL_AVALANCHE'
-    ];
+    // Accept both legacy and new env var names (compose uses AVALANCHE_RPC_URL).
+    const hasAvalancheRpc =
+      !!process.env.AVALANCHE_RPC_URL ||
+      !!process.env.RPC_URL_AVALANCHE ||
+      !!process.env.RPC_URL; // last-resort shared RPC (not ideal, but better than hard fail)
 
-    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+    const missingVars = hasAvalancheRpc ? [] : ['AVALANCHE_RPC_URL (or RPC_URL_AVALANCHE)'];
     
     if (missingVars.length > 0) {
       console.warn('⚠️  Variáveis de ambiente ausentes:', missingVars.join(', '));
       console.warn('📝 Verifique o arquivo .env.example para configuração');
+    }
+
+    const validationConfigured =
+      typeof VALIDATION.CONTRACT_ADDRESS === 'string' &&
+      /^0x[a-fA-F0-9]{40}$/.test(VALIDATION.CONTRACT_ADDRESS) &&
+      !/^0x0{40}$/i.test(VALIDATION.CONTRACT_ADDRESS);
+    if (!validationConfigured) {
+      console.warn('⚠️  VALIDATION_CONTRACT_ADDRESS não configurado. Rotas /benqi-validation vão operar em fallback para smart wallets.');
     }
 
     // Inicia o servidor

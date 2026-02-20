@@ -32,6 +32,34 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Ensure app roles/databases exist even when the Postgres volume is already initialized
+  # (docker-entrypoint init scripts only run on the very first boot).
+  engine_postgres_bootstrap:
+    image: postgres:14
+    container_name: panorama-engine-postgres-bootstrap
+    depends_on:
+      engine_postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - ./bridge-service/database/tac-bootstrap.sql:/bootstrap/tac-bootstrap.sql:ro
+    command: >
+      bash -lc "
+        set -euo pipefail;
+        echo '[engine_postgres_bootstrap] Waiting for engine_postgres...';
+        until psql -h engine_postgres -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres} -c 'SELECT 1' >/dev/null 2>&1; do
+          sleep 1;
+        done;
+        echo '[engine_postgres_bootstrap] Applying tac-bootstrap.sql...';
+        psql -h engine_postgres -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres} -v ON_ERROR_STOP=1 -f /bootstrap/tac-bootstrap.sql;
+        echo '[engine_postgres_bootstrap] Bootstrap finished.'
+      "
+    restart: "no"
+
   # --- NOVO: thirdweb Engine (self-host) ---
   engine:
     image: thirdweb/engine:latest
@@ -91,7 +119,7 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-bridge-service
     ports:
-      - "${BRIDGE_PORT:-3006}:3005"
+      - "${BRIDGE_PORT:-3003}:3005"
     environment:
       - PORT=3005
       - NODE_ENV=${NODE_ENV}
@@ -104,6 +132,8 @@ services:
     depends_on:
       engine_postgres:
         condition: service_healthy
+      engine_postgres_bootstrap:
+        condition: service_completed_successfully
     restart: always
 
 
@@ -162,6 +192,10 @@ services:
       - THIRDWEB_SECRET_KEY=${THIRDWEB_SECRET_KEY}
       - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
       - RPC_URL=${RPC_URL}
+      # Persistence (optional): store positions/tx/history in Postgres
+      - DATABASE_URL=${LIDO_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@engine_postgres:5432/${POSTGRES_DB:-postgres}}
+      # Optional: isolate Lido tables in a dedicated schema in the same database
+      - LIDO_DB_SCHEMA=${LIDO_DB_SCHEMA:-lido}
       # Engine configuration (for ERC-4337 execution)
       - ENGINE_URL=http://engine:3005
       - ENGINE_ENABLED=${ENGINE_ENABLED}
@@ -192,6 +226,7 @@ services:
       - THIRDWEB_SECRET_KEY=${THIRDWEB_SECRET_KEY}
       - AVALANCHE_RPC_URL=${AVALANCHE_RPC_URL}
       - RPC_URL=${RPC_URL}
+      - VALIDATION_CONTRACT_ADDRESS=${VALIDATION_CONTRACT_ADDRESS:-0x8513be0BD39c8B7d693A678ae2350Ffaa284E3cf}
       # Engine configuration (for ERC-4337 execution)
       - ENGINE_URL=http://engine:3005
       - ENGINE_ENABLED=${ENGINE_ENABLED}
