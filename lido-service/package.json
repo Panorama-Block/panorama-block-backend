@@ -24,17 +24,18 @@
     "web3": "^4.3.0"
   },
   "devDependencies": {
-    "@types/supertest": "^6.0.3",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.23",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.17.43",
     "@types/pg": "^8.15.6",
+    "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^3.2.4",
     "supertest": "^7.1.4",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.2.2",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "yaml": "^2.8.2"
   },
   "keywords": [
     "blockchain",
