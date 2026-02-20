@@ -190,17 +190,12 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       ...config,
     };
 
-    // Configurable slippage tolerance - default to 10% for better success rate
-    // This can be overridden via UNISWAP_TRADING_API_SLIPPAGE env variable
-    const rawSlippage = process.env.UNISWAP_TRADING_API_SLIPPAGE;
-    const parsedSlippage = rawSlippage ? parseFloat(rawSlippage) : undefined;
-    this.slippagePercent = parsedSlippage && parsedSlippage > 0 ? parsedSlippage : 10.0;
 
     if (!this.config.apiKey) {
       console.warn('[UniswapTradingApiAdapter] ⚠️ No API key configured. Set UNISWAP_API_KEY env var.');
     }
 
-    console.log(`[${this.name}] 📊 Configured slippage tolerance: ${this.slippagePercent}%`);
+    console.log(`[${this.name}] 📊 Slippage tolerance: auto`);
 
     // Quotes must not be cached by default (trust-first UX). Enable explicitly if needed.
     this.quoteCacheEnabled = String(process.env.ENABLE_QUOTE_CACHE || '').toLowerCase() === 'true';
@@ -294,7 +289,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         tokenInChainId: request.fromChainId,
         tokenOutChainId: request.toChainId,
         swapper: request.sender, // Required field
-        slippageTolerance: this.slippagePercent, // Configurable via UNISWAP_TRADING_API_SLIPPAGE
+        slippageTolerance: this.slippageTolerance, // "auto" or fixed value via UNISWAP_TRADING_API_SLIPPAGE
         enableUniversalRouter: true,
         simulateTransaction: false, // Disable simulation - let the wallet handle it
         // CRITICAL: Force Permit2 to be returned as on-chain transaction
@@ -302,7 +297,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         generatePermitAsTransaction: true,
       };
 
-      console.log(`[${this.name}] Using slippage tolerance: ${this.slippagePercent}%`);
+      console.log(`[${this.name}] Using slippage tolerance: auto`);
 
       // Call API with retry
       const response = await this.retryRequest<UniswapQuoteResponse>(
@@ -437,14 +432,14 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         tokenOutChainId: request.toChainId,
         swapper: request.sender,
         recipient: request.receiver !== request.sender ? request.receiver : undefined,
-        slippageTolerance: this.slippagePercent, // Configurable via UNISWAP_TRADING_API_SLIPPAGE
+        slippageTolerance: this.slippageTolerance, // "auto" or fixed value via UNISWAP_TRADING_API_SLIPPAGE
         enableUniversalRouter: true,
         simulateTransaction: false, // Disable simulation - let the wallet handle it
         // CRITICAL: Force Permit2 to be returned as on-chain transaction
         generatePermitAsTransaction: true,
       };
 
-      console.log(`[${this.name}] Preparing swap with ${this.slippagePercent}% slippage`);
+      console.log(`[${this.name}] Preparing swap with slippage tolerance: auto`);
 
       const quoteResponse = await this.retryRequest<UniswapQuoteResponse>(
         () => this.client.post('/quote', payload)
@@ -631,7 +626,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
           quote: response.quote,
           route: response.route,
           gasFee: response.gasFee,
-          slippageTolerance: `${this.slippagePercent}%`,
+          slippageTolerance: "auto",
           minAmountOut: quoteMinAmount,
         },
       };

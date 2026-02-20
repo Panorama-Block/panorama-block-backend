@@ -7,7 +7,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test -r ts-node/register src/ton/__tests__/*.test.ts"
   },
   "dependencies": {
     "@thirdweb-dev/auth": "^4.1.4",
@@ -21,6 +21,7 @@
     "@types/cors": "^2.8.14",
     "@types/express": "^4.17.17",
     "@types/node": "^20.5.9",
+    "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.2.2"
   }

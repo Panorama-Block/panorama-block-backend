@@ -216,7 +216,7 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-lending-service
     ports:
-      - "${LENDING_PORT:-3006}:3006"
+      - "${LENDING_PORT:-3007}:3006"
     environment:
       - PORT=3006
       - NODE_ENV=${NODE_ENV}
@@ -282,6 +282,24 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    restart: always
+
+  diagram_service:
+    build:
+      context: ./diagram-service
+      dockerfile: Dockerfile
+    container_name: panorama-diagram-service
+    ports:
+      - "${DIAGRAM_PORT:-3010}:3010"
+    environment:
+      - PORT=3010
+      - NODE_ENV=${NODE_ENV}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@engine_postgres:5432/${POSTGRES_DB:-postgres}?schema=public
+    env_file:
+      - .env
+    depends_on:
+      engine_postgres:
+        condition: service_healthy
     restart: always
 
 volumes:

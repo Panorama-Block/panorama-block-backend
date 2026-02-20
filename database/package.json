@@ -20,6 +20,9 @@
     "@prisma/client": "^5.13.0",
     "dotenv": "^16.4.5",
     "fastify": "^5.7.4",
+    "@fastify/cors": "^9.0.1",
+   
+    "@thirdweb-dev/auth": "^4.1.4",
     "fastify-plugin": "^4.5.0",
     "pino": "^9.1.0",
     "prisma": "^5.13.0",
