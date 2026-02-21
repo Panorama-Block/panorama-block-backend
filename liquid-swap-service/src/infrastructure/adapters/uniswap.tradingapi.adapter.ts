@@ -155,7 +155,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
   public readonly name = 'uniswap-trading-api';
   private readonly client: AxiosInstance;
   private readonly config: UniswapTradingApiConfig;
-  private readonly slippagePercent: number; // e.g., 5.0 = 5%
+  private readonly slippageTolerance: string | number; // "auto" or fixed e.g. 5.0
   private readonly quoteCacheEnabled: boolean;
 
   // Quote cache to reuse between getQuote() and prepareSwap()
@@ -195,7 +195,8 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       console.warn('[UniswapTradingApiAdapter] ⚠️ No API key configured. Set UNISWAP_API_KEY env var.');
     }
 
-    console.log(`[${this.name}] 📊 Slippage tolerance: auto`);
+    this.slippageTolerance = process.env.UNISWAP_TRADING_API_SLIPPAGE || 'auto';
+    console.log(`[${this.name}] 📊 Slippage tolerance: ${this.slippageTolerance}`);
 
     // Quotes must not be cached by default (trust-first UX). Enable explicitly if needed.
     this.quoteCacheEnabled = String(process.env.ENABLE_QUOTE_CACHE || '').toLowerCase() === 'true';
