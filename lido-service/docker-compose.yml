@@ -8,14 +8,13 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3004
+      - AUTH_SERVICE_URL=${AUTH_SERVICE_URL:-http://auth_service:3001}
       - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
-      - ETHEREUM_CHAIN_ID=${ETHEREUM_CHAIN_ID}
-      - LIDO_STETH_CONTRACT=${LIDO_STETH_CONTRACT}
-      - LIDO_WSTETH_CONTRACT=${LIDO_WSTETH_CONTRACT}
-      - LIDO_REWARDS_CONTRACT=${LIDO_REWARDS_CONTRACT}
-      - THIRDWEB_CLIENT_ID=${THIRDWEB_CLIENT_ID}
-      - THIRDWEB_SECRET_KEY=${THIRDWEB_SECRET_KEY}
-      - JWT_SECRET=${JWT_SECRET}
+      - ETHEREUM_CHAIN_ID=${ETHEREUM_CHAIN_ID:-1}
+      # Persistence (optional)
+      - DATABASE_URL=${DATABASE_URL}
+      # Optional: isolate Lido tables in a dedicated schema in the same database
+      - LIDO_DB_SCHEMA=${LIDO_DB_SCHEMA:-lido}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./logs:/app/logs

@@ -52,6 +52,22 @@ export const AddressSchema = z.string().refine(
 export const WeiAmountSchema = z.string().regex(/^\d+$/, 'Amount must be a positive integer string');
 
 /**
+ * Token amount validation (human-readable decimal string)
+ * - Allows: "1", "0.01", "10.0"
+ * - Disallows exponent notation: "1e18"
+ */
+export const TokenAmountSchema = z
+  .string()
+  .regex(/^\d+(\.\d+)?$/, 'Amount must be a positive decimal string');
+
+/**
+ * Amount unit for request.amount
+ * - token: human-readable (decimal) units (default)
+ * - wei: bigint integer string
+ */
+export const AmountUnitSchema = z.enum(['token', 'wei']).default('token');
+
+/**
  * Slippage tolerance (0.1% to 50%)
  */
 export const SlippageSchema = z.string()
@@ -83,15 +99,19 @@ export const ProtocolSchema = z.enum(['v2', 'v3', 'v4', 'uniswapx']);
 // ===== REQUEST SCHEMAS =====
 
 /**
- * Base schema for swap requests (without refinement)
+ * Base object schema for swap requests.
+ *
+ * NOTE: Keep this as a ZodObject (no .refine/.superRefine here) so we can
+ * safely `.extend()` it for other request types.
  */
-const BaseSwapRequestSchema = z.object({
+const BaseSwapRequestObjectSchema = z.object({
   // Required fields
   fromChainId: ChainIdSchema,
   toChainId: ChainIdSchema,
   fromToken: AddressSchema,
   toToken: AddressSchema,
-  amount: WeiAmountSchema,
+  amount: z.string(),
+  unit: AmountUnitSchema.optional(),
 
   // Optional fields
   type: SwapTypeSchema,
@@ -105,8 +125,50 @@ const BaseSwapRequestSchema = z.object({
   smartAccountAddress: AddressSchema.optional().nullable(),
 });
 
+function withAmountUnitValidation<T extends z.ZodTypeAny>(
+  schema: T
+): z.ZodEffects<T, z.output<T>, z.input<T>> {
+  return schema.superRefine((data, ctx) => {
+    const unit = (data as unknown as { unit?: 'token' | 'wei' } | null | undefined)?.unit ?? 'token';
+    const amount = (data as unknown as { amount?: string } | null | undefined)?.amount;
+
+    if (typeof amount !== 'string') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['amount'],
+        message: 'Amount must be a string.',
+      });
+      return;
+    }
+
+    if (unit === 'wei') {
+      const ok = WeiAmountSchema.safeParse(amount).success;
+      if (!ok) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['amount'],
+          message: 'When unit="wei", amount must be a positive integer string (wei).',
+        });
+      }
+      return;
+    }
+
+    // token units
+    const ok = TokenAmountSchema.safeParse(amount).success;
+    if (!ok) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['amount'],
+        message: 'When unit="token" (default), amount must be a positive decimal string (token units).',
+      });
+    }
+  });
+}
+
+const BaseSwapRequestSchema = withAmountUnitValidation(BaseSwapRequestObjectSchema);
+
 /**
- * Schema for GET /swap/quote
+ * Schema for POST /swap/quote
  *
  * @example
  * ```json
@@ -115,14 +177,15 @@ const BaseSwapRequestSchema = z.object({
  *   "toChainId": 1,
  *   "fromToken": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
  *   "toToken": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
- *   "amount": "1000000000000000000",
+ *   "amount": "0.01",
+ *   "unit": "token",
  *   "type": "EXACT_INPUT",
  *   "slippage": "0.5"
  * }
  * ```
  */
 export const GetQuoteRequestSchema = BaseSwapRequestSchema.refine(
-  (data) => data.fromChainId === data.toChainId,
+  (data: z.infer<typeof BaseSwapRequestObjectSchema>) => data.fromChainId === data.toChainId,
   {
     message: 'Uniswap Trading API only supports same-chain swaps. Use Thirdweb for cross-chain.',
     path: ['toChainId'],
@@ -132,25 +195,24 @@ export const GetQuoteRequestSchema = BaseSwapRequestSchema.refine(
 export type GetQuoteRequest = z.infer<typeof GetQuoteRequestSchema>;
 
 /**
- * Schema for POST /swap/prepare
+ * Schema for POST /swap/tx (alias: /swap/prepare)
  *
- * Extends GetQuoteRequest with sender (required) and Permit2 fields
+ * Extends GetQuoteRequest with sender (required) and Permit2 fields.
  */
-export const PrepareSwapRequestSchema = BaseSwapRequestSchema.extend({
-  sender: AddressSchema, // Required for preparing transactions
-  recipient: AddressSchema.optional(), // If different from sender
+export const PrepareSwapRequestSchema = withAmountUnitValidation(
+  BaseSwapRequestObjectSchema.extend({
+    sender: AddressSchema, // Required for preparing transactions
+    recipient: AddressSchema.optional(), // If different from sender
 
-  // Permit2 support (optional, for gasless approvals)
-  permitSignature: z.string().regex(/^0x[a-fA-F0-9]+$/).optional(),
-  permitNonce: z.string().optional(),
-  permitExpiration: UnixTimestampSchema.optional(),
-}).refine(
-  (data) => data.fromChainId === data.toChainId,
-  {
-    message: 'Uniswap Trading API only supports same-chain swaps. Use Thirdweb for cross-chain.',
-    path: ['toChainId'],
-  }
-);
+    // Permit2 support (optional, for gasless approvals)
+    permitSignature: z.string().regex(/^0x[a-fA-F0-9]+$/).optional(),
+    permitNonce: z.string().optional(),
+    permitExpiration: UnixTimestampSchema.optional(),
+  })
+).refine((data: z.infer<typeof BaseSwapRequestObjectSchema>) => data.fromChainId === data.toChainId, {
+  message: 'Uniswap Trading API only supports same-chain swaps. Use Thirdweb for cross-chain.',
+  path: ['toChainId'],
+});
 
 export type PrepareSwapRequest = z.infer<typeof PrepareSwapRequestSchema>;
 

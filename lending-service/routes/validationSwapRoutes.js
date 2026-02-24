@@ -6,7 +6,7 @@ const {
   createRateLimiter,
   sanitizeInput
 } = require('../middleware/auth');
-const { NETWORKS, VALIDATION } = require('../config/constants');
+const { NETWORKS } = require('../config/constants');
 
 const router = express.Router();
 
@@ -15,12 +15,12 @@ const validationSwapRateLimiter = createRateLimiter(20, 15 * 60 * 1000); // 20 r
 
 /**
  * @route POST /validateAndSwap
- * @desc Executa validação primeiro e depois swap
+ * @desc Prepara transações de validação + swap para assinatura no frontend
  * @access Private (com transação assinada)
- * 
+ *
  * COMO CHAMAR:
  * POST /validation-swap/validateAndSwap
- * 
+ *
  * Headers: Content-Type: application/json
  * Body: {
  *   "address": "0x1234567890abcdef1234567890abcdef12345678",
@@ -29,48 +29,31 @@ const validationSwapRateLimiter = createRateLimiter(20, 15 * 60 * 1000); // 20 r
  *   "timestamp": 1234567890,
  *   "amount": "1000000000000000000",
  *   "tokenIn": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
- *   "tokenOut": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
- *   "privateKey": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+ *   "tokenOut": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E"
  * }
- * 
+ *
  * Parâmetros obrigatórios:
  * - amount: Montante em wei para validação
  * - tokenIn: Endereço do token de entrada
  * - tokenOut: Endereço do token de saída
- * - privateKey: Private key do usuário
- * 
- * Exemplo de resposta:
- * {
- *   "status": 200,
- *   "msg": "success",
- *   "data": {
- *     "validation": {
- *       "transactionHash": "0x...",
- *       "taxAmount": "100000000000000000",
- *       "restAmount": "900000000000000000"
- *     },
- *     "swap": {
- *       "transactionHash": "0x...",
- *      "amountOut": "950000000000000000"
- *     }
- *   }
- * }
+ *
+ * Retorna dados das transações para assinatura no frontend (smart wallet)
  */
-router.post('/validateAndSwap', 
-  verifySignature, 
+router.post('/validateAndSwap',
+  verifySignature,
   validationSwapRateLimiter,
   sanitizeInput,
   async (req, res) => {
     try {
-      const { amount, tokenIn, tokenOut, privateKey, rpc } = req.body;
-      
+      const { amount, tokenIn, tokenOut, rpc } = req.body;
+
       // Validação dos parâmetros obrigatórios
-      if (!amount || !tokenIn || !tokenOut || !privateKey) {
+      if (!amount || !tokenIn || !tokenOut) {
         return res.status(400).json({
           status: 400,
           msg: 'error',
           data: {
-            error: 'amount, tokenIn, tokenOut e privateKey são obrigatórios'
+            error: 'amount, tokenIn e tokenOut são obrigatórios'
           }
         });
       }
@@ -95,55 +78,37 @@ router.post('/validateAndSwap',
       });
 
       const validationService = new ValidationService(provider);
-      
-      console.log('🔄 Iniciando processo de validação + swap...');
-      
-      // PASSO 1: Executar validação (payAndValidate)
-      console.log('📋 Passo 1: Executando validação...');
-      const validationResult = await validationService.payAndValidate(amount, privateKey);
-      
-      console.log('✅ Validação concluída:', validationResult.transactionHash);
-      
-      // PASSO 2: Executar swap com o valor restante
-      console.log('🔄 Passo 2: Executando swap...');
-      
-      // Aqui você pode integrar com o Trader Joe ou outro DEX
-      // Por enquanto, vou simular um swap
-      const swapResult = {
-        transactionHash: '0x' + Math.random().toString(16).substr(2, 64),
-        status: 'success',
-        amountIn: validationResult.restAmount,
-        amountOut: (BigInt(validationResult.restAmount) * 95n / 100n).toString(), // Simula 5% de slippage
-        tokenIn: tokenIn,
-        tokenOut: tokenOut
-      };
-      
-      console.log('✅ Swap concluído:', swapResult.transactionHash);
-      
+
+      console.log('🔄 Preparando transações de validação + swap...');
+
+      // Prepara transação de validação
+      const validationData = await validationService.preparePayAndValidate(amount);
+
       res.json({
         status: 200,
         msg: 'success',
         data: {
           validation: {
-            transactionHash: validationResult.transactionHash,
-            status: validationResult.status,
-            blockNumber: validationResult.blockNumber,
-            gasUsed: validationResult.gasUsed,
-            amountSent: validationResult.amountSent,
-            taxAmount: validationResult.taxAmount,
-            restAmount: validationResult.restAmount
+            ...validationData,
+            walletType: 'smart_wallet',
+            requiresSignature: true
           },
-          swap: swapResult,
+          swap: {
+            tokenIn,
+            tokenOut,
+            amountIn: validationData.restAmount,
+            note: 'Execute o swap após a validação ser confirmada on-chain'
+          },
           summary: {
             totalAmount: amount,
-            taxPaid: validationResult.taxAmount,
-            amountSwapped: validationResult.restAmount,
-            amountReceived: swapResult.amountOut,
-            taxRate: await validationService.getContractInfo().then(info => info.taxRate)
-          }
+            taxPaid: validationData.taxAmount,
+            amountForSwap: validationData.restAmount
+          },
+          walletType: 'smart_wallet',
+          requiresSignature: true
         }
       });
-      
+
     } catch (error) {
       console.error('Erro no validateAndSwap:', error);
       res.status(500).json({

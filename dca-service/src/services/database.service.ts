@@ -125,11 +125,38 @@ export class DatabaseService {
    * Create the database if it doesn't exist
    */
   static async createDatabaseIfNotExists(): Promise<void> {
-    const dbName = process.env.DB_NAME || 'panorama_dca';
-    const host = process.env.DB_HOST || 'localhost';
-    const port = parseInt(process.env.DB_PORT || '5433');
-    const user = process.env.DB_USER || 'postgres';
-    const password = process.env.DB_PASSWORD || 'postgres';
+    const databaseUrl = process.env.DATABASE_URL;
+
+    // Prefer explicit env vars, but fall back to parsing DATABASE_URL (compose sets it).
+    let dbName = (process.env.DB_NAME || '').trim();
+    let host = (process.env.DB_HOST || '').trim();
+    let port = Number.parseInt((process.env.DB_PORT || '').trim() || '0', 10);
+    let user = (process.env.DB_USER || '').trim();
+    let password = (process.env.DB_PASSWORD || '').trim();
+
+    if (databaseUrl) {
+      try {
+        const url = new URL(databaseUrl);
+        if (!host) host = url.hostname;
+        if (!port) port = url.port ? Number.parseInt(url.port, 10) : 5432;
+        if (!user) user = decodeURIComponent(url.username);
+        if (!password) password = decodeURIComponent(url.password);
+        if (!dbName) dbName = url.pathname.replace(/^\//, '') || 'panorama_dca';
+      } catch (e) {
+        console.warn('[DatabaseService] Failed to parse DATABASE_URL for bootstrap config:', e);
+      }
+    }
+
+    if (!dbName) dbName = 'panorama_dca';
+    if (!host) host = 'engine_postgres';
+    if (!port) port = 5432;
+    if (!user) user = 'postgres';
+    if (!password) password = 'postgres';
+
+    // Prevent SQL injection in identifiers (CREATE DATABASE cannot be parameterized).
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(dbName)) {
+      throw new Error(`Invalid DB name: "${dbName}"`);
+    }
 
     // Connect to postgres database to create our database
     const tempPool = new Pool({

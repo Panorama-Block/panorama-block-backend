@@ -1,12 +1,13 @@
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'tac_service') THEN
-    CREATE ROLE tac_service WITH LOGIN PASSWORD 'tac_service_password';
-  END IF;
+SELECT 'CREATE ROLE tac_service WITH LOGIN PASSWORD ''tac_service_password''' 
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'tac_service') \gexec
 
-  IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'tac_service') THEN
-    CREATE DATABASE tac_service OWNER tac_service;
-  END IF;
-END $$;
+SELECT 'CREATE DATABASE tac_service OWNER tac_service'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'tac_service') \gexec
+
+-- Shared DB for other backend services (local dev)
+-- NOTE: CREATE DATABASE cannot run inside a DO $$ block; use \gexec (psql) instead.
+SELECT format('CREATE DATABASE panorama_dca OWNER %I', current_user)
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'panorama_dca') \gexec
 
 \connect tac_service
 

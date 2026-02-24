@@ -1,0 +1,34 @@
+flowchart LR
+    U[User Wallet]
+    FE[Telegram Miniapp<br/>Next.js]
+    PX[Next.js Rewrites<br/>/api/staking/*<br/>/api/lending/*<br/>/api/swap/*]
+
+    AUTH[auth-service<br/>:3001]
+    LIDO[lido-service<br/>:3004]
+    LEND[lending-service<br/>:3006]
+    SWAP[liquid-swap-service<br/>:3002]
+
+    ETH[(Ethereum RPC)]
+    AVAX[(Avalanche RPC)]
+
+    DBGW[(Database Gateway<br/>optional sync)]
+
+    U --> FE
+    FE --> PX
+    FE --> AUTH
+
+    PX --> LIDO
+    PX --> LEND
+    PX --> SWAP
+
+    LIDO --> AUTH
+    LEND --> AUTH
+    SWAP --> AUTH
+
+    LIDO --> ETH
+    SWAP --> ETH
+    LEND --> AVAX
+
+    LIDO -. optional persistence .-> DBGW
+    LEND -. optional persistence .-> DBGW
+

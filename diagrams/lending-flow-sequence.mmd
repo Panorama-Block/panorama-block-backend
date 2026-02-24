@@ -1,0 +1,40 @@
+sequenceDiagram
+    participant User as User
+    participant FE as Miniapp
+    participant Lend as lending-service
+    participant Wallet as Connected Wallet
+    participant AVAX as Avalanche
+    participant DB as DB Gateway (optional)
+
+    Note over FE,Lend: JWT already obtained from auth-service
+
+    FE->>Lend: GET /benqi/markets
+    Lend-->>FE: markets[]
+
+    FE->>Lend: GET /benqi/account/:address/positions (Authorization header)
+    Lend-->>FE: liquidity + normalized positions[]
+
+    alt Supply/Borrow/Withdraw/Repay action
+        FE->>Lend: POST /benqi-validation/validateAnd<Action> { amountWei, qTokenAddress }
+        alt Validation contract configured
+            Lend-->>FE: { validation tx, action tx, summary }
+        else Validation fallback path
+            Lend-->>FE: { action tx only, validationBypassed:true }
+        end
+
+        loop sequential execution
+            FE->>Wallet: sendTransaction(preparedTx)
+            Wallet-->>FE: txHash
+            FE->>AVAX: wait/poll receipt(txHash)
+            AVAX-->>FE: confirmed | reverted | timeout
+        end
+
+        opt DB gateway sync enabled
+            Lend->>DB: sync markets/positions/tx metadata
+        end
+
+        FE->>Lend: GET /benqi/account/:address/positions
+        Lend-->>FE: refreshed positions
+        FE->>Lend: GET /benqi/account/:address/history and /snapshots
+    end
+

@@ -8,6 +8,7 @@ export type SwapQuoteRequest = {
   fromToken: string;
   toToken: string;
   amount: string;
+  unit?: 'token' | 'wei';
   slippage?: number;
   smartAccountAddress?: string;
 };

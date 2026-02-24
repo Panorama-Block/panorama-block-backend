@@ -1,6 +1,8 @@
 import { ILidoRepository } from '../../domain/interfaces/ILidoRepository';
-import { StakingPosition, StakingTransaction, LidoProtocolInfo } from '../../domain/entities/StakingPosition';
+import { LidoProtocolInfo, StakingPosition, StakingTransaction, WithdrawalRequest } from '../../domain/entities/StakingPosition';
+import { PortfolioAsset, PortfolioMetricDaily } from '../../domain/entities/Portfolio';
 import { Logger } from '../../infrastructure/logs/logger';
+import { ethers } from 'ethers';
 
 export class LidoService {
   constructor(
@@ -8,20 +10,28 @@ export class LidoService {
     private logger: Logger
   ) {}
 
-  async stake(userAddress: string, amount: string, privateKey?: string): Promise<StakingTransaction> {
+  private validateAmountWei(amount: string): void {
+    if (!amount || typeof amount !== 'string') {
+      throw new Error('Amount is required and must be a string');
+    }
+    if (!/^\d+$/.test(amount.trim())) {
+      throw new Error('Amount must be a wei string (integer digits only)');
+    }
+    if (amount.trim() === '0') {
+      throw new Error('Amount must be greater than 0');
+    }
+  }
+
+  async stake(userAddress: string, amount: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Staking ${amount} ETH for user ${userAddress}`);
-      
-      // Validate inputs
-      if (!userAddress || !amount) {
-        throw new Error('User address and amount are required');
-      }
 
-      if (parseFloat(amount) <= 0) {
-        throw new Error('Amount must be greater than 0');
+      if (!userAddress) {
+        throw new Error('User address is required');
       }
+      this.validateAmountWei(amount);
 
-      const transaction = await this.lidoRepository.stake(userAddress, amount, privateKey);
+      const transaction = await this.lidoRepository.stake(userAddress, amount);
       
       this.logger.info(`Staking transaction created: ${transaction.id}`);
       return transaction;
@@ -31,26 +41,29 @@ export class LidoService {
     }
   }
 
-  async unstake(userAddress: string, amount: string, privateKey?: string): Promise<StakingTransaction> {
+  async unstake(userAddress: string, amount: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Unstaking ${amount} stETH for user ${userAddress}`);
       
-      // Validate inputs
-      if (!userAddress || !amount) {
-        throw new Error('User address and amount are required');
+      if (!userAddress) {
+        throw new Error('User address is required');
       }
-
-      if (parseFloat(amount) <= 0) {
-        throw new Error('Amount must be greater than 0');
-      }
+      this.validateAmountWei(amount);
 
       // Check if user has enough stETH
       const position = await this.lidoRepository.getStakingPosition(userAddress);
-      if (!position || parseFloat(position.stETHBalance) < parseFloat(amount)) {
+      if (!position) {
         throw new Error('Insufficient stETH balance');
       }
 
-      const transaction = await this.lidoRepository.unstake(userAddress, amount, privateKey);
+      const amountWei = ethers.BigNumber.from(amount);
+      const stEthBalanceWei = ethers.BigNumber.from(position.stETHBalance || '0');
+
+      if (stEthBalanceWei.lt(amountWei)) {
+        throw new Error('Insufficient stETH balance (note: wstETH must be unwrapped or swapped first)');
+      }
+
+      const transaction = await this.lidoRepository.unstake(userAddress, amount);
       
       this.logger.info(`Unstaking transaction created: ${transaction.id}`);
       return transaction;
@@ -60,7 +73,7 @@ export class LidoService {
     }
   }
 
-  async claimRewards(userAddress: string, privateKey?: string): Promise<StakingTransaction> {
+  async claimRewards(userAddress: string): Promise<StakingTransaction> {
     try {
       this.logger.info(`Claiming rewards for user ${userAddress}`);
       
@@ -68,7 +81,7 @@ export class LidoService {
         throw new Error('User address is required');
       }
 
-      const transaction = await this.lidoRepository.claimRewards(userAddress, privateKey);
+      const transaction = await this.lidoRepository.claimRewards(userAddress);
       
       this.logger.info(`Claim rewards transaction created: ${transaction.id}`);
       return transaction;
@@ -104,6 +117,45 @@ export class LidoService {
     }
   }
 
+  async getWithdrawalRequests(userAddress: string): Promise<WithdrawalRequest[]> {
+    try {
+      if (!userAddress) {
+        throw new Error('User address is required');
+      }
+      return await this.lidoRepository.getWithdrawalRequests(userAddress);
+    } catch (error) {
+      this.logger.error(`Error getting withdrawal requests: ${error}`);
+      throw error;
+    }
+  }
+
+  async claimWithdrawals(userAddress: string, requestIds: string[]): Promise<StakingTransaction> {
+    try {
+      if (!userAddress) {
+        throw new Error('User address is required');
+      }
+      if (!requestIds?.length) {
+        throw new Error('requestIds is required');
+      }
+      return await this.lidoRepository.claimWithdrawals(userAddress, requestIds);
+    } catch (error) {
+      this.logger.error(`Error claiming withdrawals: ${error}`);
+      throw error;
+    }
+  }
+
+  async submitTransactionHash(transactionId: string, userAddress: string, transactionHash: string): Promise<void> {
+    try {
+      if (!transactionId) throw new Error('transactionId is required');
+      if (!userAddress) throw new Error('userAddress is required');
+      if (!transactionHash) throw new Error('transactionHash is required');
+      await this.lidoRepository.submitTransactionHash(transactionId, userAddress, transactionHash);
+    } catch (error) {
+      this.logger.error(`Error submitting transaction hash: ${error}`);
+      throw error;
+    }
+  }
+
   async getProtocolInfo(): Promise<LidoProtocolInfo> {
     try {
       return await this.lidoRepository.getProtocolInfo();
@@ -122,6 +174,30 @@ export class LidoService {
       return await this.lidoRepository.getTransactionStatus(transactionHash);
     } catch (error) {
       this.logger.error(`Error getting transaction status: ${error}`);
+      throw error;
+    }
+  }
+
+  async getPortfolioAssets(userAddress: string): Promise<PortfolioAsset[]> {
+    try {
+      if (!userAddress) {
+        throw new Error('User address is required');
+      }
+      return await this.lidoRepository.getPortfolioAssets(userAddress);
+    } catch (error) {
+      this.logger.error(`Error getting portfolio assets: ${error}`);
+      throw error;
+    }
+  }
+
+  async getPortfolioDailyMetrics(userAddress: string, days: number = 30): Promise<PortfolioMetricDaily[]> {
+    try {
+      if (!userAddress) {
+        throw new Error('User address is required');
+      }
+      return await this.lidoRepository.getPortfolioDailyMetrics(userAddress, days);
+    } catch (error) {
+      this.logger.error(`Error getting portfolio daily metrics: ${error}`);
       throw error;
     }
   }

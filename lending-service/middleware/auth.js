@@ -1,19 +1,46 @@
 const { ethers } = require('ethers');
 const { SECURITY } = require('../config/constants');
 const axios = require('axios');
+const { ERROR_CODES, sendError } = require('../lib/errorCodes');
 
 /**
- * Middleware para verificar assinatura de wallet (smart wallet ou private key)
- * Suporta tanto smart wallets quanto private keys
+ * In-memory replay protection for signed messages.
+ * Tracks signature hashes for SIGNATURE_EXPIRY duration and rejects duplicates.
+ */
+const usedSignatures = new Map();
+const NONCE_CLEANUP_INTERVAL = 60_000; // 1 min
+setInterval(() => {
+  const cutoff = Date.now() - (SECURITY.SIGNATURE_EXPIRY || 300_000);
+  for (const [key, ts] of usedSignatures) {
+    if (ts < cutoff) usedSignatures.delete(key);
+  }
+}, NONCE_CLEANUP_INTERVAL);
+
+/**
+ * Middleware para verificar assinatura de wallet (smart wallet)
  * Também suporta autenticação via JWT do auth-service
  */
 async function verifySignature(req, res, next) {
   try {
-    const { address, signature, message, timestamp, privateKey, walletType, isSmartWallet } = req.body;
+    const body = req.body || {};
+    const {
+      address,
+      signature,
+      message,
+      timestamp,
+      walletType,
+      isSmartWallet
+    } = body;
+
+    // Security: strip privateKey from body if present (smart wallet only mode)
+    if (body.privateKey) {
+      delete body.privateKey;
+    }
+    const requestedAddress = address || req.params?.address || req.query?.address;
 
     // Debug logs para frontend
     console.log('🔍 Debug verifySignature (Frontend):');
-    console.log('   Address:', address);
+    console.log('   Address:', requestedAddress);
     console.log('   Signature:', signature);
     console.log('   Message:', message);
     console.log('   Timestamp:', timestamp);
@@ -43,13 +70,8 @@ async function verifySignature(req, res, next) {
           const jwtAddress = response.data.payload.address || response.data.payload.sub;
 
           // Verifica se o endereço do JWT corresponde ao endereço fornecido
-          if (address && jwtAddress.toLowerCase() !== address.toLowerCase()) {
-            return res.status(401).json({
-              error: 'JWT address mismatch',
-              message: 'O endereço no JWT não corresponde ao endereço fornecido',
-              jwtAddress: jwtAddress.toLowerCase(),
-              providedAddress: address.toLowerCase()
-            });
+          if (requestedAddress && jwtAddress.toLowerCase() !== String(requestedAddress).toLowerCase()) {
+            return sendError(res, 401, ERROR_CODES.UNAUTHORIZED, 'JWT address does not match the provided address');
           }
 
           // Adiciona informações verificadas ao request
@@ -92,10 +114,7 @@ async function verifySignature(req, res, next) {
 
     // Verifica se o timestamp não expirou
     if (timestamp && Date.now() - timestamp > SECURITY.SIGNATURE_EXPIRY) {
-      return res.status(401).json({
-        error: 'Assinatura expirada',
-        message: 'A assinatura deve ser usada dentro de 5 minutos'
-      });
+      return sendError(res, 401, ERROR_CODES.TOKEN_EXPIRED, 'Signature expired. Must be used within 5 minutes.');
     }
 
     // Verifica se o endereço é válido
@@ -111,41 +130,33 @@ async function verifySignature(req, res, next) {
     try {
       recoveredAddress = ethers.verifyMessage(message, signature);
     } catch (error) {
-      return res.status(400).json({
-        error: 'Assinatura inválida',
-        details: error.message
-      });
+      return sendError(res, 400, ERROR_CODES.INVALID_SIGNATURE, 'Invalid signature format.');
     }
 
     // Verifica se o endereço recuperado corresponde ao endereço fornecido
     if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
-      return res.status(401).json({
-        error: 'Assinatura não corresponde ao endereço',
-        expected: address.toLowerCase(),
-        recovered: recoveredAddress.toLowerCase()
-      });
+      return sendError(res, 401, ERROR_CODES.INVALID_SIGNATURE, 'Signature does not match the provided address.');
     }
 
-    // Determina o tipo de autenticação
-    const authMode = isSmartWallet || walletType === 'smart_wallet' ? 'smart_wallet' : 'private_key';
+    // Replay protection: reject reused signatures
+    const sigKey = signature.toLowerCase();
+    if (usedSignatures.has(sigKey)) {
+      return sendError(res, 401, ERROR_CODES.INVALID_SIGNATURE, 'Signature already used (replay detected).');
+    }
+    usedSignatures.set(sigKey, Date.now());
 
-    // Adiciona informações verificadas ao request
+    // Adiciona informações verificadas ao request (smart wallet only)
     req.verifiedAddress = address.toLowerCase();
-    req.authMode = authMode;
+    req.authMode = 'smart_wallet';
     req.signatureData = {
       address: address.toLowerCase(),
       message,
       timestamp: timestamp || Date.now(),
-      walletType: authMode,
-      isSmartWallet: authMode === 'smart_wallet'
+      walletType: 'smart_wallet',
+      isSmartWallet: true
     };
 
-    // Se for private key, adiciona ao request para uso posterior
-    if (privateKey && authMode === 'private_key') {
-      req.privateKey = privateKey;
-    }
-
-    console.log(`🔐 Autenticação via ${authMode} para endereço: ${address}`);
+    console.log(`🔐 Autenticação via smart_wallet para endereço: ${address}`);
     next();
   } catch (error) {
     console.error('Erro na verificação de assinatura:', error);
@@ -238,19 +249,11 @@ function validateSwapParams(req, res, next) {
     // Validação de valores mínimos e máximos
     const amountInFloat = parseFloat(amountIn);
     if (amountInFloat < parseFloat(SECURITY.MIN_AMOUNT)) {
-      return res.status(400).json({
-        error: `Valor mínimo não atingido: ${SECURITY.MIN_AMOUNT}`,
-        amountIn,
-        minimum: SECURITY.MIN_AMOUNT
-      });
+      return sendError(res, 400, ERROR_CODES.AMOUNT_TOO_SMALL, `Minimum amount is ${SECURITY.MIN_AMOUNT}`);
     }
 
     if (amountInFloat > parseFloat(SECURITY.MAX_AMOUNT)) {
-      return res.status(400).json({
-        error: `Valor máximo excedido: ${SECURITY.MAX_AMOUNT}`,
-        amountIn,
-        maximum: SECURITY.MAX_AMOUNT
-      });
+      return sendError(res, 400, ERROR_CODES.AMOUNT_TOO_LARGE, `Maximum amount is ${SECURITY.MAX_AMOUNT}`);
     }
 
     next();
@@ -284,11 +287,10 @@ function createRateLimiter(maxRequests, windowMs) {
     const clientRequests = requests.get(clientId);
 
     if (clientRequests.length >= maxRequests) {
-      return res.status(429).json({
-        error: 'Rate limit excedido',
-        message: `Máximo de ${maxRequests} requisições por ${windowMs / 1000} segundos`,
-        retryAfter: Math.ceil(windowMs / 1000)
-      });
+      return sendError(res, 429, ERROR_CODES.RATE_LIMITED,
+        `Rate limit exceeded. Max ${maxRequests} requests per ${windowMs / 1000}s`,
+        { retryAfter: Math.ceil(windowMs / 1000) }
+      );
     }
 
     // Adiciona timestamp da requisição atual
@@ -366,40 +368,17 @@ function sanitizeInput(req, res, next) {
 }
 
 /**
- * Função auxiliar para detectar se é smart wallet ou private key
- */
-function detectWalletType(req) {
-  const { privateKey, isSmartWallet, walletType } = req.body;
-  
-  // Se explicitamente marcado como smart wallet
-  if (isSmartWallet === true || walletType === 'smart_wallet') {
-    return 'smart_wallet';
-  }
-  
-  // Se tem privateKey, assume que é private key
-  if (privateKey) {
-    return 'private_key';
-  }
-  
-  // Por padrão, assume smart wallet
-  return 'smart_wallet';
-}
-
-/**
- * Middleware para preparar dados de transação baseado no tipo de wallet
+ * Middleware para preparar dados de transação (smart wallet only)
  */
 function prepareTransactionData(req, res, next) {
-  const walletType = detectWalletType(req);
-  
-  // Adiciona informações do tipo de wallet ao request
-  req.walletType = walletType;
-  req.isSmartWallet = walletType === 'smart_wallet';
-  
-  // Se for smart wallet, remove privateKey do body para evitar problemas
-  if (walletType === 'smart_wallet' && req.body.privateKey) {
+  req.walletType = 'smart_wallet';
+  req.isSmartWallet = true;
+
+  // Security: strip privateKey if present
+  if (req.body.privateKey) {
     delete req.body.privateKey;
   }
-  
+
   next();
 }
 
@@ -411,6 +390,5 @@ module.exports = {
   requestLogger,
   validateNetwork,
   sanitizeInput,
-  detectWalletType,
   prepareTransactionData
 };

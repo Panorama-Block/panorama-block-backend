@@ -28,7 +28,7 @@
   liquid-swap-service
 
   - Objetivo: oferecer API de swap não-custodial:
-    - `POST /swap/quote` → obtém cotação com provedor selecionado (auto/seletivo).
+    - `POST /swap/quote` → obtém cotação com provedor selecionado (auto/seletivo). **Recomendado enviar `unit`** (`token` ou `wei`) para evitar dupla conversão.
     - `POST /swap/tx` → prepara bundle de transações (approve? + swap) para o cliente assinar.
     - `GET /swap/status/:hash?chainId=...` → monitora status (quando suportado). 
     - `GET /swap/history` → histórico por usuário autenticado.
@@ -104,4 +104,3 @@
   - Auth: `panorama-block-backend/auth-service/src/` (rotas e thirdwebAuth util).
   - Swap: `panorama-block-backend/liquid-swap-service/src/index.ts:1`, `.../di/container.ts:1`, `.../application/usecases/*.ts`, `.../infrastructure/adapters/*`.
   - Docs auxiliares: `THIRDWEB_IMPLEMENTATION_ANALYSIS.md`, `UNISWAP_API_AUDIT.md`, `SWAP_INTEGRATION_ROADMAP.md`.
-

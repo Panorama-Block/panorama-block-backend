@@ -1,0 +1,18 @@
+{
+  "markets": [
+    {
+      "qTokenAddress": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "qTokenSymbol": "qiAVAX",
+      "underlyingAddress": "native",
+      "underlyingSymbol": "AVAX",
+      "underlyingDecimals": 18
+    },
+    {
+      "qTokenAddress": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "qTokenSymbol": "qiUSDC",
+      "underlyingAddress": "0xdddddddddddddddddddddddddddddddddddddddd",
+      "underlyingSymbol": "USDC",
+      "underlyingDecimals": 6
+    }
+  ]
+}

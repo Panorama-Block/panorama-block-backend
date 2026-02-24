@@ -1,10 +1,10 @@
 import Fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import { PrismaClient } from '@prisma/client';
 import { AppConfig } from '../config.js';
 import { RepositoryPort } from '../../../../packages/core/ports/index.js';
 import { IdempotencyStore } from '../../../../packages/infra-prisma/IdempotencyStore.js';
-import { authPlugin } from '../../../../packages/auth/index.js';
 import { tenantMiddleware } from './middlewares/tenant.js';
 import { createIdempotencyMiddleware } from './middlewares/idempotency.js';
 import { createCrudHandlers } from './handlers/crud.js';
@@ -51,21 +51,15 @@ export const buildApp = ({
   const searchHandler = createSearchEmbeddingHandler(repository);
   const idempotencyMiddleware = createIdempotencyMiddleware(idempotencyStore);
 
-  app.register(sensible);
-  app.register(authPlugin, {
-    secret: config.jwtSecret,
-    audience: config.jwtAudience,
-    issuer: config.jwtIssuer
+  app.register(cors, {
+    origin: true,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Id', 'Idempotency-Key'],
+    credentials: true,
   });
+  app.register(sensible);
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
-
-  app.addHook('onRequest', async (request, reply) => {
-    if (request.routerPath === '/health') {
-      return;
-    }
-    await app.authenticate(request, reply);
-  });
 
   app.addHook('preHandler', tenantMiddleware);
   app.addHook('preHandler', idempotencyMiddleware);

@@ -9,16 +9,25 @@ datasource db {
 
 model User {
   userId        String   @id
-  walletAddress String?  @unique
+  walletAddress String?  @unique  // Endereço principal (legado)
   displayName   String?
   attributes    Json?
   tenantId      String
   createdAt     DateTime @default(now())
   lastSeenAt    DateTime?
+
+  // Relacionamentos
   Conversations Conversation[]
   DcaSessions   DcaSession[]
   DcaWorkflows  DcaWorkflow[]
   DcaHistories  DcaHistory[]
+  LendingPositions LendingPosition[]
+  LendingSnapshots LendingSnapshotDaily[]
+  LendingTxs       LendingTx[]
+  LidoPositions    LidoPosition[]
+  LidoWithdrawals  LidoWithdrawal[]
+  LidoTxs          LidoTx[]
+  Wallets       Wallet[]       // Múltiplas carteiras do usuário
 }
 
 model Conversation {
@@ -248,6 +257,145 @@ model DcaRun {
   @@index([workflowId, executedAt])
 }
 
+model LendingMarket {
+  marketId             String   @id @default(uuid())
+  chainId              Int
+  protocol             String   @default("benqi")
+  qTokenAddress        String
+  qTokenSymbol         String
+  underlyingAddress    String
+  underlyingSymbol     String
+  underlyingDecimals   Int      @default(18)
+  collateralFactorBps  Int?
+  liquidationIncentiveBps Int?
+  supplyApyBps         Int?
+  borrowApyBps         Int?
+  isActive             Boolean  @default(true)
+  metadata             Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  tenantId             String
+
+  positions LendingPosition[]
+
+  @@unique([chainId, qTokenAddress, tenantId])
+  @@index([chainId, protocol])
+}
+
+model LendingPosition {
+  positionId        String   @id @default(uuid())
+  userId            String
+  marketId          String
+  suppliedWei       String   @default("0")
+  borrowedWei       String   @default("0")
+  collateralEnabled Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  tenantId          String
+
+  user   User          @relation(fields: [userId], references: [userId])
+  market LendingMarket @relation(fields: [marketId], references: [marketId])
+
+  @@unique([userId, marketId, tenantId])
+  @@index([userId, updatedAt])
+}
+
+model LendingSnapshotDaily {
+  snapshotId        String   @id @default(uuid())
+  userId            String
+  chainId           Int
+  date              DateTime
+  totalSuppliedWei  String   @default("0")
+  totalBorrowedWei  String   @default("0")
+  liquidityWei      String?  @default("0")
+  shortfallWei      String?  @default("0")
+  healthFactor      String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  tenantId          String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@unique([userId, chainId, date, tenantId])
+  @@index([userId, date])
+}
+
+model LendingTx {
+  txId       String   @id @default(uuid())
+  userId     String
+  chainId    Int
+  action     String   // supply | redeem | borrow | repay | enter | exit
+  amountWei  String?
+  txHash     String?
+  status     String   @default("pending")
+  errorMessage String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  tenantId   String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@index([userId, createdAt])
+  @@index([txHash])
+}
+
+model LidoPosition {
+  positionId String   @id @default(uuid())
+  userId     String
+  chainId    Int      @default(1)
+  stethWei   String   @default("0")
+  wstethWei  String   @default("0")
+  apyBps     Int?
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  tenantId   String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@unique([userId, chainId, tenantId])
+  @@index([userId, updatedAt])
+}
+
+model LidoWithdrawal {
+  withdrawalId   String   @id @default(uuid())
+  userId         String
+  chainId        Int      @default(1)
+  requestId      String
+  amountStEthWei String
+  finalized      Boolean  @default(false)
+  claimed        Boolean  @default(false)
+  requestedAt    DateTime?
+  finalizedAt    DateTime?
+  claimedAt      DateTime?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  tenantId       String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@unique([userId, chainId, requestId, tenantId])
+  @@index([userId, finalized, claimed])
+}
+
+model LidoTx {
+  txId        String   @id @default(uuid())
+  userId      String
+  chainId     Int      @default(1)
+  action      String   // stake | unstake | claim
+  amountWei   String?
+  txHash      String?
+  status      String   @default("pending")
+  errorMessage String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  tenantId    String
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@index([userId, createdAt])
+  @@index([txHash])
+}
+
 model AgentMetric {
   metricId        String   @id @default(uuid())
   agentName       String
@@ -278,4 +426,192 @@ model IdempotencyKey {
   requestHash String
   response    Json
   createdAt   DateTime @default(now())
+}
+
+// ============================================================================
+// WALLET & PORTFOLIO TRACKING
+// ============================================================================
+
+/// Carteiras registradas do usuário (TON, EVM, Smart Wallet, etc.)
+model Wallet {
+  id          String   @id @default(uuid())
+  userId      String
+  chain       String   // TON, ETHEREUM, BASE, POLYGON, ARBITRUM, AVALANCHE, etc.
+  address     String
+  walletType  String   // ton, evm, smart_wallet, panorama_wallet
+  name        String?  // Apelido dado pelo usuário
+  isPrimary   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  metadata    Json?    // Dados extras (session key info para smart wallet, etc.)
+  tenantId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [userId])
+  positionSnapshots PositionSnapshot[]
+  transactions      Transaction[]
+
+  @@unique([userId, chain, address])
+  @@index([userId, isActive])
+  @@index([chain, address])
+  @@index([tenantId])
+}
+
+/// Snapshot de posições do usuário (balance, lending, staking, LP, etc.)
+model PositionSnapshot {
+  id                String   @id @default(uuid())
+  userId            String
+  walletId          String
+  chain             String
+
+  // Protocolo e tipo
+  protocol          String   // wallet, aave, compound, lido, benqi, uniswap, etc.
+  market            String?  // Pool específico (ex: "USDC-ETH", "aUSDC")
+  positionType      String   // balance, supply, borrow, stake, lp, derivative, reward
+
+  // Asset
+  assetAddress      String
+  assetSymbol       String
+  assetDecimals     Int
+
+  // Valores
+  amountRaw         String   // Wei string (precisão total)
+  amountDisplay     String   // Formatado para exibição
+  amountUsd         String?  // Valor em USD no momento do snapshot
+  priceUsd          String?  // Preço unitário em USD
+
+  // Dados específicos de protocolo
+  accruedRaw        String?  // Juros/rewards acumulados (wei)
+  accruedDisplay    String?  // Juros formatados
+  apy               String?  // APY atual (ex: "5.25")
+  healthFactor      String?  // Para lending (ex: "1.85")
+
+  // Metadados do snapshot
+  snapshotBlock     BigInt?
+  snapshotTimestamp DateTime
+  source            String   // onchain, cached, api
+
+  // Sistema
+  metadata          Json?    // Dados extras específicos do protocolo
+  tenantId          String
+  createdAt         DateTime @default(now())
+
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  @@index([userId, snapshotTimestamp(sort: Desc)])
+  @@index([walletId, protocol])
+  @@index([userId, chain, positionType])
+  @@index([tenantId])
+}
+
+/// Histórico de transações (swap, bridge, stake, lend, etc.)
+model Transaction {
+  id               String   @id @default(uuid())
+  userId           String
+  walletId         String
+  conversationId   String?  // Link com o chat (se originado de conversa)
+
+  // Ação
+  action           String   // swap, bridge, stake, unstake, supply, withdraw, borrow, repay, claim, approve
+  protocol         String?  // uniswap, aave, lido, layerswap, thirdweb, etc.
+
+  // From (origem)
+  fromChainId      Int
+  fromAssetAddress String
+  fromAssetSymbol  String
+  fromAssetDecimals Int
+  fromAmountRaw    String   // Wei
+  fromAmountDisplay String
+  fromAmountUsd    String?
+
+  // To (destino) - nullable para operações single-sided (approve, claim)
+  toChainId        Int?
+  toAssetAddress   String?
+  toAssetSymbol    String?
+  toAssetDecimals  Int?
+  toAmountRaw      String?  // Wei (estimado ou real)
+  toAmountDisplay  String?
+  toAmountUsd      String?
+
+  // Execução
+  txHashes         Json     // Array de { hash, chainId, type, status }
+  status           String   @default("created") // created, submitted, pending, confirmed, failed, refunded
+  provider         String?  // thirdweb, layerswap, direct, etc.
+
+  // Taxas
+  gasFee           String?  // Wei
+  bridgeFee        String?  // Wei
+  protocolFee      String?  // Wei
+  totalFeeUsd      String?
+
+  // Exchange info
+  exchangeRate     String?  // Taxa de câmbio
+  slippage         String?  // Slippage configurado (ex: "0.5")
+  priceImpact      String?  // Price impact (ex: "0.12")
+
+  // Erro
+  errorCode        String?
+  errorMessage     String?
+
+  // Bridge específico
+  bridgeId         String?  // ID externo do bridge (ex: Layerswap swapId)
+
+  // Metadados
+  metadata         Json?    // Dados extras
+  tenantId         String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  confirmedAt      DateTime?
+
+  wallet        Wallet         @relation(fields: [walletId], references: [id])
+  notifications Notification[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([walletId, action])
+  @@index([status])
+  @@index([bridgeId])
+  @@index([tenantId])
+}
+
+/// Notificações do usuário
+model Notification {
+  id            String   @id @default(uuid())
+  userId        String
+  transactionId String?  // Link com transação (se aplicável)
+
+  // Conteúdo
+  type          String   // tx_confirmed, tx_failed, health_warning, price_alert, dca_executed, stake_matured, welcome
+  title         String
+  message       String
+  payload       Json?    // Dados extras para o frontend
+
+  // Prioridade e ação
+  priority      String   @default("medium") // low, medium, high, urgent
+  actionUrl     String?  // URL para navegar ao clicar
+  actionLabel   String?  // Texto do botão de ação
+
+  // Estado
+  isRead        Boolean  @default(false)
+  isDismissed   Boolean  @default(false)
+
+  // Sistema
+  expiresAt     DateTime? // Notificação expira após esta data
+  tenantId      String
+  createdAt     DateTime @default(now())
+  readAt        DateTime?
+
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
+
+  @@index([userId, isRead, createdAt(sort: Desc)])
+  @@index([userId, type])
+  @@index([tenantId])
+}
+
+model Diagram {
+  id        String   @id @default(uuid())
+  name      String   @default("default") @unique
+  nodes     Json
+  edges     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

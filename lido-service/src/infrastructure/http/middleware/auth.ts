@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import { Logger } from '../../logs/logger';
+import { ERROR_CODES, sendError } from '../../../shared/errorCodes';
 
 interface TokenValidationResponse {
   isValid: boolean;
@@ -36,12 +37,8 @@ export class AuthMiddleware {
       const authHeader = req.headers.authorization;
 
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        AuthMiddleware.logger.error('❌ [Lido Service] No Authorization header or invalid format');
-        res.status(401).json({
-          success: false,
-          error: 'Authorization header required',
-          message: 'Missing authorization token'
-        });
+        AuthMiddleware.logger.error('[Lido Service] No Authorization header or invalid format');
+        sendError(res, 401, ERROR_CODES.UNAUTHORIZED, 'Authorization header required');
         return;
       }
 
@@ -55,45 +52,42 @@ export class AuthMiddleware {
 
         const response: AxiosResponse<TokenValidationResponse> =
           await axios.post(`${authServiceUrl}/auth/validate`, { token }, {
-            httpsAgent: new (require('https').Agent)({
-              rejectUnauthorized: false // Disable SSL verification for internal communication
+            ...(authServiceUrl.startsWith('https') && {
+              httpsAgent: new (require('https').Agent)({
+                rejectUnauthorized: process.env.NODE_ENV === 'production'
+              })
             })
           });
 
         if (response.data.isValid) {
-          // Add user data to request
           req.user = response.data.payload;
-          AuthMiddleware.logger.info(`✅ [Lido Service] Token validated successfully for user: ${req.user.address}`);
+          AuthMiddleware.logger.info(`[Lido Service] Token validated for user: ${req.user.address}`);
           next();
           return;
         } else {
-          AuthMiddleware.logger.error('❌ [Lido Service] Invalid token provided');
-          res.status(401).json({
-            success: false,
-            error: 'Invalid token',
-            message: 'Token validation failed'
-          });
+          AuthMiddleware.logger.error('[Lido Service] Invalid token provided');
+          sendError(res, 401, ERROR_CODES.UNAUTHORIZED, 'Token validation failed');
           return;
         }
       } catch (error) {
         const axiosError = error as AxiosError<ErrorResponse>;
-        AuthMiddleware.logger.error('[Lido Service] ❌ Error validating token with Auth service:',
+        AuthMiddleware.logger.error('[Lido Service] Error validating token with Auth service:',
           axiosError.response?.data?.message || axiosError.message);
 
-        res.status(500).json({
-          success: false,
-          error: 'Authentication error',
-          message: 'Could not validate authentication with auth service'
-        });
+        const status = axiosError.response?.status;
+        if (status === 401 || status === 400) {
+          sendError(res, 401, ERROR_CODES.TOKEN_EXPIRED,
+            axiosError.response?.data?.message || 'Token validation failed');
+        } else {
+          sendError(res, 503, ERROR_CODES.SERVICE_UNAVAILABLE,
+            'Authentication service unavailable');
+        }
         return;
       }
     } catch (error) {
       const err = error as Error;
-      AuthMiddleware.logger.error(`❌ [Lido Service] Unexpected error in auth middleware: ${err.message}`);
-      res.status(500).json({
-        success: false,
-        error: 'Internal server error'
-      });
+      AuthMiddleware.logger.error(`[Lido Service] Unexpected error in auth middleware: ${err.message}`);
+      sendError(res, 500, ERROR_CODES.SERVICE_UNAVAILABLE, 'Internal server error');
       return;
     }
   }
@@ -112,8 +106,10 @@ export class AuthMiddleware {
 
           const response: AxiosResponse<TokenValidationResponse> =
             await axios.post(`${authServiceUrl}/auth/validate`, { token }, {
-              httpsAgent: new (require('https').Agent)({
-                rejectUnauthorized: false
+              ...(authServiceUrl.startsWith('https') && {
+                httpsAgent: new (require('https').Agent)({
+                  rejectUnauthorized: process.env.NODE_ENV === 'production'
+                })
               })
             });
 
@@ -140,20 +136,14 @@ export class AuthMiddleware {
   static requireUserAddress(req: AuthRequest, res: Response, next: NextFunction): void {
     try {
       if (!req.user || !req.user.address) {
-        res.status(401).json({
-          success: false,
-          error: 'User authentication required'
-        });
+        sendError(res, 401, ERROR_CODES.UNAUTHORIZED, 'User authentication required');
         return;
       }
 
       // Validate that the user address in the token matches the request
       const { userAddress } = req.params;
       if (userAddress && userAddress.toLowerCase() !== req.user.address.toLowerCase()) {
-        res.status(403).json({
-          success: false,
-          error: 'Access denied: token user does not match requested user'
-        });
+        sendError(res, 403, ERROR_CODES.UNAUTHORIZED, 'Access denied: token user does not match requested user');
         return;
       }
 
@@ -165,6 +155,51 @@ export class AuthMiddleware {
         error: 'Internal server error'
       });
     }
+  }
+
+  /**
+   * Require body userAddress to match the authenticated user
+   * Useful for POST routes where the resource owner is provided in JSON body.
+   */
+  static requireBodyUserAddress(fieldName: string = 'userAddress') {
+    return (req: AuthRequest, res: Response, next: NextFunction): void => {
+      try {
+        if (!req.user || !req.user.address) {
+          res.status(401).json({
+            success: false,
+            error: 'User authentication required'
+          });
+          return;
+        }
+
+        const bodyAddress = (req.body as any)?.[fieldName];
+        if (!bodyAddress || typeof bodyAddress !== 'string') {
+          res.status(400).json({
+            success: false,
+            error: `${fieldName} is required`
+          });
+          return;
+        }
+
+        if (bodyAddress.toLowerCase() !== String(req.user.address).toLowerCase()) {
+          res.status(403).json({
+            success: false,
+            error: 'Access denied: token user does not match requested user'
+          });
+          return;
+        }
+
+        next();
+      } catch (error) {
+        AuthMiddleware.logger.error(
+          `❌ [Lido Service] Body user address validation error: ${(error as Error).message}`
+        );
+        res.status(500).json({
+          success: false,
+          error: 'Internal server error'
+        });
+      }
+    };
   }
 }
 
