@@ -5,7 +5,6 @@ import { PrismaClient } from '@prisma/client';
 import { AppConfig } from '../config.js';
 import { RepositoryPort } from '../../../../packages/core/ports/index.js';
 import { IdempotencyStore } from '../../../../packages/infra-prisma/IdempotencyStore.js';
-import { authPlugin } from '../../../../packages/auth/index.js';
 import { tenantMiddleware } from './middlewares/tenant.js';
 import { createIdempotencyMiddleware } from './middlewares/idempotency.js';
 import { createCrudHandlers } from './handlers/crud.js';
@@ -59,21 +58,8 @@ export const buildApp = ({
     credentials: true,
   });
   app.register(sensible);
-  app.register(authPlugin, {
-    authPrivateKey: config.authPrivateKey,
-    authDomain: config.authDomain,
-  });
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
-
-  const PUBLIC_ROUTES = ['/health'];
-
-  app.addHook('onRequest', async (request, reply) => {
-    if (PUBLIC_ROUTES.includes(request.url.split('?')[0])) {
-      return;
-    }
-    await app.authenticate(request, reply);
-  });
 
   app.addHook('preHandler', tenantMiddleware);
   app.addHook('preHandler', idempotencyMiddleware);

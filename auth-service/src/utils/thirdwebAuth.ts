@@ -48,7 +48,7 @@ export const generateLoginPayload = async (address: string): Promise<any> => {
   return await auth.payload({
     address: normalizedAddress,
     statement: 'Login to Panorama Block platform',
-    domain: process.env.AUTH_DOMAIN,
+    domain: process.env.AUTH_DOMAIN || 'panoramablock.com',
     version: '1',
   });
 };
