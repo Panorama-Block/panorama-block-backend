@@ -1,7 +1,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 
 const isHealthRoute = (request: FastifyRequest): boolean => {
-  return request.routerPath === '/health';
+  return (request.routeOptions?.url ?? request.url) === '/health';
 };
 
 export const tenantMiddleware = async (
@@ -16,33 +16,17 @@ export const tenantMiddleware = async (
     return;
   }
 
-  const headerTenant = request.headers['x-tenant-id'] as string | undefined;
-  const claimTenant =
-    request.authClaims?.tenant ?? request.authClaims?.tenantId ?? undefined;
-
-  if (headerTenant && claimTenant && headerTenant !== claimTenant) {
-    reply
-      .status(409)
-      .send({ error: 'tenant_conflict', message: 'Tenant header does not match token claim' });
-    return;
-  }
-
-  const tenantId = headerTenant ?? claimTenant;
+  const tenantId = request.headers['x-tenant-id'] as string | undefined;
   if (!tenantId) {
     reply
       .status(400)
-      .send({ error: 'tenant_required', message: 'x-tenant-id header or tenant claim required' });
+      .send({ error: 'tenant_required', message: 'x-tenant-id header required' });
     return;
   }
 
   request.ctx = {
     requestId: request.id,
     tenantId,
-    actor: {
-      id: request.authClaims?.sub,
-      roles: request.authClaims?.roles ?? [],
-      service: request.authClaims?.service
-    },
     headers: request.headers as Record<string, string>
   };
   return;

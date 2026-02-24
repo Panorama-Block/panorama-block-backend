@@ -10,7 +10,7 @@ const computeHash = (request: FastifyRequest, tenantId?: string): string => {
   return createHash('sha256')
     .update(request.method)
     .update(':')
-    .update(request.routerPath ?? request.url)
+    .update(request.routeOptions?.url ?? request.url)
     .update(':')
     .update(tenantId ?? '')
     .update(':')
