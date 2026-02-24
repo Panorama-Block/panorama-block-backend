@@ -2,14 +2,14 @@ import { Router } from 'express';
 import { ValidationMiddleware } from '../middleware/validation';
 import { AuthMiddleware } from '../middleware/auth';
 import { ErrorHandler } from '../middleware/errorHandler';
+import { LidoController } from '../controllers/LidoController';
 
 const router = Router();
 
-// Lazy loading - só instancia quando necessário
-let lidoController: any = null;
+// Lazy instantiation - only creates the controller on first request
+let lidoController: LidoController | null = null;
 const getLidoController = () => {
   if (!lidoController) {
-    const { LidoController } = require('../controllers/LidoController');
     lidoController = new LidoController();
   }
   return lidoController;
