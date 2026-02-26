@@ -32,8 +32,8 @@ const controller = {
 
 vi.mock('../../middleware/auth', () => ({
   AuthMiddleware: {
-    authenticate: (...args: any[]) => authenticateSpy(...args),
-    optionalAuth: (...args: any[]) => optionalAuthSpy(...args),
+    authenticate: authenticateSpy,
+    optionalAuth: optionalAuthSpy,
     requireBodyUserAddress: (fieldName: string = 'userAddress') => {
       requireBodyUserAddressSpy(fieldName);
       return (_req: any, _res: any, next: any) => next();
@@ -43,12 +43,12 @@ vi.mock('../../middleware/auth', () => ({
 
 vi.mock('../../middleware/validation', () => ({
   ValidationMiddleware: {
-    validateStakeRequest: (...args: any[]) => validateStakeSpy(...args),
-    validateUnstakeRequest: (...args: any[]) => validateUnstakeSpy(...args),
-    validateUserAddress: (...args: any[]) => validateUserAddressSpy(...args),
-    validateTransactionHash: (...args: any[]) => validateTxHashSpy(...args),
-    validateClaimWithdrawalsRequest: (...args: any[]) => validateClaimSpy(...args),
-    validateTransactionSubmitRequest: (...args: any[]) => validateTxSubmitSpy(...args),
+    validateStakeRequest: validateStakeSpy,
+    validateUnstakeRequest: validateUnstakeSpy,
+    validateUserAddress: validateUserAddressSpy,
+    validateTransactionHash: validateTxHashSpy,
+    validateClaimWithdrawalsRequest: validateClaimSpy,
+    validateTransactionSubmitRequest: validateTxSubmitSpy,
   },
 }));
 

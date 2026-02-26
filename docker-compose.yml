@@ -247,7 +247,7 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-dca-service
     ports:
-      - "${DCA_PORT:-3007}:3007"
+      - "${DCA_PORT:-3008}:3007"
     environment:
       - DCA_PORT=3007
       - NODE_ENV=${NODE_ENV}

@@ -15,7 +15,7 @@ describe('LidoController', () => {
   let controller: any;
 
   beforeEach(() => {
-    vi.spyOn(LidoController.prototype as any, 'initializeServices').mockImplementation(function () {
+    vi.spyOn(LidoController.prototype as any, 'initializeServices').mockImplementation(function (this: any) {
       this.lidoService = {};
       this.stakeUseCase = {};
       this.unstakeUseCase = {};
