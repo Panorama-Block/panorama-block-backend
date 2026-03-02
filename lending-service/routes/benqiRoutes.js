@@ -23,6 +23,10 @@ const BENQI_QTOKENS_CACHE_TTL_MS = Number(process.env.BENQI_QTOKENS_CACHE_TTL_MS
 const BENQI_MARKETS_CONCURRENCY = Math.max(1, Number(process.env.BENQI_MARKETS_CONCURRENCY || 6));
 // Keep per-call timeouts tight so the endpoint completes quickly; return partial rows if a call times out.
 const BENQI_RPC_TIMEOUT_MS = Math.max(500, Number(process.env.BENQI_RPC_TIMEOUT_MS || 2_500));
+// Keep /positions responsive for proxies/frontends: prefer partial payload over long hangs.
+const BENQI_POSITIONS_MAX_DURATION_MS = Math.max(2_000, Number(process.env.BENQI_POSITIONS_MAX_DURATION_MS || 8_000));
+const BENQI_POSITIONS_CONCURRENCY = Math.max(1, Number(process.env.BENQI_POSITIONS_CONCURRENCY || 4));
+const BENQI_BALANCE_TIMEOUT_MS = Math.max(500, Number(process.env.BENQI_BALANCE_TIMEOUT_MS || Math.min(BENQI_RPC_TIMEOUT_MS, 2_500)));
 // Disable/limit JSON-RPC batching by default to reduce mixed batch failures on free/shared RPC tiers.
 const BENQI_RPC_BATCH_MAX_COUNT = Math.max(1, Number(process.env.BENQI_RPC_BATCH_MAX_COUNT || 1));
 const BENQI_RPC_BATCH_STALL_TIME_MS = Math.max(0, Number(process.env.BENQI_RPC_BATCH_STALL_TIME_MS || 10));
@@ -899,10 +903,27 @@ router.get('/account/:address/positions',
       let timeoutHits = 0;
       const MAX_RATE_LIMIT_HITS = 3;
       const MAX_TIMEOUT_HITS = 4;
-      for (const market of qTokens) {
+      let stopProcessing = false;
+      const positionsDeadlineAt = Date.now() + BENQI_POSITIONS_MAX_DURATION_MS;
+      const addWarning = (message) => {
+        if (message && !warnings.includes(message)) {
+          warnings.push(message);
+        }
+      };
+
+      const rows = await mapWithConcurrency(qTokens, BENQI_POSITIONS_CONCURRENCY, async (market) => {
+        if (stopProcessing || req.aborted || req.destroyed) {
+          return null;
+        }
+        if (Date.now() > positionsDeadlineAt) {
+          stopProcessing = true;
+          addWarning('Positions request deadline reached. Returned partial position set.');
+          return null;
+        }
+
         const qTokenAddress = market.address;
         if (!ethers.isAddress(qTokenAddress)) {
-          continue;
+          return null;
         }
 
         // Underlying resolution (same logic as /markets)
@@ -950,7 +971,7 @@ router.get('/account/:address/positions',
               benqiService.getQTokenBalance(qTokenAddress, address),
               benqiService.getBorrowBalance(qTokenAddress, address),
             ]),
-            BENQI_RPC_TIMEOUT_MS * 2
+            BENQI_BALANCE_TIMEOUT_MS
           );
         } catch (e) {
           // Skip markets that error on snapshot calls.
@@ -958,18 +979,18 @@ router.get('/account/:address/positions',
           if (isRateLimitedRpcError(e)) {
             rateLimitHits += 1;
             if (rateLimitHits >= MAX_RATE_LIMIT_HITS) {
-              warnings.push('RPC rate limit reached while fetching balances. Returned partial position set.');
-              break;
+              addWarning('RPC rate limit reached while fetching balances. Returned partial position set.');
+              stopProcessing = true;
             }
           }
           if (isTimeoutRpcError(e)) {
             timeoutHits += 1;
             if (timeoutHits >= MAX_TIMEOUT_HITS) {
-              warnings.push('RPC timeout threshold reached while fetching balances. Returned partial position set.');
-              break;
+              addWarning('RPC timeout threshold reached while fetching balances. Returned partial position set.');
+              stopProcessing = true;
             }
           }
-          continue;
+          return null;
         }
 
         const suppliedWei = supply?.underlyingBalance || '0';
@@ -980,10 +1001,10 @@ router.get('/account/:address/positions',
         const qTokenBalance = BigInt(qTokenBalanceWei || '0');
 
         if (supplied === 0n && borrowed === 0n && qTokenBalance === 0n) {
-          continue;
+          return null;
         }
 
-        positions.push({
+        return {
           chainId: 43114,
           protocol: 'benqi',
           qTokenAddress,
@@ -996,7 +1017,13 @@ router.get('/account/:address/positions',
           suppliedWei,
           borrowedWei,
           collateralEnabled: collateralSet.has(String(qTokenAddress).toLowerCase()),
-        });
+        };
+      });
+
+      for (const row of rows) {
+        if (row && !row.__error) {
+          positions.push(row);
+        }
       }
 
       const responsePayload = {
