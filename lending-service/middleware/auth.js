@@ -16,6 +16,30 @@ setInterval(() => {
   }
 }, NONCE_CLEANUP_INTERVAL);
 
+function asNonEmptyString(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveJwtAddress(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const candidates = [
+    payload.address,
+    payload.sub,
+    payload.walletAddress,
+    payload?.user?.address,
+    payload?.ctx?.address,
+  ];
+
+  for (const candidate of candidates) {
+    const value = asNonEmptyString(candidate);
+    if (value) return value;
+  }
+  return null;
+}
+
 /**
  * Middleware para verificar assinatura de wallet (smart wallet)
  * Também suporta autenticação via JWT do auth-service
@@ -67,7 +91,16 @@ async function verifySignature(req, res, next) {
 
         if (response.data.isValid) {
           console.log('✅ JWT válido, autenticação bem-sucedida');
-          const jwtAddress = response.data.payload.address || response.data.payload.sub;
+          const jwtAddress = resolveJwtAddress(response.data.payload);
+
+          if (!jwtAddress || !ethers.isAddress(jwtAddress)) {
+            return sendError(
+              res,
+              401,
+              ERROR_CODES.UNAUTHORIZED,
+              'JWT payload is valid but does not contain a valid EVM address.',
+            );
+          }
 
           // Verifica se o endereço do JWT corresponde ao endereço fornecido
           if (requestedAddress && jwtAddress.toLowerCase() !== String(requestedAddress).toLowerCase()) {
@@ -99,15 +132,19 @@ async function verifySignature(req, res, next) {
     // LÓGICA ORIGINAL: Autenticação por assinatura
     console.log('🔐 Tentando autenticação via assinatura...');
 
+    const normalizedAddress = asNonEmptyString(address);
+    const normalizedSignature = asNonEmptyString(signature);
+    const normalizedMessage = asNonEmptyString(message);
+
     // Verificação de assinatura obrigatória
-    if (!address || !signature || !message) {
+    if (!normalizedAddress || !normalizedSignature || !normalizedMessage) {
       return res.status(400).json({
         error: 'Parâmetros inválidos',
         required: ['address', 'signature', 'message'],
         received: {
-          address: !!address,
-          signature: !!signature,
-          message: !!message
+          address: !!normalizedAddress,
+          signature: !!normalizedSignature,
+          message: !!normalizedMessage
         }
       });
     }
@@ -118,45 +155,45 @@ async function verifySignature(req, res, next) {
     }
 
     // Verifica se o endereço é válido
-    if (!ethers.isAddress(address)) {
+    if (!ethers.isAddress(normalizedAddress)) {
       return res.status(400).json({
         error: 'Endereço de wallet inválido',
-        address
+        address: normalizedAddress
       });
     }
 
     // Recupera o endereço da assinatura
     let recoveredAddress;
     try {
-      recoveredAddress = ethers.verifyMessage(message, signature);
+      recoveredAddress = ethers.verifyMessage(normalizedMessage, normalizedSignature);
     } catch (error) {
       return sendError(res, 400, ERROR_CODES.INVALID_SIGNATURE, 'Invalid signature format.');
     }
 
     // Verifica se o endereço recuperado corresponde ao endereço fornecido
-    if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
+    if (recoveredAddress.toLowerCase() !== normalizedAddress.toLowerCase()) {
       return sendError(res, 401, ERROR_CODES.INVALID_SIGNATURE, 'Signature does not match the provided address.');
     }
 
     // Replay protection: reject reused signatures
-    const sigKey = signature.toLowerCase();
+    const sigKey = normalizedSignature.toLowerCase();
     if (usedSignatures.has(sigKey)) {
       return sendError(res, 401, ERROR_CODES.INVALID_SIGNATURE, 'Signature already used (replay detected).');
     }
     usedSignatures.set(sigKey, Date.now());
 
     // Adiciona informações verificadas ao request (smart wallet only)
-    req.verifiedAddress = address.toLowerCase();
+    req.verifiedAddress = normalizedAddress.toLowerCase();
     req.authMode = 'smart_wallet';
     req.signatureData = {
-      address: address.toLowerCase(),
-      message,
+      address: normalizedAddress.toLowerCase(),
+      message: normalizedMessage,
       timestamp: timestamp || Date.now(),
       walletType: 'smart_wallet',
       isSmartWallet: true
     };
 
-    console.log(`🔐 Autenticação via smart_wallet para endereço: ${address}`);
+    console.log(`🔐 Autenticação via smart_wallet para endereço: ${normalizedAddress}`);
     next();
   } catch (error) {
     console.error('Erro na verificação de assinatura:', error);
