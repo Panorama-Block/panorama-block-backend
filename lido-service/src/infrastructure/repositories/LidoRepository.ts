@@ -795,10 +795,17 @@ export class LidoRepository implements ILidoRepository {
     }
 
     const parseApr = (value: unknown): number | null => {
-      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        if (value > 0 && value < 0.2) return value * 100; // decimal -> percentage
+        if (value > 100 && value < 10_000) return value / 100; // bps-like -> percentage
+        return value <= 10_000 ? value : null;
+      }
       if (typeof value === 'string') {
-        const n = Number(value);
-        return Number.isFinite(n) ? n : null;
+        const n = Number(value.replace('%', '').replace(',', '.').trim());
+        if (!Number.isFinite(n)) return null;
+        if (n > 0 && n < 0.2) return n * 100;
+        if (n > 100 && n < 10_000) return n / 100;
+        return n <= 10_000 ? n : null;
       }
       return null;
     };
@@ -818,14 +825,43 @@ export class LidoRepository implements ILidoRepository {
 
     if (freshApy == null) {
       try {
-        // Secondary: Lido public API
+        // Secondary: New Lido ETH API (SMA APR)
+        const resp = await axios.get('https://eth-api.lido.fi/v1/protocol/steth/apr/sma', { timeout: 8000 });
+        freshApy =
+          parseApr(resp.data?.smaApr) ??
+          parseApr(resp.data?.data?.smaApr) ??
+          parseApr(resp.data?.result?.smaApr) ??
+          parseApr(resp.data?.apr) ??
+          parseApr(resp.data?.data?.apr) ??
+          parseApr(resp.data?.result?.apr);
+      } catch (error) {
+        this.logger.warn(`Failed to fetch APR from eth-api.lido.fi (sma): ${error}`);
+      }
+    }
+
+    if (freshApy == null) {
+      try {
+        // Tertiary: New Lido ETH API (last APR)
+        const resp = await axios.get('https://eth-api.lido.fi/v1/protocol/steth/apr/last', { timeout: 8000 });
+        freshApy =
+          parseApr(resp.data?.apr) ??
+          parseApr(resp.data?.data?.apr) ??
+          parseApr(resp.data?.result?.apr);
+      } catch (error) {
+        this.logger.warn(`Failed to fetch APR from eth-api.lido.fi (last): ${error}`);
+      }
+    }
+
+    if (freshApy == null) {
+      try {
+        // Legacy fallback
         const resp = await axios.get('https://api.lido.fi/v1/protocol/staking/apr/last', { timeout: 8000 });
         freshApy =
           parseApr(resp.data?.apr) ??
           parseApr(resp.data?.data?.apr) ??
           parseApr(resp.data?.result?.apr);
       } catch (error) {
-        this.logger.warn(`Failed to fetch APR from api.lido.fi: ${error}`);
+        this.logger.warn(`Failed to fetch APR from legacy api.lido.fi: ${error}`);
       }
     }
 
