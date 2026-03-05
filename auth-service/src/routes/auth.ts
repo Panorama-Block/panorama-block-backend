@@ -95,6 +95,12 @@ function decodeTonJwt(token: string) {
 
 const REFRESH_COOKIE_NAME = process.env.AUTH_REFRESH_COOKIE_NAME || 'panorama_refresh';
 const REFRESH_TTL_SECONDS = Number(process.env.AUTH_REFRESH_TTL_SECONDS || 60 * 60 * 24 * 14); // default 14 days
+const TELEGRAM_LINK_KEY_PREFIX = 'telegram_link:';
+const TELEGRAM_LINK_TTL_SECONDS_RAW = Number(process.env.TELEGRAM_LINK_TTL_SECONDS ?? '');
+const TELEGRAM_LINK_TTL_SECONDS =
+  Number.isFinite(TELEGRAM_LINK_TTL_SECONDS_RAW) && TELEGRAM_LINK_TTL_SECONDS_RAW > 0
+    ? Math.floor(TELEGRAM_LINK_TTL_SECONDS_RAW)
+    : null;
 
 const shouldForceSecureCookie =
   (process.env.AUTH_COOKIE_SECURE || '').toLowerCase() === 'true' ||
@@ -158,8 +164,109 @@ const parseRefreshCookie = (req: Request): string | null => {
 
 const createSessionId = () => randomBytes(32).toString('base64url');
 
+function telegramLinkKey(telegramUserId: string) {
+  return `${TELEGRAM_LINK_KEY_PREFIX}${telegramUserId}`;
+}
+
 export default function authRoutes(redisClient: RedisClientType) {
   const router = Router();
+
+  router.post('/telegram/link', async (req: Request, res: Response) => {
+    try {
+      const telegramUserId = String(req.body?.telegram_user_id || '').trim();
+      const zicoUserId = String(req.body?.zico_user_id || '').trim();
+      const sessionId = String(req.body?.session_id || '').trim() || null;
+      const address = String(req.body?.address || '').trim() || null;
+      const source = String(req.body?.source || '').trim() || null;
+
+      if (!telegramUserId || !zicoUserId) {
+        return res.status(400).json({
+          error: "Both 'telegram_user_id' and 'zico_user_id' are required.",
+        });
+      }
+
+      const key = telegramLinkKey(telegramUserId);
+      const linkedAt = new Date().toISOString();
+      const payload = {
+        telegram_user_id: telegramUserId,
+        zico_user_id: zicoUserId,
+        session_id: sessionId,
+        address,
+        source,
+        linked_at: linkedAt,
+      };
+
+      if (TELEGRAM_LINK_TTL_SECONDS) {
+        await redisClient.set(key, JSON.stringify(payload), {
+          EX: TELEGRAM_LINK_TTL_SECONDS,
+        });
+      } else {
+        await redisClient.set(key, JSON.stringify(payload));
+      }
+
+      console.log('[AUTH TELEGRAM LINK] mapping stored', {
+        telegram_user_id: telegramUserId,
+        zico_user_id: zicoUserId,
+        ttl_seconds: TELEGRAM_LINK_TTL_SECONDS,
+      });
+
+      return res.json({
+        success: true,
+        telegram_user_id: telegramUserId,
+        zico_user_id: zicoUserId,
+        linked_at: linkedAt,
+      });
+    } catch (error: any) {
+      console.error('[AUTH TELEGRAM LINK] failed', error);
+      return res.status(500).json({ error: error?.message || 'Failed to link telegram identity' });
+    }
+  });
+
+  router.get('/telegram/resolve', async (req: Request, res: Response) => {
+    try {
+      const telegramUserId = String(req.query?.telegram_user_id || '').trim();
+      if (!telegramUserId) {
+        return res.status(400).json({ error: "'telegram_user_id' query parameter is required." });
+      }
+
+      const key = telegramLinkKey(telegramUserId);
+      const raw = await redisClient.get(key);
+      if (!raw) {
+        return res.json({
+          success: true,
+          telegram_user_id: telegramUserId,
+          found: false,
+        });
+      }
+
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+
+      const zicoUserId = parsed?.zico_user_id;
+      if (!zicoUserId || typeof zicoUserId !== 'string') {
+        return res.json({
+          success: true,
+          telegram_user_id: telegramUserId,
+          found: false,
+        });
+      }
+
+      return res.json({
+        success: true,
+        telegram_user_id: telegramUserId,
+        zico_user_id: zicoUserId,
+        linked_at: parsed?.linked_at ?? null,
+        found: true,
+      });
+    } catch (error: any) {
+      console.error('[AUTH TELEGRAM RESOLVE] failed', error);
+      return res.status(500).json({ error: error?.message || 'Failed to resolve telegram identity' });
+    }
+  });
 
   // Login route - generates payload for wallet to sign
   router.post('/login', async (req: Request, res: Response) => {
