@@ -237,8 +237,16 @@ export function dcaRoutes() {
           return res.status(400).json({ error: 'Could not determine wallet address for Base DCA' });
         }
         console.log('[POST /create-strategy] vault userAddress:', walletAddress);
-        const vaultResult = await proxyVaultCreate({ ...request, userAddress: walletAddress });
-        return res.json({ type: 'vault_unsigned', ...(vaultResult as object) });
+        const vaultResult = await proxyVaultCreate({ ...request, userAddress: walletAddress }) as {
+          bundle: { steps: unknown[]; totalSteps: number; summary: string };
+          metadata: unknown;
+        };
+        return res.json({
+          type: 'vault_unsigned',
+          steps: vaultResult.bundle.steps,
+          description: vaultResult.bundle.summary,
+          metadata: vaultResult.metadata,
+        });
       }
 
       // ── Other chains → smart account flow ─────────────────────────────────
