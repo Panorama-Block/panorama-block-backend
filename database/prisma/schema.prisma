@@ -615,3 +615,25 @@ model Diagram {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// ============================================================================
+// USER PROFILE
+// ============================================================================
+
+/// Perfil do usuário atrelado ao endereço de carteira
+model UserProfile {
+  id              String   @id @default(uuid())
+  walletAddress   String   @unique         // Endereço de carteira (chave de lookup)
+  nickname        String?                  // Apelido exibido na welcome screen
+  investorType    String?                  // conservative, moderate, aggressive, degen
+  goals           String[]                 // Lista de objetivos: yield, trading, holding, etc.
+  preferredChains String[]                 // Chains preferidas: base, ethereum, avalanche, etc.
+  riskTolerance   Int?                     // 1-10 escala de tolerância a risco
+  metadata        Json?                    // Dados extras flexíveis
+  tenantId        String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([walletAddress])
+  @@index([tenantId])
+}

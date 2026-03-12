@@ -59,8 +59,8 @@ vi.mock('../../config/ethereum', () => ({
 
 vi.mock('../../database/database.service', () => ({
   DatabaseService: {
-    isConfigured: (...args: unknown[]) => mockDbIsConfigured(...args),
-    getInstance: (...args: unknown[]) => mockDbGetInstance(...args),
+    isConfigured: mockDbIsConfigured,
+    getInstance: mockDbGetInstance,
   },
 }));
 

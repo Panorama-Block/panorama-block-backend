@@ -3,6 +3,19 @@ import { Logger } from '../../logs/logger';
 
 export class ValidationMiddleware {
   private static logger = new Logger();
+  private static readonly WEI_PER_ETH = 10n ** 18n;
+  private static readonly MAX_STAKE_ETH = 1_000_000n;
+  private static readonly MAX_STAKE_WEI = ValidationMiddleware.MAX_STAKE_ETH * ValidationMiddleware.WEI_PER_ETH;
+
+  private static parsePositiveWei(amount: unknown): bigint | null {
+    if (typeof amount !== 'string') return null;
+    const normalized = amount.trim();
+    if (!/^\d+$/.test(normalized)) return null;
+
+    const value = BigInt(normalized);
+    if (value <= 0n) return null;
+    return value;
+  }
 
   static validateStakeRequest(req: Request, res: Response, next: NextFunction): void {
     const { userAddress, amount } = req.body;
@@ -32,18 +45,18 @@ export class ValidationMiddleware {
       return;
     }
 
-    // Validate amount is a positive number
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
+    // Amount must be wei string (integer) to match service/domain contract.
+    const amountWei = ValidationMiddleware.parsePositiveWei(amount);
+    if (amountWei === null) {
       res.status(400).json({
         success: false,
-        error: 'Amount must be a positive number'
+        error: 'Amount must be a positive wei value'
       });
       return;
     }
 
-    // Validate amount is not too large (prevent overflow)
-    if (amountNum > 1000000) {
+    // Max 1,000,000 ETH (expressed in wei).
+    if (amountWei > ValidationMiddleware.MAX_STAKE_WEI) {
       res.status(400).json({
         success: false,
         error: 'Amount too large (maximum 1,000,000 ETH)'
@@ -82,12 +95,12 @@ export class ValidationMiddleware {
       return;
     }
 
-    // Validate amount is a positive number
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
+    // Amount must be wei string (integer) to match service/domain contract.
+    const amountWei = ValidationMiddleware.parsePositiveWei(amount);
+    if (amountWei === null) {
       res.status(400).json({
         success: false,
-        error: 'Amount must be a positive number'
+        error: 'Amount must be a positive wei value'
       });
       return;
     }

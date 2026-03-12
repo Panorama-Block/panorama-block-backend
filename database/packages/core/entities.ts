@@ -1166,7 +1166,49 @@ const entityConfigs: EntityConfig[] = [
         message: 'At least one field is required'
       }),
     filter: baseQuerySchema
-  }
+  },
+
+  // ============================================================================
+  // USER PROFILE
+  // ============================================================================
+
+  {
+    collection: 'user-profiles',
+    model: 'UserProfile',
+    primaryKeys: ['id'],
+    tenantField: 'tenantId',
+    defaultOrderBy: { createdAt: 'desc' },
+    create: z
+      .object({
+        id: z.string().uuid().optional(),
+        walletAddress: z.string(),
+        nickname: z.string().max(30).optional(),
+        investorType: z.enum(['conservative', 'moderate', 'aggressive', 'degen']).optional(),
+        goals: z.array(z.string()).optional(),
+        preferredChains: z.array(z.string()).optional(),
+        riskTolerance: z.number().int().min(1).max(10).optional(),
+        metadata: jsonRecord.optional(),
+        tenantId: z.string(),
+        createdAt: isoDate.optional(),
+        updatedAt: isoDate.optional()
+      })
+      .strict(),
+    update: z
+      .object({
+        nickname: z.string().max(30).optional(),
+        investorType: z.enum(['conservative', 'moderate', 'aggressive', 'degen']).optional(),
+        goals: z.array(z.string()).optional(),
+        preferredChains: z.array(z.string()).optional(),
+        riskTolerance: z.number().int().min(1).max(10).optional(),
+        metadata: jsonRecord.optional(),
+        updatedAt: isoDate.optional()
+      })
+      .strict()
+      .refine((data) => Object.keys(data).length > 0, {
+        message: 'At least one field is required'
+      }),
+    filter: baseQuerySchema
+  },
 ];
 
 export const entityConfigByCollection: Record<string, EntityConfig> = Object.fromEntries(

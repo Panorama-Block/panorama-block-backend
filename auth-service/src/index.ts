@@ -168,6 +168,8 @@ app.get('/', (req, res) => {
       '/health': 'Health check',
       '/auth/login': 'Generate login payload',
       '/auth/verify': 'Verify signature and get JWT',
+      '/auth/telegram/link': 'Link telegram user id to zico/wallet user id',
+      '/auth/telegram/resolve': 'Resolve zico/wallet user id from telegram user id',
       '/auth/validate': 'Validate JWT token',
       '/auth/logout': 'Logout and invalidate session'
     }

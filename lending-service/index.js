@@ -19,7 +19,7 @@ const { ERROR_CODES, sendError } = require('./lib/errorCodes');
 const { getAllBreakerStatuses } = require('./lib/circuitBreaker');
 
 const app = express();
-const port = process.env.PORT || 3006;
+const port = process.env.PORT || 3007;
 app.set('trust proxy', 1);
 
 // Middleware de segurança

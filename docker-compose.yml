@@ -216,9 +216,9 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-lending-service
     ports:
-      - "${LENDING_PORT:-3007}:3006"
+      - "${LENDING_PORT:-3007}:3007"
     environment:
-      - PORT=3006
+      - PORT=3007
       - NODE_ENV=${NODE_ENV}
       - DEBUG=${DEBUG}
       - AUTH_SERVICE_URL=http://auth_service:3001
@@ -247,7 +247,7 @@ services:
       dockerfile: Dockerfile
     container_name: panorama-dca-service
     ports:
-      - "${DCA_PORT:-3007}:3007"
+      - "${DCA_PORT:-3008}:3007"
     environment:
       - DCA_PORT=3007
       - NODE_ENV=${NODE_ENV}
@@ -300,6 +300,24 @@ services:
     depends_on:
       engine_postgres:
         condition: service_healthy
+    restart: always
+
+  execution_service:
+    build:
+      context: ../panoramablock-execution-layer/backend
+      dockerfile: Dockerfile
+    container_name: panorama-execution-service
+    ports:
+      - "${EXECUTION_PORT:-3011}:3010"
+    environment:
+      - PORT=3010
+      - NODE_ENV=${NODE_ENV}
+      - DEBUG=${DEBUG}
+      - BASE_RPC_URL=${BASE_RPC_URL}
+      - EXECUTOR_ADDRESS=${EXECUTOR_ADDRESS:-0x79D671250f75631ca199d0Fa22b0071052214172}
+      - AERODROME_ADAPTER_ADDRESS=${AERODROME_ADAPTER_ADDRESS:-0xf919A01510591f38407AA4BBE5711646DB6819e3}
+    env_file:
+      - .env
     restart: always
 
 volumes:
