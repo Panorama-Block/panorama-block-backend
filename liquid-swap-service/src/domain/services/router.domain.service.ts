@@ -191,7 +191,7 @@ export class RouterDomainService {
         return { provider: uniswapTradingApi, quote };
       } catch (error) {
         console.warn(
-          "[RouterDomainService] ⚠️ Uniswap Trading API failed, trying Thirdweb:",
+          "[RouterDomainService] ⚠️ Uniswap Trading API failed, trying Aerodrome:",
           (error as Error).message
         );
         errors.push(`trading-api: ${(error as Error).message}`);
@@ -199,10 +199,31 @@ export class RouterDomainService {
       }
     }
 
-    // Priority 3: Try Thirdweb as last resort (exact amount approvals)
+    // Priority 3: Try Aerodrome (Base only - deep liquidity for AERO pairs, stable pools)
+    const aerodrome = supportedProviders.find((p) => p.name === "aerodrome");
+    if (aerodrome) {
+      console.log("[RouterDomainService] ✅ Attempting Aerodrome (Priority 3 - Base DEX via Execution Service)");
+      try {
+        const quote = await aerodrome.getQuote(request);
+        console.log(
+          "[RouterDomainService] ✅ Aerodrome quote successful:",
+          quote.estimatedReceiveAmount.toString()
+        );
+        return { provider: aerodrome, quote };
+      } catch (error) {
+        console.warn(
+          "[RouterDomainService] ⚠️ Aerodrome failed, trying Thirdweb:",
+          (error as Error).message
+        );
+        errors.push(`aerodrome: ${(error as Error).message}`);
+        // Continue to fallback
+      }
+    }
+
+    // Priority 4: Try Thirdweb as last resort (exact amount approvals)
     const thirdweb = supportedProviders.find((p) => p.name === "thirdweb");
     if (thirdweb) {
-      console.log("[RouterDomainService] ✅ Attempting Thirdweb (Priority 3 - Fallback, exact approvals)");
+      console.log("[RouterDomainService] ✅ Attempting Thirdweb (Priority 4 - Fallback, exact approvals)");
       try {
         const quote = await thirdweb.getQuote(request);
         console.log(
@@ -220,12 +241,12 @@ export class RouterDomainService {
       }
     }
 
-    // Priority 4: Try any remaining providers
+    // Priority 5: Try any remaining providers
     try {
       return await this.tryFallbackProviders(
         supportedProviders,
         request,
-        ["uniswap-smart-router", "uniswap-trading-api", "uniswap", "thirdweb"]
+        ["uniswap-smart-router", "uniswap-trading-api", "uniswap", "aerodrome", "thirdweb"]
       );
     } catch (fallbackError) {
       if (fallbackError instanceof Error) {
@@ -427,10 +448,17 @@ export class RouterDomainService {
         return uniswapTradingApi;
       }
 
-      // Priority 3: Thirdweb (fallback only)
+      // Priority 3: Aerodrome (Base only)
+      const aerodrome = supportedProviders.find((p) => p.name === "aerodrome");
+      if (aerodrome) {
+        console.log(`[RouterDomainService] Selected: ${aerodrome.name} (Priority 3 - Aerodrome Base)`);
+        return aerodrome;
+      }
+
+      // Priority 4: Thirdweb (fallback only)
       const thirdweb = supportedProviders.find((p) => p.name === "thirdweb");
       if (thirdweb) {
-        console.log(`[RouterDomainService] Selected: ${thirdweb.name} (Priority 3 - Fallback)`);
+        console.log(`[RouterDomainService] Selected: ${thirdweb.name} (Priority 4 - Fallback)`);
         return thirdweb;
       }
 
