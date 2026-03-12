@@ -4,6 +4,56 @@ import { DCAService } from '../services/dca.service';
 import { QuoteService } from '../services/quote.service';
 import { CreateSmartAccountRequest, CreateStrategyRequest } from '../types';
 import { AuthenticatedRequest, verifyTelegramAuth, requireOwnership, devBypassAuth } from '../middleware/auth.middleware';
+
+const EXECUTION_LAYER_URL = process.env.EXECUTION_LAYER_URL || 'http://localhost:3010';
+
+const INTERVAL_SECONDS: Record<string, number> = {
+  daily: 86400,
+  weekly: 604800,
+  monthly: 2592000,
+};
+
+async function fetchVaultOrders(walletAddress: string): Promise<unknown[]> {
+  try {
+    const res = await fetch(`${EXECUTION_LAYER_URL}/dca/orders/${walletAddress}`);
+    if (!res.ok) return [];
+    const data = await res.json() as { orders?: unknown[] };
+    return data.orders ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchVaultHistory(walletAddress: string): Promise<unknown[]> {
+  try {
+    const res = await fetch(`${EXECUTION_LAYER_URL}/dca/history/${walletAddress}`);
+    if (!res.ok) return [];
+    const data = await res.json() as { transactions?: unknown[] };
+    return data.transactions ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function proxyVaultCreate(body: CreateStrategyRequest & { userAddress?: string; depositAmount?: string }): Promise<unknown> {
+  const intervalSeconds = INTERVAL_SECONDS[body.interval] ?? 86400;
+  const payload = {
+    userAddress: body.userAddress || body.smartAccountId,
+    tokenIn: body.fromToken,
+    tokenOut: body.toToken,
+    amountPerSwap: body.amount,
+    intervalSeconds,
+    depositAmount: body.depositAmount || body.amount,
+  };
+  const res = await fetch(`${EXECUTION_LAYER_URL}/dca/prepare-create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error((data as any).error || `Execution layer error ${res.status}`);
+  return data;
+}
 import {
   createAccountLimiter,
   createStrategyLimiter,
@@ -158,7 +208,10 @@ export function dcaRoutes() {
 
   /**
    * POST /dca/create-strategy
-   * Create a new DCA strategy
+   * Create a new DCA strategy.
+   * - fromChainId === 8453 (Base): proxies to DCAVault on execution-layer,
+   *   returns { type: 'vault_unsigned', steps, description } — user must sign.
+   * - Other chains: creates strategy via smart account, returns { type: 'created', strategyId, nextExecution }.
    * 🔒 PROTECTED: Requires Telegram authentication
    */
   router.post('/create-strategy',
@@ -167,12 +220,30 @@ export function dcaRoutes() {
     verifyTelegramAuth,
     async (req: AuthenticatedRequest, res: Response) => {
     try {
-      console.log('[POST /create-strategy] Request received');
+      console.log('[POST /create-strategy] Request received, body:', JSON.stringify(req.body));
 
-      const request: CreateStrategyRequest = req.body;
+      const request: CreateStrategyRequest & { userAddress?: string; depositAmount?: string } = req.body;
 
-      if (!request.smartAccountId || !request.fromToken || !request.toToken || !request.amount || !request.interval) {
+      if (!request.fromToken || !request.toToken || !request.amount || !request.interval) {
         return res.status(400).json({ error: 'Missing required fields' });
+      }
+
+      // ── Base chain → DCAVault (non-custodial, returns unsigned bundle) ─────
+      if (request.fromChainId === 8453) {
+        console.log('[POST /create-strategy] Base chain detected, routing to DCAVault');
+        // Use authenticated wallet address — not the smart account — as the vault order owner
+        const walletAddress = req.user?.id || request.userAddress;
+        if (!walletAddress) {
+          return res.status(400).json({ error: 'Could not determine wallet address for Base DCA' });
+        }
+        console.log('[POST /create-strategy] vault userAddress:', walletAddress);
+        const vaultResult = await proxyVaultCreate({ ...request, userAddress: walletAddress });
+        return res.json({ type: 'vault_unsigned', ...(vaultResult as object) });
+      }
+
+      // ── Other chains → smart account flow ─────────────────────────────────
+      if (!request.smartAccountId) {
+        return res.status(400).json({ error: 'smartAccountId required for non-Base chains' });
       }
 
       // 🔒 SECURITY: Verify user owns the smart account
@@ -191,7 +262,7 @@ export function dcaRoutes() {
       const result = await dcaService.createStrategy(request);
 
       console.log('[POST /create-strategy] ✅ Strategy created successfully');
-      res.json(result);
+      return res.json({ type: 'created', ...result });
     } catch (error: any) {
       console.error('[POST /create-strategy] Error:', error);
       res.status(500).json({ error: error.message });
@@ -224,7 +295,10 @@ export function dcaRoutes() {
 
       const strategies = await dcaService.getAccountStrategies(req.params.smartAccountId);
 
-      res.json({ strategies });
+      // Also fetch Base DCAVault orders for the smart account owner
+      const vaultOrders = await fetchVaultOrders(account.address);
+
+      res.json({ strategies, vaultOrders });
     } catch (error: any) {
       console.error('[GET /strategies/:smartAccountId] Error:', error);
       res.status(500).json({ error: error.message });
@@ -336,9 +410,12 @@ export function dcaRoutes() {
       }
 
       const limit = parseInt(req.query.limit as string) || 100;
-      const history = await dcaService.getExecutionHistory(req.params.smartAccountId, limit);
+      const [history, vaultHistory] = await Promise.all([
+        dcaService.getExecutionHistory(req.params.smartAccountId, limit),
+        fetchVaultHistory(account.address),
+      ]);
 
-      res.json({ history });
+      res.json({ history, vaultHistory });
     } catch (error: any) {
       console.error('[GET /history/:smartAccountId] Error:', error);
       res.status(500).json({ error: error.message });
