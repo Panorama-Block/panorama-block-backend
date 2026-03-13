@@ -35,15 +35,37 @@ async function fetchVaultHistory(walletAddress: string): Promise<unknown[]> {
   }
 }
 
+// Token decimals for Base chain tokens (execution layer expects amounts in wei)
+const BASE_TOKEN_DECIMALS: Record<string, number> = {
+  '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 6,  // USDC
+  '0x4200000000000000000000000000000000000006': 18, // WETH
+  '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf': 8,  // cbBTC
+  '0x940181a94a35a4569e4529a3cdfb74e38fd98631': 18, // AERO
+  '0x50c5725949a6f0c72e6c4a641f24049a917db0cb': 18, // DAI (Base)
+};
+
+function toTokenWei(amount: string, tokenAddress: string): string {
+  const decimals = BASE_TOKEN_DECIMALS[tokenAddress.toLowerCase()] ?? 18;
+  // Use BigInt math to avoid floating point issues
+  const [intPart, fracPart = ''] = amount.split('.');
+  const fracPadded = fracPart.padEnd(decimals, '0').slice(0, decimals);
+  const raw = BigInt(intPart) * BigInt(10 ** decimals) + BigInt(fracPadded || '0');
+  return raw.toString();
+}
+
 async function proxyVaultCreate(body: CreateStrategyRequest & { userAddress?: string; depositAmount?: string }): Promise<unknown> {
   const intervalSeconds = INTERVAL_SECONDS[body.interval] ?? 86400;
+  const amountWei = toTokenWei(body.amount, body.fromToken);
+  const depositWei = body.depositAmount
+    ? toTokenWei(body.depositAmount, body.fromToken)
+    : amountWei;
   const payload = {
     userAddress: body.userAddress || body.smartAccountId,
     tokenIn: body.fromToken,
     tokenOut: body.toToken,
-    amountPerSwap: body.amount,
+    amountPerSwap: amountWei,
     intervalSeconds,
-    depositAmount: body.depositAmount || body.amount,
+    depositAmount: depositWei,
   };
   const res = await fetch(`${EXECUTION_LAYER_URL}/dca/prepare-create`, {
     method: 'POST',
