@@ -333,7 +333,17 @@ export class SwapService {
           },
         });
 
-        throw new Error(`Swap execution failed: ${error.message}`);
+        const wrappedError = new Error(`Swap execution failed: ${error.message}`);
+
+        // Insufficient funds is a user-data problem, not a service failure.
+        // Re-throw as a non-circuit-breaker error so it doesn't open the breaker
+        // and block other strategies on the same chain.
+        if (error.message?.includes('insufficient funds')) {
+          (wrappedError as any).skipCircuitBreaker = true;
+          throw wrappedError;
+        }
+
+        throw wrappedError;
       }
     });
   }
