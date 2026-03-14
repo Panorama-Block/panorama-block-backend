@@ -155,7 +155,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
   public readonly name = 'uniswap-trading-api';
   private readonly client: AxiosInstance;
   private readonly config: UniswapTradingApiConfig;
-  private readonly slippageTolerance: string | number; // "auto" or fixed e.g. 5.0
+  private readonly slippageTolerance: number; // em % — ex: 0.5 = 0.5%
   private readonly quoteCacheEnabled: boolean;
 
   // Quote cache to reuse between getQuote() and prepareSwap()
@@ -195,8 +195,10 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
       console.warn('[UniswapTradingApiAdapter] ⚠️ No API key configured. Set UNISWAP_API_KEY env var.');
     }
 
-    this.slippageTolerance = process.env.UNISWAP_TRADING_API_SLIPPAGE || 'auto';
-    console.log(`[${this.name}] 📊 Slippage tolerance: ${this.slippageTolerance}`);
+    const rawSlippage = process.env.UNISWAP_TRADING_API_SLIPPAGE;
+    // A Uniswap Trading API exige número (ex: 0.5 = 0.5%). Nunca enviar string "auto".
+    this.slippageTolerance = rawSlippage ? Number(rawSlippage) : 0.5;
+    console.log(`[${this.name}] 📊 Slippage tolerance: ${this.slippageTolerance}%`);
 
     // Quotes must not be cached by default (trust-first UX). Enable explicitly if needed.
     this.quoteCacheEnabled = String(process.env.ENABLE_QUOTE_CACHE || '').toLowerCase() === 'true';
@@ -254,12 +256,15 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
    * Uniswap Trading API only supports same-chain swaps
    */
   async supportsRoute(params: RouteParams): Promise<boolean> {
-    // Only same-chain
+    // Se não tiver API key configurada, nunca anunciar suporte — evita 401 no fallback
+    if (!this.config.apiKey) {
+      return false;
+    }
+
     if (params.fromChainId !== params.toChainId) {
       return false;
     }
 
-    // Check if chain is supported
     return this.supportedChains.includes(params.fromChainId);
   }
 
@@ -298,7 +303,7 @@ export class UniswapTradingApiAdapter implements ISwapProvider {
         generatePermitAsTransaction: true,
       };
 
-      console.log(`[${this.name}] Using slippage tolerance: auto`);
+      console.log(`[${this.name}] Using slippage tolerance: ${this.slippageTolerance}%`);
 
       // Call API with retry
       const response = await this.retryRequest<UniswapQuoteResponse>(
