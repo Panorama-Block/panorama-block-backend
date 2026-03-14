@@ -28,7 +28,7 @@ export class AerodromeProviderAdapter implements ISwapProvider {
     const baseURL = `${base.replace(/\/+$/, "")}/provider/swap`;
     this.client = axios.create({
       baseURL,
-      timeout: 15000,
+      timeout: 45000,
       headers: { "Content-Type": "application/json" },
     });
     console.log(`[⛽ AERODROME] Inicializado — Execution Layer em: ${baseURL}`);
@@ -168,10 +168,72 @@ export class AerodromeProviderAdapter implements ISwapProvider {
         },
       };
     } catch (error) {
+      const serverMsg = axios.isAxiosError(error) ? (error.response?.data?.error || '') : '';
       const msg = axios.isAxiosError(error)
-        ? `HTTP ${error.response?.status} — ${error.response?.data?.error || error.message}`
+        ? `HTTP ${error.response?.status} — ${serverMsg || (error as Error).message}`
         : (error as Error).message;
       console.error(`[⛽ AERODROME] ← prepareSwap ERRO: ${msg}`);
+
+      // Map known execution-layer business errors to proper SwapError codes
+      if (serverMsg.toLowerCase().includes('insufficient token balance') || serverMsg.toLowerCase().includes('insufficient balance')) {
+        throw new SwapError(
+          SwapErrorCode.INSUFFICIENT_BALANCE,
+          `Insufficient balance to complete the swap. ${serverMsg}`,
+          { provider: this.name, originalError: msg }
+        );
+      }
+
+      if (serverMsg.toLowerCase().includes('no liquidity available on aerodrome')) {
+        throw new SwapError(
+          SwapErrorCode.NO_ROUTE_FOUND,
+          'No liquidity available for this token pair on Aerodrome. Try a different pair.',
+          { provider: this.name, originalError: msg }
+        );
+      }
+
+      if (serverMsg.toLowerCase().includes('rpc error fetching pool quotes')) {
+        throw new SwapError(
+          SwapErrorCode.RPC_ERROR,
+          'Network connection issue. Please try again.',
+          { provider: this.name, originalError: msg }
+        );
+      }
+
+      // 0x7939f424 = InsufficientOutputAmount() — Aerodrome pool revert when amountOut < amountOutMin
+      // This is a slippage failure, not an RPC/network issue.
+      const INSUFFICIENT_OUTPUT_SELECTOR = '0x7939f424';
+      const isSlippageRevert =
+        serverMsg.includes(INSUFFICIENT_OUTPUT_SELECTOR) ||
+        serverMsg.toLowerCase().includes('insufficientoutputamount') ||
+        serverMsg.toLowerCase().includes('insufficient output amount') ||
+        serverMsg.toLowerCase().includes('amountoutlessthanmin') ||
+        serverMsg.toLowerCase().includes('amount out less than min');
+
+      if (isSlippageRevert) {
+        throw new SwapError(
+          SwapErrorCode.SLIPPAGE_TOO_HIGH,
+          'Price moved too much since the quote. Please try again for an updated price.',
+          { provider: this.name, originalError: msg, selector: INSUFFICIENT_OUTPUT_SELECTOR }
+        );
+      }
+
+      if (serverMsg.toLowerCase().includes('missing revert data') || serverMsg.toLowerCase().includes('network error')) {
+        throw new SwapError(
+          SwapErrorCode.RPC_ERROR,
+          'Network connection issue. Please try again.',
+          { provider: this.name, originalError: msg }
+        );
+      }
+
+      // Generic call_exception that is NOT a known slippage revert → RPC_ERROR
+      if (serverMsg.toLowerCase().includes('call_exception')) {
+        throw new SwapError(
+          SwapErrorCode.RPC_ERROR,
+          'Network connection issue. Please try again.',
+          { provider: this.name, originalError: msg }
+        );
+      }
+
       throw new SwapError(
         SwapErrorCode.PROVIDER_ERROR,
         `Aerodrome prepare failed: ${msg}`,
