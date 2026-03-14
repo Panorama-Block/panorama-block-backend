@@ -28,7 +28,7 @@ export class AerodromeProviderAdapter implements ISwapProvider {
     const baseURL = `${base.replace(/\/+$/, "")}/provider/swap`;
     this.client = axios.create({
       baseURL,
-      timeout: 15000,
+      timeout: 45000,
       headers: { "Content-Type": "application/json" },
     });
     console.log(`[⛽ AERODROME] Inicializado — Execution Layer em: ${baseURL}`);
@@ -168,10 +168,29 @@ export class AerodromeProviderAdapter implements ISwapProvider {
         },
       };
     } catch (error) {
+      const serverMsg = axios.isAxiosError(error) ? (error.response?.data?.error || '') : '';
       const msg = axios.isAxiosError(error)
-        ? `HTTP ${error.response?.status} — ${error.response?.data?.error || error.message}`
+        ? `HTTP ${error.response?.status} — ${serverMsg || (error as Error).message}`
         : (error as Error).message;
       console.error(`[⛽ AERODROME] ← prepareSwap ERRO: ${msg}`);
+
+      // Map known execution-layer business errors to proper SwapError codes
+      if (serverMsg.toLowerCase().includes('insufficient token balance') || serverMsg.toLowerCase().includes('insufficient balance')) {
+        throw new SwapError(
+          SwapErrorCode.INSUFFICIENT_BALANCE,
+          `Saldo insuficiente para realizar o swap. ${serverMsg}`,
+          { provider: this.name, originalError: msg }
+        );
+      }
+
+      if (serverMsg.toLowerCase().includes('call_exception') || serverMsg.toLowerCase().includes('missing revert data') || serverMsg.toLowerCase().includes('network error')) {
+        throw new SwapError(
+          SwapErrorCode.RPC_ERROR,
+          'Erro de conexão com a rede blockchain. Tente novamente.',
+          { provider: this.name, originalError: msg }
+        );
+      }
+
       throw new SwapError(
         SwapErrorCode.PROVIDER_ERROR,
         `Aerodrome prepare failed: ${msg}`,
