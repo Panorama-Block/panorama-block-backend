@@ -23,13 +23,15 @@ export class AerodromeProviderAdapter implements ISwapProvider {
   private readonly client: AxiosInstance;
 
   constructor() {
-    const baseURL = process.env.EXECUTION_SERVICE_URL || "http://localhost:3010";
+    const base = process.env.EXECUTION_SERVICE_URL || "http://localhost:3010";
+    // As rotas do swap-provider na execution-layer estão montadas em /provider/swap
+    const baseURL = `${base.replace(/\/+$/, "")}/provider/swap`;
     this.client = axios.create({
       baseURL,
       timeout: 15000,
       headers: { "Content-Type": "application/json" },
     });
-    console.log(`[AerodromeProvider] Initialized with execution service at ${baseURL}`);
+    console.log(`[⛽ AERODROME] Inicializado — Execution Layer em: ${baseURL}`);
   }
 
   /**
@@ -37,13 +39,17 @@ export class AerodromeProviderAdapter implements ISwapProvider {
    * Only supports same-chain Base swaps where an Aerodrome pool exists.
    */
   async supportsRoute(params: RouteParams): Promise<boolean> {
-    // Quick reject: only Base same-chain
     if (params.fromChainId !== BASE_CHAIN_ID || params.toChainId !== BASE_CHAIN_ID) {
       return false;
     }
 
+    const url = `${this.client.defaults.baseURL}/swap/supports`;
+    console.log(`[⛽ AERODROME] → supportsRoute — chamando Execution Layer`);
+    console.log(`[⛽ AERODROME]   URL    : POST ${url}`);
+    console.log(`[⛽ AERODROME]   Par    : ${params.fromToken} → ${params.toToken}`);
+
     try {
-      const response = await this.client.post("/swap/supports", {
+      const response = await this.client.post("/supports", {
         fromChainId: params.fromChainId,
         toChainId: params.toChainId,
         fromToken: params.fromToken,
@@ -51,15 +57,14 @@ export class AerodromeProviderAdapter implements ISwapProvider {
       });
 
       const supported = response.data?.supported === true;
-      if (supported) {
-        console.log(`[AerodromeProvider] Route supported: ${params.fromToken} → ${params.toToken}`);
-      }
+      const reason = response.data?.reason || "";
+      console.log(`[⛽ AERODROME] ← supportsRoute: ${supported ? "✅ suportado" : `❌ não suportado${reason ? ` (${reason})` : ""}`}`);
       return supported;
     } catch (error) {
-      console.warn(
-        `[AerodromeProvider] supportsRoute check failed:`,
-        (error as Error).message
-      );
+      const msg = axios.isAxiosError(error)
+        ? `HTTP ${error.response?.status} — ${error.response?.data?.error || error.message}`
+        : (error as Error).message;
+      console.warn(`[⛽ AERODROME] ← supportsRoute ERRO: ${msg}`);
       return false;
     }
   }
@@ -69,10 +74,15 @@ export class AerodromeProviderAdapter implements ISwapProvider {
    * Automatically picks the best pool type (volatile vs stable).
    */
   async getQuote(request: SwapRequest): Promise<SwapQuote> {
-    console.log(`[AerodromeProvider] Getting quote: ${request.toLogString()}`);
+    const url = `${this.client.defaults.baseURL}/swap/quote`;
+    console.log(`[⛽ AERODROME] → getQuote — chamando Execution Layer`);
+    console.log(`[⛽ AERODROME]   URL    : POST ${url}`);
+    console.log(`[⛽ AERODROME]   Par    : ${request.fromToken} → ${request.toToken}`);
+    console.log(`[⛽ AERODROME]   Amount : ${request.amount.toString()} wei`);
+    console.log(`[⛽ AERODROME]   Sender : ${request.sender}`);
 
     try {
-      const response = await this.client.post("/swap/quote", {
+      const response = await this.client.post("/quote", {
         fromToken: request.fromToken,
         toToken: request.toToken,
         amount: request.amount.toString(),
@@ -80,6 +90,10 @@ export class AerodromeProviderAdapter implements ISwapProvider {
       });
 
       const data = response.data;
+      console.log(`[⛽ AERODROME] ← getQuote OK`);
+      console.log(`[⛽ AERODROME]   amountOut   : ${data.estimatedReceiveAmount}`);
+      console.log(`[⛽ AERODROME]   exchangeRate: ${data.exchangeRate}`);
+      console.log(`[⛽ AERODROME]   stable pool : ${data.stable}`);
 
       return new SwapQuote(
         BigInt(data.estimatedReceiveAmount),
@@ -90,9 +104,9 @@ export class AerodromeProviderAdapter implements ISwapProvider {
       );
     } catch (error) {
       const msg = axios.isAxiosError(error)
-        ? error.response?.data?.error || error.message
+        ? `HTTP ${error.response?.status} — ${error.response?.data?.error || error.message}`
         : (error as Error).message;
-
+      console.error(`[⛽ AERODROME] ← getQuote ERRO: ${msg}`);
       throw new SwapError(
         SwapErrorCode.PROVIDER_ERROR,
         `Aerodrome quote failed: ${msg}`,
@@ -106,10 +120,16 @@ export class AerodromeProviderAdapter implements ISwapProvider {
    * Returns transactions targeting PanoramaExecutor on Base.
    */
   async prepareSwap(request: SwapRequest): Promise<PreparedSwap> {
-    console.log(`[AerodromeProvider] Preparing swap: ${request.toLogString()}`);
+    const url = `${this.client.defaults.baseURL}/swap/prepare`;
+    console.log(`[⛽ AERODROME] → prepareSwap — chamando Execution Layer`);
+    console.log(`[⛽ AERODROME]   URL      : POST ${url}`);
+    console.log(`[⛽ AERODROME]   Par      : ${request.fromToken} → ${request.toToken}`);
+    console.log(`[⛽ AERODROME]   Amount   : ${request.amount.toString()} wei`);
+    console.log(`[⛽ AERODROME]   Sender   : ${request.sender}`);
+    console.log(`[⛽ AERODROME]   Receiver : ${request.receiver}`);
 
     try {
-      const response = await this.client.post("/swap/prepare", {
+      const response = await this.client.post("/prepare", {
         fromToken: request.fromToken,
         toToken: request.toToken,
         amount: request.amount.toString(),
@@ -118,7 +138,6 @@ export class AerodromeProviderAdapter implements ISwapProvider {
       });
 
       const data = response.data;
-
       const transactions: Transaction[] = (data.transactions || []).map(
         (tx: any) => ({
           chainId: tx.chainId || BASE_CHAIN_ID,
@@ -129,6 +148,14 @@ export class AerodromeProviderAdapter implements ISwapProvider {
           description: tx.description,
         })
       );
+
+      console.log(`[⛽ AERODROME] ← prepareSwap OK`);
+      console.log(`[⛽ AERODROME]   Txs geradas : ${transactions.length}`);
+      transactions.forEach((tx, i) => {
+        console.log(`[⛽ AERODROME]   [${i + 1}] ${tx.description || tx.action} → to: ${tx.to}`);
+      });
+      console.log(`[⛽ AERODROME]   Executor    : ${data.metadata?.executor}`);
+      console.log(`[⛽ AERODROME]   Stable pool : ${data.metadata?.stable}`);
 
       return {
         provider: this.name,
@@ -142,9 +169,9 @@ export class AerodromeProviderAdapter implements ISwapProvider {
       };
     } catch (error) {
       const msg = axios.isAxiosError(error)
-        ? error.response?.data?.error || error.message
+        ? `HTTP ${error.response?.status} — ${error.response?.data?.error || error.message}`
         : (error as Error).message;
-
+      console.error(`[⛽ AERODROME] ← prepareSwap ERRO: ${msg}`);
       throw new SwapError(
         SwapErrorCode.PROVIDER_ERROR,
         `Aerodrome prepare failed: ${msg}`,
@@ -154,8 +181,7 @@ export class AerodromeProviderAdapter implements ISwapProvider {
   }
 
   /**
-   * Monitor transaction status on Base.
-   * Since Aerodrome swaps are simple on-chain txs, we check via RPC.
+   * Monitor transaction status on Base via RPC.
    */
   async monitorTransaction(txHash: string, chainId: number): Promise<TransactionStatus> {
     if (chainId !== BASE_CHAIN_ID) {
@@ -168,13 +194,8 @@ export class AerodromeProviderAdapter implements ISwapProvider {
       const provider = new ethers.providers.JsonRpcProvider(rpcUrl);
       const receipt = await provider.getTransactionReceipt(txHash);
 
-      if (!receipt) {
-        return TransactionStatus.PENDING;
-      }
-
-      return receipt.status === 1
-        ? TransactionStatus.COMPLETED
-        : TransactionStatus.FAILED;
+      if (!receipt) return TransactionStatus.PENDING;
+      return receipt.status === 1 ? TransactionStatus.COMPLETED : TransactionStatus.FAILED;
     } catch {
       return TransactionStatus.PENDING;
     }
