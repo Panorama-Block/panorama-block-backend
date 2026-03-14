@@ -7,7 +7,7 @@ RUN apk add --no-cache python3 py3-setuptools make g++
 
 # Copy package files
 COPY package*.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy source code
 COPY . .
